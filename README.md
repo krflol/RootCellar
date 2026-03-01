@@ -76,6 +76,10 @@ python python/validate_batch_migration_policy_dry_run.py
 - `IF`/`IFS` condition coercion now supports `TRUE`/`FALSE` text and numeric text while treating invalid non-numeric/non-boolean text conditions as parse errors.
 - Logical aggregators (`AND`, `OR`, `XOR`, `NOT`) now share the same condition coercion semantics as `IF`/`IFS` for text/boolean/numeric-text inputs.
 - Arithmetic operators now coerce numeric text (including trimmed numeric text) while treating invalid non-numeric text operands as parse errors.
+- Selector index functions (`CHOOSE`, `INDEX`) now coerce numeric text indexes while rejecting invalid non-numeric text indexes with parse errors.
+- Lookup index functions (`MATCH`, `XMATCH`) now coerce numeric text needles/candidates/match modes while rejecting invalid non-numeric text inputs with parse errors.
+- Full-sheet recalc scheduling now reuses cached dependency-analysis ordering (`topo + cycle tail`) to avoid rebuilding/sorting an all-formula target set each run.
+- Dependency analysis now derives cyclic-formula tails directly from Kahn indegree state, avoiding an extra topo-set allocation and set-difference pass per recalc.
 - AST interning scaffold now exposes deduplicated formula-node IDs for parser introspection.
 - Incremental recalc from changed roots is available in core and used by `tx-save` post-mutation workflows.
 - Incremental recalc now reuses cached reverse-dependency indexes during impacted-cell discovery and DAG degree analysis to reduce repeated graph traversal overhead on larger formula sets.

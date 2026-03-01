@@ -388,12 +388,12 @@ fn recalc_sheet_impl(
     let analysis = build_sheet_dependency_analysis(workbook, sheet_name, &formula_cells)?;
     emit_dependency_graph_event(sink, &span, workbook.workbook_id, sheet_name, &analysis)?;
 
-    let target_formula_set = if let Some(roots) = changed_roots {
-        collect_impacted_formula_cells(&analysis, roots)
+    let target_formula_cells = if let Some(roots) = changed_roots {
+        let target_formula_set = collect_impacted_formula_cells(&analysis, roots);
+        order_formula_cells(&analysis, &target_formula_set)
     } else {
-        formula_cells.iter().copied().collect::<BTreeSet<_>>()
+        order_all_formula_cells(&analysis)
     };
-    let target_formula_cells = order_formula_cells(&analysis, &target_formula_set);
 
     let mut cache = BTreeMap::<CellRef, Result<CellValue, EvalError>>::new();
     let mut cycle_count = 0usize;
@@ -674,18 +674,13 @@ fn build_sheet_dependency_analysis(
         dependency_refs.insert(*cell_ref, refs);
     }
 
-    let (topo_order, formula_edge_count) =
+    let (topo_order, formula_edge_count, cyclic_cells) =
         build_formula_topological_order(&formula_set, &dependency_refs);
     let topo_position_by_cell = topo_order
         .iter()
         .enumerate()
         .map(|(idx, cell)| (*cell, idx))
         .collect::<BTreeMap<_, _>>();
-    let topo_set = topo_order.iter().copied().collect::<BTreeSet<_>>();
-    let cyclic_cells = formula_set
-        .difference(&topo_set)
-        .copied()
-        .collect::<Vec<_>>();
 
     Ok(SheetDependencyAnalysis {
         parsed_formulas,
@@ -765,10 +760,17 @@ fn order_formula_cells(
     ordered
 }
 
+fn order_all_formula_cells(analysis: &SheetDependencyAnalysis) -> Vec<CellRef> {
+    let mut ordered = Vec::<CellRef>::with_capacity(analysis.formula_nodes.len());
+    ordered.extend(analysis.topo_order.iter().copied());
+    ordered.extend(analysis.cyclic_cells.iter().copied());
+    ordered
+}
+
 fn build_formula_topological_order(
     formula_set: &BTreeSet<CellRef>,
     dependency_refs: &BTreeMap<CellRef, BTreeSet<CellRef>>,
-) -> (Vec<CellRef>, usize) {
+) -> (Vec<CellRef>, usize, Vec<CellRef>) {
     let mut indegree = formula_set
         .iter()
         .copied()
@@ -811,7 +813,12 @@ fn build_formula_topological_order(
         }
     }
 
-    (order, formula_edge_count)
+    let cyclic_cells = indegree
+        .iter()
+        .filter_map(|(cell, degree)| if *degree > 0 { Some(*cell) } else { None })
+        .collect::<Vec<_>>();
+
+    (order, formula_edge_count, cyclic_cells)
 }
 
 fn emit_dependency_graph_event(
@@ -1473,7 +1480,7 @@ fn eval_function_value(
             if args.len() < 2 {
                 return Err(EvalError::Parse);
             }
-            let index_value = eval_expr(
+            let index_value = eval_expr_value(
                 workbook,
                 sheet_name,
                 &args[0],
@@ -1481,7 +1488,7 @@ fn eval_function_value(
                 stack,
                 cache,
             )?;
-            let option_index = trunc_f64_to_i64(index_value)?;
+            let option_index = trunc_f64_to_i64(value_as_arithmetic_number(&index_value)?)?;
             if option_index < 1 || option_index > (args.len() - 1) as i64 {
                 return Err(EvalError::Parse);
             }
@@ -1498,7 +1505,7 @@ fn eval_function_value(
             if args.len() < 2 {
                 return Err(EvalError::Parse);
             }
-            let index_value = eval_expr(
+            let index_value = eval_expr_value(
                 workbook,
                 sheet_name,
                 &args[0],
@@ -1506,7 +1513,7 @@ fn eval_function_value(
                 stack,
                 cache,
             )?;
-            let selected_index = trunc_f64_to_i64(index_value)?;
+            let selected_index = trunc_f64_to_i64(value_as_arithmetic_number(&index_value)?)?;
             if selected_index < 1 || selected_index > (args.len() - 1) as i64 {
                 return Err(EvalError::Parse);
             }
@@ -1953,7 +1960,7 @@ fn eval_function(
             if args.len() < 2 {
                 return Err(EvalError::Parse);
             }
-            let index_value = eval_expr(
+            let index_value = eval_expr_value(
                 workbook,
                 sheet_name,
                 &args[0],
@@ -1961,7 +1968,7 @@ fn eval_function(
                 stack,
                 cache,
             )?;
-            let option_index = trunc_f64_to_i64(index_value)?;
+            let option_index = trunc_f64_to_i64(value_as_arithmetic_number(&index_value)?)?;
             if option_index < 1 || option_index > (args.len() - 1) as i64 {
                 return Err(EvalError::Parse);
             }
@@ -1978,7 +1985,7 @@ fn eval_function(
             if args.len() < 2 {
                 return Err(EvalError::Parse);
             }
-            let index_value = eval_expr(
+            let index_value = eval_expr_value(
                 workbook,
                 sheet_name,
                 &args[0],
@@ -1986,7 +1993,7 @@ fn eval_function(
                 stack,
                 cache,
             )?;
-            let selected_index = trunc_f64_to_i64(index_value)?;
+            let selected_index = trunc_f64_to_i64(value_as_arithmetic_number(&index_value)?)?;
             if selected_index < 1 || selected_index > (args.len() - 1) as i64 {
                 return Err(EvalError::Parse);
             }
@@ -3117,41 +3124,75 @@ fn eval_function(
                     }
                 }
                 "MATCH" => {
-                    if values.len() < 2 {
+                    if args.len() < 2 {
                         return Err(EvalError::Parse);
                     }
-                    let needle = values[0];
-                    let mut candidates = &values[1..];
+                    let mut scalar_args = Vec::<CellValue>::with_capacity(args.len());
+                    for arg in args {
+                        scalar_args.push(eval_expr_value(
+                            workbook,
+                            sheet_name,
+                            arg,
+                            parsed_formulas,
+                            stack,
+                            cache,
+                        )?);
+                    }
+
+                    let needle = value_as_arithmetic_number(&scalar_args[0])?;
+                    let mut candidate_values = &scalar_args[1..];
                     let mut mode = 0i64;
-                    if values.len() >= 4 {
-                        let mode_candidate = values[values.len() - 1];
-                        if let Ok(parsed_mode) = trunc_f64_to_i64(mode_candidate) {
+                    if scalar_args.len() >= 4 {
+                        let mode_candidate =
+                            value_as_arithmetic_number(&scalar_args[scalar_args.len() - 1]);
+                        if let Ok(parsed_mode) = mode_candidate.and_then(trunc_f64_to_i64) {
                             if parsed_mode == -1 || parsed_mode == 0 || parsed_mode == 1 {
                                 mode = parsed_mode;
-                                candidates = &values[1..values.len() - 1];
+                                candidate_values = &scalar_args[1..scalar_args.len() - 1];
                             }
                         }
                     }
-                    let index = find_match_index_match(needle, candidates, mode)?;
+                    let candidates = candidate_values
+                        .iter()
+                        .map(value_as_arithmetic_number)
+                        .collect::<Result<Vec<_>, _>>()?;
+                    let index = find_match_index_match(needle, &candidates, mode)?;
                     Ok(index as f64)
                 }
                 "XMATCH" => {
-                    if values.len() < 2 {
+                    if args.len() < 2 {
                         return Err(EvalError::Parse);
                     }
-                    let needle = values[0];
-                    let mut candidates = &values[1..];
+                    let mut scalar_args = Vec::<CellValue>::with_capacity(args.len());
+                    for arg in args {
+                        scalar_args.push(eval_expr_value(
+                            workbook,
+                            sheet_name,
+                            arg,
+                            parsed_formulas,
+                            stack,
+                            cache,
+                        )?);
+                    }
+
+                    let needle = value_as_arithmetic_number(&scalar_args[0])?;
+                    let mut candidate_values = &scalar_args[1..];
                     let mut mode = 0i64;
-                    if values.len() >= 4 {
-                        let mode_candidate = values[values.len() - 1];
-                        if let Ok(parsed_mode) = trunc_f64_to_i64(mode_candidate) {
+                    if scalar_args.len() >= 4 {
+                        let mode_candidate =
+                            value_as_arithmetic_number(&scalar_args[scalar_args.len() - 1]);
+                        if let Ok(parsed_mode) = mode_candidate.and_then(trunc_f64_to_i64) {
                             if parsed_mode == -1 || parsed_mode == 0 || parsed_mode == 1 {
                                 mode = parsed_mode;
-                                candidates = &values[1..values.len() - 1];
+                                candidate_values = &scalar_args[1..scalar_args.len() - 1];
                             }
                         }
                     }
-                    let index = find_match_index_xmatch(needle, candidates, mode)?;
+                    let candidates = candidate_values
+                        .iter()
+                        .map(value_as_arithmetic_number)
+                        .collect::<Result<Vec<_>, _>>()?;
+                    let index = find_match_index_xmatch(needle, &candidates, mode)?;
                     Ok(index as f64)
                 }
                 "DATE" => {
@@ -6463,6 +6504,106 @@ mod tests {
     }
 
     #[test]
+    fn coerces_text_indexes_in_choose_and_index() {
+        let mut wb = Workbook::new();
+        let mut sink = NoopEventSink;
+        let trace = TraceContext::root();
+
+        let mut txn = wb.begin_txn(&mut sink, &trace).expect("begin");
+        txn.apply(Mutation::SetCellValue {
+            sheet: "Sheet1".to_string(),
+            row: 1,
+            col: 1,
+            value: CellValue::Text("2".to_string()),
+        });
+        txn.apply(Mutation::SetCellValue {
+            sheet: "Sheet1".to_string(),
+            row: 1,
+            col: 2,
+            value: CellValue::Text("foo".to_string()),
+        });
+
+        txn.apply(Mutation::SetCellFormula {
+            sheet: "Sheet1".to_string(),
+            row: 2,
+            col: 1,
+            formula: "=CHOOSE(\"2\",10,\"pick\",TRUE)".to_string(),
+            cached_value: CellValue::Empty,
+        });
+        txn.apply(Mutation::SetCellFormula {
+            sheet: "Sheet1".to_string(),
+            row: 2,
+            col: 2,
+            formula: "=INDEX(\"3\",10,\"pick\",TRUE)".to_string(),
+            cached_value: CellValue::Empty,
+        });
+        txn.apply(Mutation::SetCellFormula {
+            sheet: "Sheet1".to_string(),
+            row: 2,
+            col: 3,
+            formula: "=CHOOSE(A1,10,\"pick\",TRUE)".to_string(),
+            cached_value: CellValue::Empty,
+        });
+        txn.apply(Mutation::SetCellFormula {
+            sheet: "Sheet1".to_string(),
+            row: 2,
+            col: 4,
+            formula: "=INDEX(A1,10,\"pick\",TRUE)".to_string(),
+            cached_value: CellValue::Empty,
+        });
+        txn.apply(Mutation::SetCellFormula {
+            sheet: "Sheet1".to_string(),
+            row: 2,
+            col: 5,
+            formula: "=CHOOSE(\"2.9\",10,20,30)".to_string(),
+            cached_value: CellValue::Empty,
+        });
+        txn.apply(Mutation::SetCellFormula {
+            sheet: "Sheet1".to_string(),
+            row: 2,
+            col: 6,
+            formula: "=CHOOSE(\"foo\",10,20)".to_string(),
+            cached_value: CellValue::Empty,
+        });
+        txn.apply(Mutation::SetCellFormula {
+            sheet: "Sheet1".to_string(),
+            row: 2,
+            col: 7,
+            formula: "=INDEX(\"foo\",10,20)".to_string(),
+            cached_value: CellValue::Empty,
+        });
+        txn.apply(Mutation::SetCellFormula {
+            sheet: "Sheet1".to_string(),
+            row: 2,
+            col: 8,
+            formula: "=CHOOSE(B1,10,20)".to_string(),
+            cached_value: CellValue::Empty,
+        });
+        txn.commit(&mut wb, &mut sink, &trace).expect("commit");
+
+        let report = recalc_sheet(&mut wb, "Sheet1", &mut sink, &trace).expect("recalc");
+        assert_eq!(report.parse_error_count, 3);
+
+        let value_at = |col: u32| -> CellValue {
+            wb.sheets
+                .get("Sheet1")
+                .and_then(|s| s.cells.get(&CellRef { row: 2, col }))
+                .expect("cell")
+                .value
+                .clone()
+        };
+
+        assert_eq!(value_at(1), CellValue::Text("pick".to_string()));
+        assert_eq!(value_at(2), CellValue::Bool(true));
+        assert_eq!(value_at(3), CellValue::Text("pick".to_string()));
+        assert_eq!(value_at(4), CellValue::Text("pick".to_string()));
+        assert_eq!(value_at(5), CellValue::Number(20.0));
+        assert_eq!(value_at(6), CellValue::Error("#PARSE!".to_string()));
+        assert_eq!(value_at(7), CellValue::Error("#PARSE!".to_string()));
+        assert_eq!(value_at(8), CellValue::Error("#PARSE!".to_string()));
+    }
+
+    #[test]
     fn evaluates_value_and_type_probe_functions() {
         let mut wb = Workbook::new();
         let mut sink = NoopEventSink;
@@ -9403,6 +9544,111 @@ mod tests {
     }
 
     #[test]
+    fn coerces_text_values_in_match_and_xmatch() {
+        let mut wb = Workbook::new();
+        let mut sink = NoopEventSink;
+        let trace = TraceContext::root();
+
+        let mut txn = wb.begin_txn(&mut sink, &trace).expect("begin");
+        txn.apply(Mutation::SetCellValue {
+            sheet: "Sheet1".to_string(),
+            row: 1,
+            col: 1,
+            value: CellValue::Text("2".to_string()),
+        });
+        txn.apply(Mutation::SetCellValue {
+            sheet: "Sheet1".to_string(),
+            row: 1,
+            col: 2,
+            value: CellValue::Text("3".to_string()),
+        });
+        txn.apply(Mutation::SetCellValue {
+            sheet: "Sheet1".to_string(),
+            row: 1,
+            col: 3,
+            value: CellValue::Text("foo".to_string()),
+        });
+        txn.apply(Mutation::SetCellFormula {
+            sheet: "Sheet1".to_string(),
+            row: 2,
+            col: 1,
+            formula: "=MATCH(\"2\",1,2,3,0)".to_string(),
+            cached_value: CellValue::Empty,
+        });
+        txn.apply(Mutation::SetCellFormula {
+            sheet: "Sheet1".to_string(),
+            row: 2,
+            col: 2,
+            formula: "=XMATCH(\"3\",1,2,3)".to_string(),
+            cached_value: CellValue::Empty,
+        });
+        txn.apply(Mutation::SetCellFormula {
+            sheet: "Sheet1".to_string(),
+            row: 2,
+            col: 3,
+            formula: "=MATCH(A1,1,2,3)".to_string(),
+            cached_value: CellValue::Empty,
+        });
+        txn.apply(Mutation::SetCellFormula {
+            sheet: "Sheet1".to_string(),
+            row: 2,
+            col: 4,
+            formula: "=XMATCH(B1,1,2,3)".to_string(),
+            cached_value: CellValue::Empty,
+        });
+        txn.apply(Mutation::SetCellFormula {
+            sheet: "Sheet1".to_string(),
+            row: 2,
+            col: 5,
+            formula: "=MATCH(\"2\",1,2,3,\"0\")".to_string(),
+            cached_value: CellValue::Empty,
+        });
+        txn.apply(Mutation::SetCellFormula {
+            sheet: "Sheet1".to_string(),
+            row: 2,
+            col: 6,
+            formula: "=MATCH(\"foo\",1,2,3,0)".to_string(),
+            cached_value: CellValue::Empty,
+        });
+        txn.apply(Mutation::SetCellFormula {
+            sheet: "Sheet1".to_string(),
+            row: 2,
+            col: 7,
+            formula: "=XMATCH(C1,1,2,3)".to_string(),
+            cached_value: CellValue::Empty,
+        });
+        txn.apply(Mutation::SetCellFormula {
+            sheet: "Sheet1".to_string(),
+            row: 2,
+            col: 8,
+            formula: "=MATCH(2,1,2,\"foo\")".to_string(),
+            cached_value: CellValue::Empty,
+        });
+        txn.commit(&mut wb, &mut sink, &trace).expect("commit");
+
+        let report = recalc_sheet(&mut wb, "Sheet1", &mut sink, &trace).expect("recalc");
+        assert_eq!(report.parse_error_count, 3);
+
+        let value_at = |col: u32| -> CellValue {
+            wb.sheets
+                .get("Sheet1")
+                .and_then(|s| s.cells.get(&CellRef { row: 2, col }))
+                .expect("cell")
+                .value
+                .clone()
+        };
+
+        assert_eq!(value_at(1), CellValue::Number(2.0));
+        assert_eq!(value_at(2), CellValue::Number(3.0));
+        assert_eq!(value_at(3), CellValue::Number(2.0));
+        assert_eq!(value_at(4), CellValue::Number(3.0));
+        assert_eq!(value_at(5), CellValue::Number(2.0));
+        assert_eq!(value_at(6), CellValue::Error("#PARSE!".to_string()));
+        assert_eq!(value_at(7), CellValue::Error("#PARSE!".to_string()));
+        assert_eq!(value_at(8), CellValue::Error("#PARSE!".to_string()));
+    }
+
+    #[test]
     fn analyzes_dependency_graph() {
         let mut wb = Workbook::new();
         let mut sink = NoopEventSink;
@@ -9767,6 +10013,20 @@ mod tests {
         assert_eq!(
             ordered_cycle_only,
             vec![CellRef { row: 1, col: 4 }, CellRef { row: 1, col: 5 }]
+        );
+
+        let full_set = analysis.formula_nodes.clone();
+        let ordered_full_set = order_formula_cells(&analysis, &full_set);
+        let cached_full_order = order_all_formula_cells(&analysis);
+        assert_eq!(ordered_full_set, cached_full_order);
+        assert_eq!(
+            cached_full_order,
+            vec![
+                CellRef { row: 1, col: 2 },
+                CellRef { row: 1, col: 3 },
+                CellRef { row: 1, col: 4 },
+                CellRef { row: 1, col: 5 }
+            ]
         );
     }
 
