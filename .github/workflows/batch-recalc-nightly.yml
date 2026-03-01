@@ -97,6 +97,10 @@ jobs:
         with:
           python-version: "3.11"
 
+      - name: Install fixture Python dependencies
+        run: |
+          python -m pip install --disable-pip-version-check -r ./python/requirements-interop.txt
+
       - name: Build nightly batch corpus slice
         run: |
           python python/build_batch_nightly_corpus.py --output-dir ./.ci/batch-nightly-corpus --target-files 32

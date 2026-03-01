@@ -39,6 +39,10 @@ jobs:
         with:
           python-version: "3.11"
 
+      - name: Install fixture Python dependencies
+        run: |
+          python -m pip install --disable-pip-version-check -r ./python/requirements-interop.txt
+
       - name: Generate corpus fixtures
         run: |
           python python/generate_corpus_fixtures.py --output-dir ./.ci/corpus-fixtures

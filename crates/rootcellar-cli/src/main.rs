@@ -99,14 +99,14 @@ enum Commands {
         #[arg(long)]
         jsonl: Option<PathBuf>,
     },
-    /// Load workbook and write a normalized XLSX output.
+    /// Load workbook and write an XLSX output.
     Save {
         /// Source .xlsx workbook
         input: PathBuf,
         /// Destination .xlsx workbook
         output: PathBuf,
         /// Save mode (`preserve` uses passthrough copy; `normalize` rewrites from model)
-        #[arg(long, value_enum, default_value_t = CliSaveMode::Normalize)]
+        #[arg(long, value_enum, default_value_t = CliSaveMode::Preserve)]
         mode: CliSaveMode,
         /// Optional telemetry JSONL output path.
         #[arg(long)]

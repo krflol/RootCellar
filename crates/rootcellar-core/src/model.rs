@@ -16,7 +16,7 @@ pub enum CellValue {
     Empty,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 pub struct CellRef {
     pub row: u32,
     pub col: u32,

@@ -21,6 +21,7 @@ cargo run -p rootcellar-cli -- recalc ./example.xlsx --dep-graph-report ./dep-gr
 cargo run -p rootcellar-cli -- recalc ./example.xlsx --dag-timing-report ./dag-timing.json --jsonl ./events.jsonl
 cargo run -p rootcellar-cli -- recalc ./example.xlsx --dag-timing-report ./dag-timing.json --dag-slow-threshold-us 10 --jsonl ./events.jsonl
 cargo run -p rootcellar-cli -- bench recalc-synthetic --chains 16 --chain-length 256 --iterations 5 --changed-chain 1 --report ./bench-recalc-report.json --jsonl ./events.jsonl
+cargo run -p rootcellar-cli -- save ./example.xlsx ./preserved.xlsx --jsonl ./events.jsonl
 cargo run -p rootcellar-cli -- save ./example.xlsx ./normalized.xlsx --mode normalize --jsonl ./events.jsonl
 cargo run -p rootcellar-cli -- repro record ./example.xlsx --bundle ./repro-bundle --jsonl ./events.jsonl
 cargo run -p rootcellar-cli -- repro check ./repro-bundle --jsonl ./events.jsonl
@@ -29,6 +30,9 @@ cargo run -p rootcellar-cli -- repro diff ./repro-bundle --against ./candidate.x
 cargo run -p rootcellar-cli -- repro diff ./repro-bundle --against ./candidate.xlsx --format json --output ./diff.json --jsonl ./events.jsonl
 cargo run -p rootcellar-cli -- tx-save ./example.xlsx ./edited.xlsx --sheet Sheet1 --set A1=123 --set B1=true --mode preserve --jsonl ./events.jsonl
 cargo run -p rootcellar-cli -- tx-save ./example.xlsx ./edited.xlsx --sheet Sheet1 --setf C1==A1+B1 --mode preserve --jsonl ./events.jsonl
+python -m pip install -r ./python/requirements-interop.txt
+python python/assemble_excel_interop_corpus.py --repo-root . --output-dir ./target/excel-interop-corpus --excel-authored-manifest ./corpus/excel-authored/manifest.json --min-excel-authored-samples 5 --required-curated-feature formulas --required-curated-feature styles --required-curated-feature comments --required-curated-feature charts --required-curated-feature defined_names
+python python/verify_excel_interop.py --workspace . --workdir ./target/excel-interop-gate --corpus-dir ./target/excel-interop-corpus --corpus-manifest ./target/excel-interop-corpus/manifest.json --max-corpus-files 32 --require-corpus-fixture styles.xlsx --require-corpus-fixture comments.xlsx --require-corpus-fixture chart.xlsx --require-corpus-fixture defined-names.xlsx --report ./target/excel-interop-gate-report.json
 python python/build_batch_ack_retention_index.py --dispatch-report ./ci-batch-alert-dispatch.json --index ./ci-batch-ack-retention-index.json --retention-days 30
 python python/build_batch_dashboard_pack.py --snapshot ./ci-batch-throughput-snapshot.json --dispatch-report ./ci-batch-alert-dispatch.json --ack-retention-index ./ci-batch-ack-retention-index.json --dashboard-pack ./ci-batch-dashboard-pack.json --policy ./ci-batch-alert-policy.json --require-replay-metadata --require-ack-retention-coverage
 python python/build_batch_policy_adapters.py --policy ./ci-batch-alert-policy.json --dashboard-pack ./ci-batch-dashboard-pack.json --escalation ./ci-batch-policy-escalation.json --adapter-exports ./ci-batch-dashboard-adapter-exports.json
@@ -46,6 +50,7 @@ python python/validate_batch_migration_policy_dry_run.py
 - CLI includes `part-graph-corpus` for aggregate part-graph validation over workbook directories.
 - CI baseline includes `.github/workflows/corpus-part-graph.yml` to publish corpus part-graph artifacts on PR/main/nightly runs.
 - CI baseline includes `.github/workflows/repro-bundle.yml` to publish reproducibility bundle artifacts on PR/main/nightly runs.
+- CI baseline includes `.github/workflows/excel-interop.yml` to enforce bidirectional Excel/openpyxl interoperability on PR/main/nightly runs.
 - CI baseline includes `.github/workflows/batch-recalc-nightly.yml` to publish nightly bounded-parallel batch recalc artifacts.
 - CI workflows now use aligned artifact naming/retention policy and include manifest metadata.
 - Batch recalc command surface (`batch recalc`) now supports bounded Rayon threadpool sizing, deterministic file ordering, and detail-level report payload control.
@@ -80,14 +85,25 @@ python python/validate_batch_migration_policy_dry_run.py
 - Lookup index functions (`MATCH`, `XMATCH`) now coerce numeric text needles/candidates/match modes while rejecting invalid non-numeric text inputs with parse errors.
 - Full-sheet recalc scheduling now reuses cached dependency-analysis ordering (`topo + cycle tail`) to avoid rebuilding/sorting an all-formula target set each run.
 - Dependency analysis now derives cyclic-formula tails directly from Kahn indegree state, avoiding an extra topo-set allocation and set-difference pass per recalc.
+- Dependency/topology traversal now reuses precomputed `dependents_by_ref` adjacency vectors instead of rebuilding set-backed adjacency from `dependency_refs` during ordering.
+- Recalc evaluation loop now reuses a single recursion stack across target cells and only materializes per-cell duration maps when DAG timing capture is enabled.
+- Incremental recalc now propagates changed-root slices directly through internal scheduling (instead of allocating/sorting an intermediate root set) while preserving impacted-cell traversal semantics.
+- Incremental impacted traversal now uses `Vec + HashSet` accumulation (with deterministic topo/cycle ordering applied afterward) to reduce tree-set insertion overhead during dependency-scoped recompute.
+- Dependency-graph telemetry now skips expensive payload assembly for sinks that opt out (for example `NoopEventSink`), reducing recalc-time JSON allocation churn in non-logging runs.
 - AST interning scaffold now exposes deduplicated formula-node IDs for parser introspection.
 - Incremental recalc from changed roots is available in core and used by `tx-save` post-mutation workflows.
 - Incremental recalc now reuses cached reverse-dependency indexes during impacted-cell discovery and DAG degree analysis to reduce repeated graph traversal overhead on larger formula sets.
 - Incremental formula ordering now reuses cached topological-position indexes, reducing repeated full-topo scans for dependency-scoped recompute and DAG topological targeting.
 - XLSX workbook loader projects worksheet values/formulas into the in-memory model for recalc workflows.
 - XLSX saver writes workbook model back to `.xlsx` with deterministic sheet/cell ordering baseline.
+- `save` now defaults to `preserve` mode for compatibility-first workbook output (`normalize` remains available via `--mode normalize`).
 - Preserve mode now uses passthrough copy semantics to retain unknown XML parts exactly.
 - Transactional preserve save rewrites only changed worksheet parts while retaining untouched/unknown parts.
+- Interop corpus assembly utility (`python/assemble_excel_interop_corpus.py`) merges deterministic generated fixtures with optional curated real Excel-authored samples from `corpus/excel-authored/manifest.json`, including legal-clearance metadata and minimum-sample policy checks.
+- Interop CI gate now enforces curated-sample coverage (`EXCEL_INTEROP_MIN_EXCEL_AUTHORED_SAMPLES=5`) while still requiring the deterministic generated fixture set.
+- Interop CI gate enforces baseline curated feature coverage (`formulas`, `styles`, `comments`, `charts`, `defined_names`) so curated corpus runs exercise broader compatibility paths.
+- Corpus fixture generator (`python/generate_corpus_fixtures.py`) now emits deterministic rich-feature fixtures (`styles.xlsx`, `comments.xlsx`, `chart.xlsx`, `defined-names.xlsx`) in addition to baseline structure fixtures and writes a fixture manifest (`manifest.json`).
+- Excel interop verification harness (`python/verify_excel_interop.py`) validates bidirectional workbook opening/round-trip flows across openpyxl and `rootcellar-cli`, including deterministic corpus sweeps, manifest capture, and required-fixture assertions (`--require-corpus-fixture`).
 - Save artifacts expose graph-aware flags for `normalize` vs `preserve` strategies.
 - Repro bundle workflows can record and check deterministic recalc artifacts, including `--against` comparisons for external workbook candidates.
 - `repro diff` provides deterministic cell-level deltas (changed/added/removed) against bundle baselines and can write text/JSON artifacts via `--output`.
@@ -100,7 +116,7 @@ python python/validate_batch_migration_policy_dry_run.py
 - DAG timing observability includes `critical_path`, `max_fan_in`, `max_fan_out`, and slow-node threshold diagnostics.
 
 ## Next Build Slice
+- Replace/expand the seeded curated sample set with verified Microsoft Excel-authored workbooks under `corpus/excel-authored/files` while keeping `EXCEL_INTEROP_MIN_EXCEL_AUTHORED_SAMPLES >= 1` green.
 - Continue parser/evaluator and scheduler optimization work on top of the AST interning scaffold with benchmark-backed validation.
-- Stabilize and harden literal-coercion semantics (quoted text + `TRUE`/`FALSE`) across text/logical flows with compatibility-focused tests.
 - Start desktop shell initialization and bridge UI->engine trace context propagation.
 - Add a minimal UI smoke check in CI (startup + one engine command round-trip) to guard M0 readiness.

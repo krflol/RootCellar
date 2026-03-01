@@ -3,8 +3,7 @@ use crate::telemetry::{EventEnvelope, EventSink, TelemetryError, TraceContext};
 use chrono::{Datelike, Duration, NaiveDate, NaiveTime, Timelike};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
-use std::collections::VecDeque;
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::{BTreeMap, BTreeSet, HashSet, VecDeque};
 use std::time::Instant;
 use thiserror::Error;
 
@@ -131,7 +130,7 @@ impl BinaryOp {
 struct SheetDependencyAnalysis {
     parsed_formulas: BTreeMap<CellRef, Result<Expr, EvalError>>,
     dependency_refs: BTreeMap<CellRef, BTreeSet<CellRef>>,
-    dependents_by_ref: BTreeMap<CellRef, BTreeSet<CellRef>>,
+    dependents_by_ref: BTreeMap<CellRef, Vec<CellRef>>,
     formula_nodes: BTreeSet<CellRef>,
     function_call_count: usize,
     ast_node_count: usize,
@@ -289,11 +288,10 @@ pub fn recalc_sheet_from_roots(
     sink: &mut dyn EventSink,
     trace: &TraceContext,
 ) -> Result<RecalcReport, CalcError> {
-    let roots = changed_roots.iter().copied().collect::<BTreeSet<_>>();
     Ok(recalc_sheet_impl(
         workbook,
         sheet_name,
-        Some(&roots),
+        Some(changed_roots),
         sink,
         trace,
         "calc.recalc.incremental.start",
@@ -329,11 +327,10 @@ pub fn recalc_sheet_from_roots_with_dag_timing_options(
     sink: &mut dyn EventSink,
     trace: &TraceContext,
 ) -> Result<(RecalcReport, RecalcDagTimingReport), CalcError> {
-    let roots = changed_roots.iter().copied().collect::<BTreeSet<_>>();
     let result = recalc_sheet_impl(
         workbook,
         sheet_name,
-        Some(&roots),
+        Some(changed_roots),
         sink,
         trace,
         "calc.recalc.incremental.start",
@@ -350,7 +347,7 @@ pub fn recalc_sheet_from_roots_with_dag_timing_options(
 fn recalc_sheet_impl(
     workbook: &mut Workbook,
     sheet_name: &str,
-    changed_roots: Option<&BTreeSet<CellRef>>,
+    changed_roots: Option<&[CellRef]>,
     sink: &mut dyn EventSink,
     trace: &TraceContext,
     start_event: &str,
@@ -389,8 +386,8 @@ fn recalc_sheet_impl(
     emit_dependency_graph_event(sink, &span, workbook.workbook_id, sheet_name, &analysis)?;
 
     let target_formula_cells = if let Some(roots) = changed_roots {
-        let target_formula_set = collect_impacted_formula_cells(&analysis, roots);
-        order_formula_cells(&analysis, &target_formula_set)
+        let impacted_formula_cells = collect_impacted_formula_cells(&analysis, roots);
+        order_formula_cells(&analysis, &impacted_formula_cells)
     } else {
         order_all_formula_cells(&analysis)
     };
@@ -398,15 +395,20 @@ fn recalc_sheet_impl(
     let mut cache = BTreeMap::<CellRef, Result<CellValue, EvalError>>::new();
     let mut cycle_count = 0usize;
     let mut parse_error_count = 0usize;
-    let mut duration_by_cell = BTreeMap::<CellRef, u64>::new();
+    let mut duration_by_cell = if capture_dag_timing {
+        Some(BTreeMap::<CellRef, u64>::new())
+    } else {
+        None
+    };
     let mut node_timings = if capture_dag_timing {
         Some(Vec::<RecalcDagNodeTiming>::new())
     } else {
         None
     };
+    let mut stack = BTreeSet::new();
 
     for cell_ref in &target_formula_cells {
-        let mut stack = BTreeSet::new();
+        stack.clear();
         let eval_started = Instant::now();
         let result = eval_cell_value(
             workbook,
@@ -417,7 +419,9 @@ fn recalc_sheet_impl(
             &mut cache,
         );
         let duration_us = eval_started.elapsed().as_micros().min(u128::from(u64::MAX)) as u64;
-        duration_by_cell.insert(*cell_ref, duration_us);
+        if let Some(duration_map) = duration_by_cell.as_mut() {
+            duration_map.insert(*cell_ref, duration_us);
+        }
         if let Some(timings) = node_timings.as_mut() {
             timings.push(RecalcDagNodeTiming {
                 cell: to_a1(*cell_ref),
@@ -474,7 +478,9 @@ fn recalc_sheet_impl(
         let insights = build_dag_insights(
             &analysis,
             &target_formula_cells,
-            &duration_by_cell,
+            duration_by_cell
+                .as_ref()
+                .expect("duration map must be present when capture_dag_timing=true"),
             &node_timings,
             dag_timing_options.slow_nodes_threshold_us,
         );
@@ -634,7 +640,7 @@ fn build_sheet_dependency_analysis(
 
     let mut parsed_formulas = BTreeMap::<CellRef, Result<Expr, EvalError>>::new();
     let mut dependency_refs = BTreeMap::<CellRef, BTreeSet<CellRef>>::new();
-    let mut dependents_by_ref = BTreeMap::<CellRef, BTreeSet<CellRef>>::new();
+    let mut dependents_by_ref = BTreeMap::<CellRef, Vec<CellRef>>::new();
     let mut ast_pool = AstInternPool::new();
     let mut formula_ast_ids = BTreeMap::<CellRef, u32>::new();
     let mut parse_error_cells = Vec::<CellRef>::new();
@@ -668,14 +674,14 @@ fn build_sheet_dependency_analysis(
             dependents_by_ref
                 .entry(*referenced)
                 .or_default()
-                .insert(*cell_ref);
+                .push(*cell_ref);
         }
         parsed_formulas.insert(*cell_ref, parsed);
         dependency_refs.insert(*cell_ref, refs);
     }
 
     let (topo_order, formula_edge_count, cyclic_cells) =
-        build_formula_topological_order(&formula_set, &dependency_refs);
+        build_formula_topological_order(&formula_set, &dependents_by_ref);
     let topo_position_by_cell = topo_order
         .iter()
         .enumerate()
@@ -703,17 +709,20 @@ fn build_sheet_dependency_analysis(
 
 fn collect_impacted_formula_cells(
     analysis: &SheetDependencyAnalysis,
-    changed_roots: &BTreeSet<CellRef>,
-) -> BTreeSet<CellRef> {
-    let mut impacted = BTreeSet::<CellRef>::new();
-    let mut queue = VecDeque::<CellRef>::new();
+    changed_roots: &[CellRef],
+) -> Vec<CellRef> {
+    let mut impacted = Vec::<CellRef>::new();
+    let mut seen = HashSet::<CellRef>::with_capacity(changed_roots.len());
+    let mut queue = VecDeque::<CellRef>::with_capacity(changed_roots.len());
     for root in changed_roots {
-        if analysis.formula_nodes.contains(root) && impacted.insert(*root) {
+        if analysis.formula_nodes.contains(root) && seen.insert(*root) {
+            impacted.push(*root);
             queue.push_back(*root);
         }
         if let Some(dependents) = analysis.dependents_by_ref.get(root) {
             for dependent in dependents {
-                if impacted.insert(*dependent) {
+                if seen.insert(*dependent) {
+                    impacted.push(*dependent);
                     queue.push_back(*dependent);
                 }
             }
@@ -723,7 +732,8 @@ fn collect_impacted_formula_cells(
     while let Some(node) = queue.pop_front() {
         if let Some(dependents) = analysis.dependents_by_ref.get(&node) {
             for dependent in dependents {
-                if impacted.insert(*dependent) {
+                if seen.insert(*dependent) {
+                    impacted.push(*dependent);
                     queue.push_back(*dependent);
                 }
             }
@@ -735,7 +745,7 @@ fn collect_impacted_formula_cells(
 
 fn order_formula_cells(
     analysis: &SheetDependencyAnalysis,
-    target_cells: &BTreeSet<CellRef>,
+    target_cells: &[CellRef],
 ) -> Vec<CellRef> {
     let mut in_topo = Vec::<(usize, CellRef)>::with_capacity(target_cells.len());
     let mut remaining = Vec::<CellRef>::new();
@@ -769,25 +779,24 @@ fn order_all_formula_cells(analysis: &SheetDependencyAnalysis) -> Vec<CellRef> {
 
 fn build_formula_topological_order(
     formula_set: &BTreeSet<CellRef>,
-    dependency_refs: &BTreeMap<CellRef, BTreeSet<CellRef>>,
+    dependents_by_ref: &BTreeMap<CellRef, Vec<CellRef>>,
 ) -> (Vec<CellRef>, usize, Vec<CellRef>) {
     let mut indegree = formula_set
         .iter()
         .copied()
         .map(|cell| (cell, 0usize))
         .collect::<BTreeMap<_, _>>();
-    let mut adjacency = BTreeMap::<CellRef, BTreeSet<CellRef>>::new();
     let mut formula_edge_count = 0usize;
 
-    for (cell, refs) in dependency_refs {
-        for referenced in refs {
-            if formula_set.contains(referenced) {
-                adjacency.entry(*referenced).or_default().insert(*cell);
-                if let Some(entry) = indegree.get_mut(cell) {
-                    *entry += 1;
-                }
-                formula_edge_count += 1;
+    for (referenced, dependents) in dependents_by_ref {
+        if !formula_set.contains(referenced) {
+            continue;
+        }
+        for dependent in dependents {
+            if let Some(entry) = indegree.get_mut(dependent) {
+                *entry += 1;
             }
+            formula_edge_count += 1;
         }
     }
 
@@ -801,7 +810,7 @@ fn build_formula_topological_order(
         ready.remove(&next);
         order.push(next);
 
-        if let Some(dependents) = adjacency.get(&next) {
+        if let Some(dependents) = dependents_by_ref.get(&next) {
             for dependent in dependents {
                 if let Some(degree) = indegree.get_mut(dependent) {
                     *degree = degree.saturating_sub(1);
@@ -828,43 +837,72 @@ fn emit_dependency_graph_event(
     sheet_name: &str,
     analysis: &SheetDependencyAnalysis,
 ) -> Result<(), CalcError> {
-    let parse_errors = analysis
-        .parse_error_cells
-        .iter()
-        .map(|cell| to_a1(*cell))
-        .collect::<Vec<_>>();
-    let cyclic_cells = analysis
-        .cyclic_cells
-        .iter()
-        .map(|cell| to_a1(*cell))
-        .collect::<Vec<_>>();
-    let topo_preview = analysis
-        .topo_order
-        .iter()
-        .take(20)
-        .map(|cell| to_a1(*cell))
-        .collect::<Vec<_>>();
-    let ast_preview = analysis
-        .ast_intern_nodes
-        .iter()
-        .take(20)
-        .map(|(id, key)| {
-            json!({
-                "id": id,
-                "key": key,
+    let payload = if sink.supports_expensive_payloads() {
+        let parse_errors = analysis
+            .parse_error_cells
+            .iter()
+            .map(|cell| to_a1(*cell))
+            .collect::<Vec<_>>();
+        let cyclic_cells = analysis
+            .cyclic_cells
+            .iter()
+            .map(|cell| to_a1(*cell))
+            .collect::<Vec<_>>();
+        let topo_preview = analysis
+            .topo_order
+            .iter()
+            .take(20)
+            .map(|cell| to_a1(*cell))
+            .collect::<Vec<_>>();
+        let ast_preview = analysis
+            .ast_intern_nodes
+            .iter()
+            .take(20)
+            .map(|(id, key)| {
+                json!({
+                    "id": id,
+                    "key": key,
+                })
             })
-        })
-        .collect::<Vec<_>>();
-    let formula_ast_ids = analysis
-        .formula_ast_ids
-        .iter()
-        .map(|(cell, id)| {
-            json!({
-                "cell": to_a1(*cell),
-                "ast_id": id,
+            .collect::<Vec<_>>();
+        let formula_ast_ids = analysis
+            .formula_ast_ids
+            .iter()
+            .map(|(cell, id)| {
+                json!({
+                    "cell": to_a1(*cell),
+                    "ast_id": id,
+                })
             })
+            .collect::<Vec<_>>();
+
+        json!({
+            "parse_error_cells": parse_errors,
+            "cyclic_cells": cyclic_cells,
+            "topo_order_preview": topo_preview,
+            "topo_order_truncated": analysis.topo_order.len() > 20,
+            "formula_ast_ids": formula_ast_ids,
+            "ast_intern_preview": ast_preview,
+            "ast_intern_preview_truncated": analysis.ast_intern_nodes.len() > 20,
+            "dependency_refs": analysis
+                .dependency_refs
+                .iter()
+                .map(|(cell, refs)| {
+                    json!({
+                        "cell": to_a1(*cell),
+                        "references": refs.iter().map(|dep| to_a1(*dep)).collect::<Vec<_>>(),
+                    })
+                })
+                .collect::<Vec<_>>(),
         })
-        .collect::<Vec<_>>();
+    } else {
+        json!({
+            "topo_order_preview_omitted_for_sink": true,
+            "dependency_refs_omitted_for_sink": true,
+            "ast_intern_preview_omitted_for_sink": true,
+            "formula_ast_ids_omitted_for_sink": true,
+        })
+    };
 
     sink.emit(
         EventEnvelope::info("calc.dependency_graph.built", span)
@@ -883,25 +921,7 @@ fn emit_dependency_graph_event(
                 "cyclic_formula_count": analysis.cyclic_cells.len(),
                 "parse_error_formula_count": analysis.parse_error_cells.len(),
             }))
-            .with_payload(json!({
-                "parse_error_cells": parse_errors,
-                "cyclic_cells": cyclic_cells,
-                "topo_order_preview": topo_preview,
-                "topo_order_truncated": analysis.topo_order.len() > 20,
-                "formula_ast_ids": formula_ast_ids,
-                "ast_intern_preview": ast_preview,
-                "ast_intern_preview_truncated": analysis.ast_intern_nodes.len() > 20,
-                "dependency_refs": analysis
-                    .dependency_refs
-                    .iter()
-                    .map(|(cell, refs)| {
-                        json!({
-                            "cell": to_a1(*cell),
-                            "references": refs.iter().map(|dep| to_a1(*dep)).collect::<Vec<_>>(),
-                        })
-                    })
-                    .collect::<Vec<_>>(),
-            })),
+            .with_payload(payload),
     )?;
 
     Ok(())
@@ -9989,13 +10009,11 @@ mod tests {
         let analysis =
             build_sheet_dependency_analysis(&wb, "Sheet1", &formula_cells).expect("analysis");
 
-        let subset = [
+        let subset = vec![
             CellRef { row: 1, col: 3 },
             CellRef { row: 1, col: 2 },
             CellRef { row: 1, col: 5 },
-        ]
-        .into_iter()
-        .collect::<BTreeSet<_>>();
+        ];
         let ordered_subset = order_formula_cells(&analysis, &subset);
         assert_eq!(
             ordered_subset,
@@ -10006,16 +10024,14 @@ mod tests {
             ]
         );
 
-        let cycle_only = [CellRef { row: 1, col: 5 }, CellRef { row: 1, col: 4 }]
-            .into_iter()
-            .collect::<BTreeSet<_>>();
+        let cycle_only = vec![CellRef { row: 1, col: 5 }, CellRef { row: 1, col: 4 }];
         let ordered_cycle_only = order_formula_cells(&analysis, &cycle_only);
         assert_eq!(
             ordered_cycle_only,
             vec![CellRef { row: 1, col: 4 }, CellRef { row: 1, col: 5 }]
         );
 
-        let full_set = analysis.formula_nodes.clone();
+        let full_set = analysis.formula_nodes.iter().copied().collect::<Vec<_>>();
         let ordered_full_set = order_formula_cells(&analysis, &full_set);
         let cached_full_order = order_all_formula_cells(&analysis);
         assert_eq!(ordered_full_set, cached_full_order);

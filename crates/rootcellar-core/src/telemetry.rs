@@ -116,6 +116,10 @@ pub enum TelemetryError {
 
 pub trait EventSink {
     fn emit(&mut self, event: EventEnvelope) -> Result<(), TelemetryError>;
+
+    fn supports_expensive_payloads(&self) -> bool {
+        true
+    }
 }
 
 #[derive(Default)]
@@ -124,6 +128,10 @@ pub struct NoopEventSink;
 impl EventSink for NoopEventSink {
     fn emit(&mut self, _event: EventEnvelope) -> Result<(), TelemetryError> {
         Ok(())
+    }
+
+    fn supports_expensive_payloads(&self) -> bool {
+        false
     }
 }
 
@@ -166,5 +174,11 @@ mod tests {
 
         let data = std::fs::read_to_string(log_path).expect("read");
         assert!(data.contains("engine.txn.begin"));
+    }
+
+    #[test]
+    fn noop_sink_disables_expensive_payloads() {
+        let sink = NoopEventSink;
+        assert!(!sink.supports_expensive_payloads());
     }
 }

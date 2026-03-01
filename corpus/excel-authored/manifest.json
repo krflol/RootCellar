@@ -1,0 +1,64 @@
+{
+  "dataset": "excel-authored",
+  "version": 1,
+  "samples": [
+    {
+      "id": "internal-formula-baseline",
+      "path": "files/internal-formula-baseline.xlsx",
+      "authoring_app": "RootCellar internal baseline workbook",
+      "source_category": "internal_template",
+      "legal_clearance": "approved",
+      "features": [
+        "formulas",
+        "arithmetic",
+        "recalc_baseline"
+      ],
+      "notes": "Initial curated corpus seed for formula/recalc coverage. Replace/add with verified Excel-authored sample files as they are approved."
+    },
+    {
+      "id": "internal-styles-baseline",
+      "path": "files/internal-styles-baseline.xlsx",
+      "authoring_app": "OpenPyXL deterministic baseline (interim)",
+      "source_category": "internal_template",
+      "legal_clearance": "approved",
+      "features": [
+        "styles",
+        "formatting"
+      ],
+      "notes": "Interim curated baseline for style/formatting interop coverage."
+    },
+    {
+      "id": "internal-comments-baseline",
+      "path": "files/internal-comments-baseline.xlsx",
+      "authoring_app": "OpenPyXL deterministic baseline (interim)",
+      "source_category": "internal_template",
+      "legal_clearance": "approved",
+      "features": [
+        "comments"
+      ],
+      "notes": "Interim curated baseline for comment-preservation interop coverage."
+    },
+    {
+      "id": "internal-chart-baseline",
+      "path": "files/internal-chart-baseline.xlsx",
+      "authoring_app": "OpenPyXL deterministic baseline (interim)",
+      "source_category": "internal_template",
+      "legal_clearance": "approved",
+      "features": [
+        "charts"
+      ],
+      "notes": "Interim curated baseline for chart part-graph/round-trip interop coverage."
+    },
+    {
+      "id": "internal-defined-names-baseline",
+      "path": "files/internal-defined-names-baseline.xlsx",
+      "authoring_app": "OpenPyXL deterministic baseline (interim)",
+      "source_category": "internal_template",
+      "legal_clearance": "approved",
+      "features": [
+        "defined_names"
+      ],
+      "notes": "Interim curated baseline for defined-name and formula-reference interop coverage."
+    }
+  ]
+}

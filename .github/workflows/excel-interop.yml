@@ -1,0 +1,128 @@
+name: excel-interop
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+  schedule:
+    - cron: "29 5 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  CI_ARTIFACT_RETENTION_DAYS: "21"
+  CI_ARTIFACT_ROOT: ./ci-artifacts
+  EXCEL_INTEROP_MIN_EXCEL_AUTHORED_SAMPLES: "5"
+  EXCEL_INTEROP_REQUIRED_CURATED_FEATURES: "formulas,styles,comments,charts,defined_names"
+
+concurrency:
+  group: excel-interop-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  validate-excel-interop:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Rust artifacts
+        uses: Swatinem/rust-cache@v2
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install interop Python dependencies
+        run: |
+          python -m pip install --disable-pip-version-check -r ./python/requirements-interop.txt
+
+      - name: Run core interop unit tests
+        run: |
+          cargo test -p rootcellar-core --locked interop::tests
+
+      - name: Assemble Excel interop corpus
+        run: |
+          required_feature_args=()
+          IFS=',' read -ra required_features <<< "${EXCEL_INTEROP_REQUIRED_CURATED_FEATURES}"
+          for feature in "${required_features[@]}"; do
+            normalized="${feature//[[:space:]]/}"
+            if [ -n "${normalized}" ]; then
+              required_feature_args+=(--required-curated-feature "${normalized}")
+            fi
+          done
+          python python/assemble_excel_interop_corpus.py \
+            --repo-root . \
+            --output-dir ./.ci/excel-interop-corpus \
+            --excel-authored-manifest ./corpus/excel-authored/manifest.json \
+            --min-excel-authored-samples "${EXCEL_INTEROP_MIN_EXCEL_AUTHORED_SAMPLES}" \
+            "${required_feature_args[@]}"
+
+      - name: Run bidirectional Excel interop gate
+        run: |
+          python python/verify_excel_interop.py \
+            --workspace . \
+            --workdir ./.ci/excel-interop-gate \
+            --corpus-dir ./.ci/excel-interop-corpus \
+            --corpus-manifest ./.ci/excel-interop-corpus/manifest.json \
+            --max-corpus-files 32 \
+            --require-corpus-fixture minimal.xlsx \
+            --require-corpus-fixture formula.xlsx \
+            --require-corpus-fixture dangling-edge.xlsx \
+            --require-corpus-fixture unknown-part.xlsx \
+            --require-corpus-fixture styles.xlsx \
+            --require-corpus-fixture comments.xlsx \
+            --require-corpus-fixture chart.xlsx \
+            --require-corpus-fixture defined-names.xlsx \
+            --report ./ci-excel-interop-gate-report.json
+
+      - name: Assemble interop artifact bundle
+        if: always()
+        run: |
+          set -euo pipefail
+          bundle_dir="${CI_ARTIFACT_ROOT}/excel-interop"
+          mkdir -p "${bundle_dir}"
+          if [ -f ./ci-excel-interop-gate-report.json ]; then
+            cp ./ci-excel-interop-gate-report.json "${bundle_dir}/"
+          fi
+          if [ -d ./.ci/excel-interop-gate ]; then
+            rm -rf "${bundle_dir}/workdir"
+            cp -R ./.ci/excel-interop-gate "${bundle_dir}/workdir"
+          fi
+          if [ -d ./.ci/excel-interop-corpus ]; then
+            rm -rf "${bundle_dir}/corpus"
+            cp -R ./.ci/excel-interop-corpus "${bundle_dir}/corpus"
+          fi
+          generated_at="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          cat > "${bundle_dir}/manifest.json" <<EOF
+          {
+            "workflow": "excel-interop",
+            "generated_at": "${generated_at}",
+            "repository": "${GITHUB_REPOSITORY}",
+            "ref": "${GITHUB_REF}",
+            "sha": "${GITHUB_SHA}",
+            "run_id": "${GITHUB_RUN_ID}",
+            "run_attempt": "${GITHUB_RUN_ATTEMPT}",
+            "excel_authored_min_required": ${EXCEL_INTEROP_MIN_EXCEL_AUTHORED_SAMPLES},
+            "excel_authored_required_features": "${EXCEL_INTEROP_REQUIRED_CURATED_FEATURES}",
+            "retention_policy_days": ${CI_ARTIFACT_RETENTION_DAYS},
+            "artifact_kind": "excel_interop_gate"
+          }
+          EOF
+
+      - name: Upload interop artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: rootcellar-excel-interop-${{ github.run_id }}-${{ github.run_attempt }}
+          if-no-files-found: warn
+          retention-days: ${{ env.CI_ARTIFACT_RETENTION_DAYS }}
+          path: ${{ env.CI_ARTIFACT_ROOT }}/excel-interop
