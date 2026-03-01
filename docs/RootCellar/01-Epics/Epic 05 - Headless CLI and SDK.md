@@ -28,7 +28,7 @@ Make RootCellar first-class in automation pipelines through CLI and SDK surfaces
 16. Adapter export schema/compatibility validation integrated into nightly workflow for contract enforcement before publication.
 17. Full artifact-family schema/compatibility validation integrated into nightly workflow for snapshot/dispatch/ack-retention/dashboard-pack/policy plus adapter/escalation contracts.
 18. Schema-drift canary fixture gate integrated into nightly workflow (`python/validate_batch_schema_canaries.py`) with policy knob control and manifest exposure.
-19. Dual-read migration drill gate integrated into nightly workflow (`python/validate_batch_dual_read_migration.py`) with full artifact-family matrix coverage, artifact-subset policy knob control, and manifest exposure.
+19. Dual-read migration drill gate integrated into nightly workflow (`python/validate_batch_dual_read_migration.py`) with full artifact-family matrix coverage, artifact-subset + staged-wave + fault-injection policy knob control, structured diagnostics report output, and manifest exposure.
 - Remaining:
 1. SDK public API stabilization and Python bindings plan implementation.
 

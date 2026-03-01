@@ -95,6 +95,12 @@ Last updated: March 1, 2026
 - [x] Multi-artifact dual-read migration matrices delivered for snapshot/dispatch/ack-retention/dashboard-pack/policy/escalation/adapter families, with CI artifact-subset policy knob and manifest introspection fields.
   Plan links: [[docs/RootCellar/06-Operations/CI-CD Blueprint]], [[docs/RootCellar/04-Observability/Artifact Schema Migration Playbook]], [[docs/RootCellar/04-Observability/Inspectable Artifact Contract]], [[docs/RootCellar/01-Epics/Epic 07 - Radical Observability and Introspection]], [[docs/RootCellar/03-Implementation/CLI and SDK Design]], [[docs/RootCellar/02-Sprints/Sprint 06 - CLI Batch and Repro Mode]], [[docs/RootCellar/01-Epics/Epic 05 - Headless CLI and SDK]]
   Evidence: [[Execution Status#Completed In Code]], [[Execution Status#Verification]]
+- [x] Migration-drill forensic report artifact and staged wave controls delivered (`ci-batch-schema-migration-drill.json`, `--wave-spec`, per-phase diagnostics and timings, manifest wave policy fields).
+  Plan links: [[docs/RootCellar/06-Operations/CI-CD Blueprint]], [[docs/RootCellar/04-Observability/Artifact Schema Migration Playbook]], [[docs/RootCellar/04-Observability/Inspectable Artifact Contract]], [[docs/RootCellar/04-Observability/Dashboards SLOs and Alerts]], [[docs/RootCellar/06-Operations/Incident Response Playbook]], [[docs/RootCellar/03-Implementation/CLI and SDK Design]], [[docs/RootCellar/01-Epics/Epic 07 - Radical Observability and Introspection]]
+  Evidence: [[Execution Status#Completed In Code]], [[Execution Status#Verification]]
+- [x] Migration-drill fault-injection scenarios delivered for malformed fallback schemas and partial-wave rollback rehearsal, with CI policy knobs and manifest introspection fields.
+  Plan links: [[docs/RootCellar/06-Operations/CI-CD Blueprint]], [[docs/RootCellar/04-Observability/Artifact Schema Migration Playbook]], [[docs/RootCellar/04-Observability/Inspectable Artifact Contract]], [[docs/RootCellar/04-Observability/Dashboards SLOs and Alerts]], [[docs/RootCellar/06-Operations/Incident Response Playbook]], [[docs/RootCellar/03-Implementation/CLI and SDK Design]], [[docs/RootCellar/01-Epics/Epic 07 - Radical Observability and Introspection]], [[docs/RootCellar/02-Sprints/Sprint 06 - CLI Batch and Repro Mode]]
+  Evidence: [[Execution Status#Completed In Code]], [[Execution Status#Verification]]
 
 ## In Progress Items
 - [ ] Sprint 02 parser/dependency-graph core is in progress.
@@ -108,4 +114,4 @@ Last updated: March 1, 2026
 ## Next Planned Items
 1. Continue function parity expansion (lookup/text/date families) and optimize parser/intern scheduler hot paths.
 2. Start Tauri shell initialization and bridge trace context into UI->engine command paths.
-3. Add migration-drill scenario expansion for mixed artifact-subset rollout waves and per-artifact failure diagnostics.
+3. Add migration-drill negative-policy checks for invalid wave specs and unsupported fault-scenario keys in CI dry-run harness.

@@ -42,7 +42,7 @@ Related epic: [[docs/RootCellar/01-Epics/Epic 05 - Headless CLI and SDK]]
 - Implemented policy-owner escalation and adapter export builder (`python/build_batch_policy_adapters.py`) for downstream incident/dashboard ingestion payloads.
 - Implemented full artifact-family schema + compatibility contract validation (`schemas/artifacts/v1/*`, `python/validate_batch_adapter_contracts.py --full-family`) and nightly CI enforcement.
 - Implemented schema-drift canary harness (`python/validate_batch_schema_canaries.py`) and nightly canary gate for contract-regression assertions.
-- Implemented multi-artifact dual-read migration drill harness (`python/validate_batch_dual_read_migration.py`) and nightly migration gate for producer/consumer overlap and rollback assertions, including artifact-subset targeting via `--artifacts`.
+- Implemented multi-artifact dual-read migration drill harness (`python/validate_batch_dual_read_migration.py`) and nightly migration gate for producer/consumer overlap and rollback assertions, including artifact-subset targeting via `--artifacts`, staged-wave scenarios via `--wave-spec`, fault-injection scenarios via `--fault-injection --fault-scenarios`, and per-phase diagnostics artifacts via `--report`.
 - Implemented aligned CI artifact policy (name pattern + retention + manifest metadata) across corpus and repro workflows.
 - Tracking links: [[docs/RootCellar/00-Program/Execution Plan Board]], [[docs/RootCellar/00-Program/Execution Status]]
 

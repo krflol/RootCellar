@@ -57,9 +57,14 @@ Define how RootCellar evolves artifact schemas without breaking humans, AI agent
   4. producer rollback to `v1` -> consumer dual-read pass.
   5. producer `v1` -> consumer rollback to strict `v1` pass.
 - Drill execution supports artifact-family matrix selection with `--artifacts` (`snapshot,dispatch,ack_retention,dashboard_pack,policy,escalation,adapter_exports`) for staged rollout waves.
+- Drill execution supports explicit staged waves with `--wave-spec` and structured per-phase diagnostics output with `--report`.
+- Drill execution supports fault-injection scenarios via `--fault-injection --fault-scenarios malformed_fallback_schema,partial_wave_rollback`.
 - Current drill suite location: `python/validate_batch_dual_read_migration.py`.
 - Nightly gate location: `.github/workflows/batch-recalc-nightly.yml` (`Run dual-read migration drills`).
 - Nightly artifact-subset policy knob: `ALERT_POLICY_SCHEMA_MIGRATION_DRILL_ARTIFACTS` (manifest field: `alert_policy_schema_migration_drill_artifacts`).
+- Nightly staged-wave policy knob: `ALERT_POLICY_SCHEMA_MIGRATION_DRILL_WAVE_SPEC` (manifest field: `alert_policy_schema_migration_drill_wave_spec`).
+- Nightly fault-injection policy knobs: `ALERT_POLICY_SCHEMA_MIGRATION_DRILL_FAULT_INJECTION_ENABLED`, `ALERT_POLICY_SCHEMA_MIGRATION_DRILL_FAULT_SCENARIOS` (manifest fields: `alert_policy_schema_migration_drill_fault_injection_enabled`, `alert_policy_schema_migration_drill_fault_scenarios`).
+- Nightly diagnostics artifact: `ci-batch-schema-migration-drill.json` (manifest field: `schema_migration_drill_report_generated`).
 
 ## Rollback Policy
 - If canary or full-family schema validation fails in CI:
