@@ -1695,6 +1695,7 @@ fn eval_function(
 
             match name {
                 "SUM" => Ok(values.into_iter().sum()),
+                "SUMSQ" => Ok(values.into_iter().map(|value| value * value).sum()),
                 "PRODUCT" => {
                     if values.is_empty() {
                         return Err(EvalError::Parse);
@@ -1752,6 +1753,79 @@ fn eval_function(
                     let mut candidates = values[..values.len() - 1].to_vec();
                     candidates.sort_by(f64::total_cmp);
                     Ok(candidates[candidates.len() - 1 - rank])
+                }
+                "GEOMEAN" => {
+                    if values.is_empty() || values.iter().any(|value| *value <= 0.0) {
+                        return Err(EvalError::Parse);
+                    }
+                    let log_sum = values.iter().map(|value| value.ln()).sum::<f64>();
+                    ensure_finite_result((log_sum / values.len() as f64).exp())
+                }
+                "HARMEAN" => {
+                    if values.is_empty() || values.iter().any(|value| *value <= 0.0) {
+                        return Err(EvalError::Parse);
+                    }
+                    let reciprocal_sum = values.iter().map(|value| 1.0 / value).sum::<f64>();
+                    if reciprocal_sum == 0.0 {
+                        return Err(EvalError::Parse);
+                    }
+                    ensure_finite_result(values.len() as f64 / reciprocal_sum)
+                }
+                "VARP" => {
+                    if values.is_empty() {
+                        return Err(EvalError::Parse);
+                    }
+                    let mean = values.iter().sum::<f64>() / values.len() as f64;
+                    let squared_dev_sum = values
+                        .iter()
+                        .map(|value| {
+                            let delta = *value - mean;
+                            delta * delta
+                        })
+                        .sum::<f64>();
+                    ensure_finite_result(squared_dev_sum / values.len() as f64)
+                }
+                "VAR" | "VARS" => {
+                    if values.len() < 2 {
+                        return Err(EvalError::Parse);
+                    }
+                    let mean = values.iter().sum::<f64>() / values.len() as f64;
+                    let squared_dev_sum = values
+                        .iter()
+                        .map(|value| {
+                            let delta = *value - mean;
+                            delta * delta
+                        })
+                        .sum::<f64>();
+                    ensure_finite_result(squared_dev_sum / (values.len() as f64 - 1.0))
+                }
+                "STDEVP" => {
+                    if values.is_empty() {
+                        return Err(EvalError::Parse);
+                    }
+                    let mean = values.iter().sum::<f64>() / values.len() as f64;
+                    let squared_dev_sum = values
+                        .iter()
+                        .map(|value| {
+                            let delta = *value - mean;
+                            delta * delta
+                        })
+                        .sum::<f64>();
+                    ensure_finite_result((squared_dev_sum / values.len() as f64).sqrt())
+                }
+                "STDEV" | "STDEVS" => {
+                    if values.len() < 2 {
+                        return Err(EvalError::Parse);
+                    }
+                    let mean = values.iter().sum::<f64>() / values.len() as f64;
+                    let squared_dev_sum = values
+                        .iter()
+                        .map(|value| {
+                            let delta = *value - mean;
+                            delta * delta
+                        })
+                        .sum::<f64>();
+                    ensure_finite_result((squared_dev_sum / (values.len() as f64 - 1.0)).sqrt())
                 }
                 "ABS" => {
                     if values.len() != 1 {
@@ -1904,6 +1978,207 @@ fn eval_function(
                     }
                     let significance = if values.len() == 2 { values[1] } else { 1.0 };
                     floor_with_significance(values[0], significance)
+                }
+                "PI" => {
+                    if !values.is_empty() {
+                        return Err(EvalError::Parse);
+                    }
+                    Ok(std::f64::consts::PI)
+                }
+                "EXP" => {
+                    if values.len() != 1 {
+                        return Err(EvalError::Parse);
+                    }
+                    ensure_finite_result(values[0].exp())
+                }
+                "LN" => {
+                    if values.len() != 1 || values[0] <= 0.0 {
+                        return Err(EvalError::Parse);
+                    }
+                    ensure_finite_result(values[0].ln())
+                }
+                "LOG10" => {
+                    if values.len() != 1 || values[0] <= 0.0 {
+                        return Err(EvalError::Parse);
+                    }
+                    ensure_finite_result(values[0].log10())
+                }
+                "LOG" => {
+                    if values.is_empty() || values.len() > 2 {
+                        return Err(EvalError::Parse);
+                    }
+                    let number = values[0];
+                    if number <= 0.0 {
+                        return Err(EvalError::Parse);
+                    }
+                    let base = if values.len() == 2 { values[1] } else { 10.0 };
+                    if base <= 0.0 || base == 1.0 {
+                        return Err(EvalError::Parse);
+                    }
+                    ensure_finite_result(number.log(base))
+                }
+                "SIN" => {
+                    if values.len() != 1 {
+                        return Err(EvalError::Parse);
+                    }
+                    ensure_finite_result(values[0].sin())
+                }
+                "COS" => {
+                    if values.len() != 1 {
+                        return Err(EvalError::Parse);
+                    }
+                    ensure_finite_result(values[0].cos())
+                }
+                "TAN" => {
+                    if values.len() != 1 {
+                        return Err(EvalError::Parse);
+                    }
+                    ensure_finite_result(values[0].tan())
+                }
+                "ASIN" => {
+                    if values.len() != 1 || values[0] < -1.0 || values[0] > 1.0 {
+                        return Err(EvalError::Parse);
+                    }
+                    ensure_finite_result(values[0].asin())
+                }
+                "ACOS" => {
+                    if values.len() != 1 || values[0] < -1.0 || values[0] > 1.0 {
+                        return Err(EvalError::Parse);
+                    }
+                    ensure_finite_result(values[0].acos())
+                }
+                "ATAN" => {
+                    if values.len() != 1 {
+                        return Err(EvalError::Parse);
+                    }
+                    ensure_finite_result(values[0].atan())
+                }
+                "ATAN2" => {
+                    if values.len() != 2 {
+                        return Err(EvalError::Parse);
+                    }
+                    ensure_finite_result(values[0].atan2(values[1]))
+                }
+                "RADIANS" => {
+                    if values.len() != 1 {
+                        return Err(EvalError::Parse);
+                    }
+                    ensure_finite_result(values[0] * std::f64::consts::PI / 180.0)
+                }
+                "DEGREES" => {
+                    if values.len() != 1 {
+                        return Err(EvalError::Parse);
+                    }
+                    ensure_finite_result(values[0] * 180.0 / std::f64::consts::PI)
+                }
+                "PMT" => {
+                    if values.len() < 3 || values.len() > 5 {
+                        return Err(EvalError::Parse);
+                    }
+                    let rate = values[0];
+                    let nper = values[1];
+                    let pv = values[2];
+                    let fv = if values.len() >= 4 { values[3] } else { 0.0 };
+                    let payment_type = parse_payment_type(values.get(4).copied())?;
+                    if !rate.is_finite() || !nper.is_finite() || !pv.is_finite() || !fv.is_finite()
+                    {
+                        return Err(EvalError::Parse);
+                    }
+                    if nper == 0.0 {
+                        return Err(EvalError::Parse);
+                    }
+                    if rate == 0.0 {
+                        ensure_finite_result(-(pv + fv) / nper)
+                    } else {
+                        let one_plus_rate = 1.0 + rate;
+                        let growth = one_plus_rate.powf(nper);
+                        if !growth.is_finite() || growth == 1.0 {
+                            return Err(EvalError::Parse);
+                        }
+                        let numerator = rate * (fv + pv * growth);
+                        let denominator = (1.0 + rate * payment_type) * (growth - 1.0);
+                        if denominator == 0.0 {
+                            return Err(EvalError::Parse);
+                        }
+                        ensure_finite_result(-numerator / denominator)
+                    }
+                }
+                "PV" => {
+                    if values.len() < 3 || values.len() > 5 {
+                        return Err(EvalError::Parse);
+                    }
+                    let rate = values[0];
+                    let nper = values[1];
+                    let pmt = values[2];
+                    let fv = if values.len() >= 4 { values[3] } else { 0.0 };
+                    let payment_type = parse_payment_type(values.get(4).copied())?;
+                    if !rate.is_finite() || !nper.is_finite() || !pmt.is_finite() || !fv.is_finite()
+                    {
+                        return Err(EvalError::Parse);
+                    }
+                    if nper == 0.0 {
+                        return Err(EvalError::Parse);
+                    }
+                    if rate == 0.0 {
+                        ensure_finite_result(-(fv + pmt * nper))
+                    } else {
+                        let one_plus_rate = 1.0 + rate;
+                        let growth = one_plus_rate.powf(nper);
+                        if !growth.is_finite() || growth == 0.0 {
+                            return Err(EvalError::Parse);
+                        }
+                        let annuity_term =
+                            pmt * (1.0 + rate * payment_type) * (growth - 1.0) / rate;
+                        ensure_finite_result(-(fv + annuity_term) / growth)
+                    }
+                }
+                "FV" => {
+                    if values.len() < 3 || values.len() > 5 {
+                        return Err(EvalError::Parse);
+                    }
+                    let rate = values[0];
+                    let nper = values[1];
+                    let pmt = values[2];
+                    let pv = if values.len() >= 4 { values[3] } else { 0.0 };
+                    let payment_type = parse_payment_type(values.get(4).copied())?;
+                    if !rate.is_finite() || !nper.is_finite() || !pmt.is_finite() || !pv.is_finite()
+                    {
+                        return Err(EvalError::Parse);
+                    }
+                    if nper == 0.0 {
+                        return Err(EvalError::Parse);
+                    }
+                    if rate == 0.0 {
+                        ensure_finite_result(-(pv + pmt * nper))
+                    } else {
+                        let one_plus_rate = 1.0 + rate;
+                        let growth = one_plus_rate.powf(nper);
+                        if !growth.is_finite() {
+                            return Err(EvalError::Parse);
+                        }
+                        let annuity_term =
+                            pmt * (1.0 + rate * payment_type) * (growth - 1.0) / rate;
+                        ensure_finite_result(-(pv * growth + annuity_term))
+                    }
+                }
+                "NPV" => {
+                    if values.len() < 2 {
+                        return Err(EvalError::Parse);
+                    }
+                    let rate = values[0];
+                    if !rate.is_finite() || rate == -1.0 {
+                        return Err(EvalError::Parse);
+                    }
+                    let mut total = 0.0;
+                    for (index, value) in values.iter().skip(1).enumerate() {
+                        let period = (index + 1) as f64;
+                        let discount = (1.0 + rate).powf(period);
+                        if !discount.is_finite() || discount == 0.0 {
+                            return Err(EvalError::Parse);
+                        }
+                        total += *value / discount;
+                    }
+                    ensure_finite_result(total)
                 }
                 "AND" => {
                     if values.is_empty() {
@@ -2634,6 +2909,24 @@ fn floor_with_significance(value: f64, significance: f64) -> Result<f64, EvalErr
         Ok(0.0)
     } else {
         Ok(result)
+    }
+}
+
+fn ensure_finite_result(value: f64) -> Result<f64, EvalError> {
+    if value.is_finite() {
+        Ok(value)
+    } else {
+        Err(EvalError::Parse)
+    }
+}
+
+fn parse_payment_type(value: Option<f64>) -> Result<f64, EvalError> {
+    let raw = value.unwrap_or(0.0);
+    let parsed = trunc_f64_to_i64(raw)?;
+    match parsed {
+        0 => Ok(0.0),
+        1 => Ok(1.0),
+        _ => Err(EvalError::Parse),
     }
 }
 
@@ -4657,6 +4950,400 @@ mod tests {
     }
 
     #[test]
+    fn evaluates_statistical_aggregate_functions() {
+        let mut wb = Workbook::new();
+        let mut sink = NoopEventSink;
+        let trace = TraceContext::root();
+
+        let mut txn = wb.begin_txn(&mut sink, &trace).expect("begin");
+        txn.apply(Mutation::SetCellValue {
+            sheet: "Sheet1".to_string(),
+            row: 1,
+            col: 1,
+            value: CellValue::Number(2.0),
+        });
+        txn.apply(Mutation::SetCellValue {
+            sheet: "Sheet1".to_string(),
+            row: 1,
+            col: 2,
+            value: CellValue::Number(4.0),
+        });
+        txn.apply(Mutation::SetCellValue {
+            sheet: "Sheet1".to_string(),
+            row: 1,
+            col: 3,
+            value: CellValue::Number(4.0),
+        });
+        txn.apply(Mutation::SetCellValue {
+            sheet: "Sheet1".to_string(),
+            row: 1,
+            col: 4,
+            value: CellValue::Number(4.0),
+        });
+        txn.apply(Mutation::SetCellValue {
+            sheet: "Sheet1".to_string(),
+            row: 1,
+            col: 5,
+            value: CellValue::Number(5.0),
+        });
+        txn.apply(Mutation::SetCellValue {
+            sheet: "Sheet1".to_string(),
+            row: 1,
+            col: 6,
+            value: CellValue::Number(5.0),
+        });
+        txn.apply(Mutation::SetCellValue {
+            sheet: "Sheet1".to_string(),
+            row: 1,
+            col: 7,
+            value: CellValue::Number(7.0),
+        });
+        txn.apply(Mutation::SetCellValue {
+            sheet: "Sheet1".to_string(),
+            row: 1,
+            col: 8,
+            value: CellValue::Number(9.0),
+        });
+        txn.apply(Mutation::SetCellFormula {
+            sheet: "Sheet1".to_string(),
+            row: 2,
+            col: 1,
+            formula: "=SUMSQ(A1,B1,C1)".to_string(),
+            cached_value: CellValue::Empty,
+        });
+        txn.apply(Mutation::SetCellFormula {
+            sheet: "Sheet1".to_string(),
+            row: 2,
+            col: 2,
+            formula: "=GEOMEAN(A1,8)".to_string(),
+            cached_value: CellValue::Empty,
+        });
+        txn.apply(Mutation::SetCellFormula {
+            sheet: "Sheet1".to_string(),
+            row: 2,
+            col: 3,
+            formula: "=HARMEAN(A1,8)".to_string(),
+            cached_value: CellValue::Empty,
+        });
+        txn.apply(Mutation::SetCellFormula {
+            sheet: "Sheet1".to_string(),
+            row: 2,
+            col: 4,
+            formula: "=VARP(A1,B1,C1,D1,E1,F1,G1,H1)".to_string(),
+            cached_value: CellValue::Empty,
+        });
+        txn.apply(Mutation::SetCellFormula {
+            sheet: "Sheet1".to_string(),
+            row: 2,
+            col: 5,
+            formula: "=STDEVP(A1,B1,C1,D1,E1,F1,G1,H1)".to_string(),
+            cached_value: CellValue::Empty,
+        });
+        txn.apply(Mutation::SetCellFormula {
+            sheet: "Sheet1".to_string(),
+            row: 2,
+            col: 6,
+            formula: "=VAR(A1,B1,C1,D1,E1,F1,G1,H1)".to_string(),
+            cached_value: CellValue::Empty,
+        });
+        txn.apply(Mutation::SetCellFormula {
+            sheet: "Sheet1".to_string(),
+            row: 2,
+            col: 7,
+            formula: "=STDEV(A1,B1,C1,D1,E1,F1,G1,H1)".to_string(),
+            cached_value: CellValue::Empty,
+        });
+        txn.apply(Mutation::SetCellFormula {
+            sheet: "Sheet1".to_string(),
+            row: 2,
+            col: 8,
+            formula: "=VARS(A1,B1,C1)".to_string(),
+            cached_value: CellValue::Empty,
+        });
+        txn.apply(Mutation::SetCellFormula {
+            sheet: "Sheet1".to_string(),
+            row: 2,
+            col: 9,
+            formula: "=STDEVS(A1,B1,C1)".to_string(),
+            cached_value: CellValue::Empty,
+        });
+        txn.apply(Mutation::SetCellFormula {
+            sheet: "Sheet1".to_string(),
+            row: 2,
+            col: 10,
+            formula: "=VARP(A1)".to_string(),
+            cached_value: CellValue::Empty,
+        });
+        txn.apply(Mutation::SetCellFormula {
+            sheet: "Sheet1".to_string(),
+            row: 2,
+            col: 11,
+            formula: "=STDEVP(A1)".to_string(),
+            cached_value: CellValue::Empty,
+        });
+        txn.apply(Mutation::SetCellFormula {
+            sheet: "Sheet1".to_string(),
+            row: 2,
+            col: 12,
+            formula: "=GEOMEAN(-1,2)".to_string(),
+            cached_value: CellValue::Empty,
+        });
+        txn.apply(Mutation::SetCellFormula {
+            sheet: "Sheet1".to_string(),
+            row: 2,
+            col: 13,
+            formula: "=HARMEAN(0,2)".to_string(),
+            cached_value: CellValue::Empty,
+        });
+        txn.apply(Mutation::SetCellFormula {
+            sheet: "Sheet1".to_string(),
+            row: 2,
+            col: 14,
+            formula: "=STDEV(5)".to_string(),
+            cached_value: CellValue::Empty,
+        });
+        txn.apply(Mutation::SetCellFormula {
+            sheet: "Sheet1".to_string(),
+            row: 2,
+            col: 15,
+            formula: "=VAR(5)".to_string(),
+            cached_value: CellValue::Empty,
+        });
+        txn.apply(Mutation::SetCellFormula {
+            sheet: "Sheet1".to_string(),
+            row: 2,
+            col: 16,
+            formula: "=GEOMEAN()".to_string(),
+            cached_value: CellValue::Empty,
+        });
+        txn.apply(Mutation::SetCellFormula {
+            sheet: "Sheet1".to_string(),
+            row: 2,
+            col: 17,
+            formula: "=SUMSQ()".to_string(),
+            cached_value: CellValue::Empty,
+        });
+        txn.commit(&mut wb, &mut sink, &trace).expect("commit");
+
+        let report = recalc_sheet(&mut wb, "Sheet1", &mut sink, &trace).expect("recalc");
+        assert_eq!(report.parse_error_count, 5);
+
+        let value_at = |col: u32| -> CellValue {
+            wb.sheets
+                .get("Sheet1")
+                .and_then(|s| s.cells.get(&CellRef { row: 2, col }))
+                .expect("cell")
+                .value
+                .clone()
+        };
+        let assert_close = |value: CellValue, expected: f64, label: &str| match value {
+            CellValue::Number(actual) => {
+                assert!(
+                    (actual - expected).abs() < 1e-12,
+                    "{label} expected {expected}, got {actual}"
+                );
+            }
+            other => panic!("{label} expected number, got {other:?}"),
+        };
+
+        assert_eq!(value_at(1), CellValue::Number(36.0));
+        assert_eq!(value_at(2), CellValue::Number(4.0));
+        assert_eq!(value_at(3), CellValue::Number(3.2));
+        assert_eq!(value_at(4), CellValue::Number(4.0));
+        assert_eq!(value_at(5), CellValue::Number(2.0));
+        assert_close(value_at(6), 32.0 / 7.0, "F2");
+        assert_close(value_at(7), (32.0_f64 / 7.0_f64).sqrt(), "G2");
+        assert_close(value_at(8), 1.3333333333333333, "H2");
+        assert_close(value_at(9), 1.1547005383792515, "I2");
+        assert_eq!(value_at(10), CellValue::Number(0.0));
+        assert_eq!(value_at(11), CellValue::Number(0.0));
+        assert_eq!(value_at(12), CellValue::Error("#PARSE!".to_string()));
+        assert_eq!(value_at(13), CellValue::Error("#PARSE!".to_string()));
+        assert_eq!(value_at(14), CellValue::Error("#PARSE!".to_string()));
+        assert_eq!(value_at(15), CellValue::Error("#PARSE!".to_string()));
+        assert_eq!(value_at(16), CellValue::Error("#PARSE!".to_string()));
+        assert_eq!(value_at(17), CellValue::Number(0.0));
+    }
+
+    #[test]
+    fn evaluates_financial_extension_functions() {
+        let mut wb = Workbook::new();
+        let mut sink = NoopEventSink;
+        let trace = TraceContext::root();
+
+        let mut txn = wb.begin_txn(&mut sink, &trace).expect("begin");
+        txn.apply(Mutation::SetCellValue {
+            sheet: "Sheet1".to_string(),
+            row: 1,
+            col: 1,
+            value: CellValue::Number(0.05),
+        });
+        txn.apply(Mutation::SetCellValue {
+            sheet: "Sheet1".to_string(),
+            row: 1,
+            col: 2,
+            value: CellValue::Number(10.0),
+        });
+        txn.apply(Mutation::SetCellValue {
+            sheet: "Sheet1".to_string(),
+            row: 1,
+            col: 3,
+            value: CellValue::Number(1000.0),
+        });
+        txn.apply(Mutation::SetCellFormula {
+            sheet: "Sheet1".to_string(),
+            row: 2,
+            col: 1,
+            formula: "=PMT(A1,B1,C1)".to_string(),
+            cached_value: CellValue::Empty,
+        });
+        txn.apply(Mutation::SetCellFormula {
+            sheet: "Sheet1".to_string(),
+            row: 2,
+            col: 2,
+            formula: "=FV(A1,B1,A2,C1,0)".to_string(),
+            cached_value: CellValue::Empty,
+        });
+        txn.apply(Mutation::SetCellFormula {
+            sheet: "Sheet1".to_string(),
+            row: 2,
+            col: 3,
+            formula: "=PV(A1,B1,A2,0,0)".to_string(),
+            cached_value: CellValue::Empty,
+        });
+        txn.apply(Mutation::SetCellFormula {
+            sheet: "Sheet1".to_string(),
+            row: 2,
+            col: 4,
+            formula: "=NPV(0.1,100,100)".to_string(),
+            cached_value: CellValue::Empty,
+        });
+        txn.apply(Mutation::SetCellFormula {
+            sheet: "Sheet1".to_string(),
+            row: 2,
+            col: 5,
+            formula: "=PMT(0,10,1000)".to_string(),
+            cached_value: CellValue::Empty,
+        });
+        txn.apply(Mutation::SetCellFormula {
+            sheet: "Sheet1".to_string(),
+            row: 2,
+            col: 6,
+            formula: "=PV(0,10,-100)".to_string(),
+            cached_value: CellValue::Empty,
+        });
+        txn.apply(Mutation::SetCellFormula {
+            sheet: "Sheet1".to_string(),
+            row: 2,
+            col: 7,
+            formula: "=FV(0,10,-100,0,0)".to_string(),
+            cached_value: CellValue::Empty,
+        });
+        txn.apply(Mutation::SetCellFormula {
+            sheet: "Sheet1".to_string(),
+            row: 2,
+            col: 8,
+            formula: "=PMT(0.05,10,1000,0,1)".to_string(),
+            cached_value: CellValue::Empty,
+        });
+        txn.apply(Mutation::SetCellFormula {
+            sheet: "Sheet1".to_string(),
+            row: 2,
+            col: 9,
+            formula: "=NPV(0,10,20,30)".to_string(),
+            cached_value: CellValue::Empty,
+        });
+        txn.apply(Mutation::SetCellFormula {
+            sheet: "Sheet1".to_string(),
+            row: 2,
+            col: 10,
+            formula: "=PMT(0.05,10,1000,0,2)".to_string(),
+            cached_value: CellValue::Empty,
+        });
+        txn.apply(Mutation::SetCellFormula {
+            sheet: "Sheet1".to_string(),
+            row: 2,
+            col: 11,
+            formula: "=NPV(-1,100)".to_string(),
+            cached_value: CellValue::Empty,
+        });
+        txn.apply(Mutation::SetCellFormula {
+            sheet: "Sheet1".to_string(),
+            row: 2,
+            col: 12,
+            formula: "=PMT(0,0,1000)".to_string(),
+            cached_value: CellValue::Empty,
+        });
+        txn.apply(Mutation::SetCellFormula {
+            sheet: "Sheet1".to_string(),
+            row: 2,
+            col: 13,
+            formula: "=PV(0.05,10,-100,0,2)".to_string(),
+            cached_value: CellValue::Empty,
+        });
+        txn.apply(Mutation::SetCellFormula {
+            sheet: "Sheet1".to_string(),
+            row: 2,
+            col: 14,
+            formula: "=FV(0.05,10,-100,0,3)".to_string(),
+            cached_value: CellValue::Empty,
+        });
+        txn.apply(Mutation::SetCellFormula {
+            sheet: "Sheet1".to_string(),
+            row: 2,
+            col: 15,
+            formula: "=NPV(0.1)".to_string(),
+            cached_value: CellValue::Empty,
+        });
+        txn.commit(&mut wb, &mut sink, &trace).expect("commit");
+
+        let report = recalc_sheet(&mut wb, "Sheet1", &mut sink, &trace).expect("recalc");
+        assert_eq!(report.parse_error_count, 6);
+
+        let value_at = |col: u32| -> CellValue {
+            wb.sheets
+                .get("Sheet1")
+                .and_then(|s| s.cells.get(&CellRef { row: 2, col }))
+                .expect("cell")
+                .value
+                .clone()
+        };
+        let assert_close = |value: CellValue, expected: f64, label: &str| match value {
+            CellValue::Number(actual) => {
+                assert!(
+                    (actual - expected).abs() < 1e-9,
+                    "{label} expected {expected}, got {actual}"
+                );
+            }
+            other => panic!("{label} expected number, got {other:?}"),
+        };
+
+        let rate = 0.05_f64;
+        let nper = 10.0_f64;
+        let pv = 1000.0_f64;
+        let growth = (1.0_f64 + rate).powf(nper);
+        let expected_pmt = -(rate * (0.0 + pv * growth)) / ((1.0 + rate * 0.0) * (growth - 1.0));
+        let expected_pmt_type1 =
+            -(rate * (0.0 + pv * growth)) / ((1.0 + rate * 1.0) * (growth - 1.0));
+
+        assert_close(value_at(1), expected_pmt, "A2");
+        assert_close(value_at(2), 0.0, "B2");
+        assert_close(value_at(3), 1000.0, "C2");
+        assert_close(value_at(4), 100.0 / 1.1 + 100.0 / (1.1 * 1.1), "D2");
+        assert_eq!(value_at(5), CellValue::Number(-100.0));
+        assert_eq!(value_at(6), CellValue::Number(1000.0));
+        assert_eq!(value_at(7), CellValue::Number(1000.0));
+        assert_close(value_at(8), expected_pmt_type1, "H2");
+        assert_eq!(value_at(9), CellValue::Number(60.0));
+        assert_eq!(value_at(10), CellValue::Error("#PARSE!".to_string()));
+        assert_eq!(value_at(11), CellValue::Error("#PARSE!".to_string()));
+        assert_eq!(value_at(12), CellValue::Error("#PARSE!".to_string()));
+        assert_eq!(value_at(13), CellValue::Error("#PARSE!".to_string()));
+        assert_eq!(value_at(14), CellValue::Error("#PARSE!".to_string()));
+        assert_eq!(value_at(15), CellValue::Error("#PARSE!".to_string()));
+    }
+
+    #[test]
     fn evaluates_advanced_rounding_and_parity_functions() {
         let mut wb = Workbook::new();
         let mut sink = NoopEventSink;
@@ -5029,6 +5716,254 @@ mod tests {
         assert_eq!(t2, CellValue::Error("#PARSE!".to_string()));
         assert_eq!(u2, CellValue::Error("#PARSE!".to_string()));
         assert_eq!(v2, CellValue::Error("#PARSE!".to_string()));
+    }
+
+    #[test]
+    fn evaluates_trig_and_log_extension_functions() {
+        let mut wb = Workbook::new();
+        let mut sink = NoopEventSink;
+        let trace = TraceContext::root();
+
+        let mut txn = wb.begin_txn(&mut sink, &trace).expect("begin");
+        txn.apply(Mutation::SetCellValue {
+            sheet: "Sheet1".to_string(),
+            row: 1,
+            col: 1,
+            value: CellValue::Number(8.0),
+        });
+        txn.apply(Mutation::SetCellValue {
+            sheet: "Sheet1".to_string(),
+            row: 1,
+            col: 2,
+            value: CellValue::Number(2.0),
+        });
+        txn.apply(Mutation::SetCellValue {
+            sheet: "Sheet1".to_string(),
+            row: 1,
+            col: 3,
+            value: CellValue::Number(0.5),
+        });
+        txn.apply(Mutation::SetCellValue {
+            sheet: "Sheet1".to_string(),
+            row: 1,
+            col: 4,
+            value: CellValue::Number(90.0),
+        });
+        txn.apply(Mutation::SetCellFormula {
+            sheet: "Sheet1".to_string(),
+            row: 2,
+            col: 1,
+            formula: "=PI()".to_string(),
+            cached_value: CellValue::Empty,
+        });
+        txn.apply(Mutation::SetCellFormula {
+            sheet: "Sheet1".to_string(),
+            row: 2,
+            col: 2,
+            formula: "=EXP(1)".to_string(),
+            cached_value: CellValue::Empty,
+        });
+        txn.apply(Mutation::SetCellFormula {
+            sheet: "Sheet1".to_string(),
+            row: 2,
+            col: 3,
+            formula: "=LN(A1)".to_string(),
+            cached_value: CellValue::Empty,
+        });
+        txn.apply(Mutation::SetCellFormula {
+            sheet: "Sheet1".to_string(),
+            row: 2,
+            col: 4,
+            formula: "=LOG(A1,B1)".to_string(),
+            cached_value: CellValue::Empty,
+        });
+        txn.apply(Mutation::SetCellFormula {
+            sheet: "Sheet1".to_string(),
+            row: 2,
+            col: 5,
+            formula: "=LOG10(A1)".to_string(),
+            cached_value: CellValue::Empty,
+        });
+        txn.apply(Mutation::SetCellFormula {
+            sheet: "Sheet1".to_string(),
+            row: 2,
+            col: 6,
+            formula: "=LOG(100)".to_string(),
+            cached_value: CellValue::Empty,
+        });
+        txn.apply(Mutation::SetCellFormula {
+            sheet: "Sheet1".to_string(),
+            row: 2,
+            col: 7,
+            formula: "=SIN(RADIANS(D1))".to_string(),
+            cached_value: CellValue::Empty,
+        });
+        txn.apply(Mutation::SetCellFormula {
+            sheet: "Sheet1".to_string(),
+            row: 2,
+            col: 8,
+            formula: "=COS(0)".to_string(),
+            cached_value: CellValue::Empty,
+        });
+        txn.apply(Mutation::SetCellFormula {
+            sheet: "Sheet1".to_string(),
+            row: 2,
+            col: 9,
+            formula: "=TAN(0)".to_string(),
+            cached_value: CellValue::Empty,
+        });
+        txn.apply(Mutation::SetCellFormula {
+            sheet: "Sheet1".to_string(),
+            row: 2,
+            col: 10,
+            formula: "=ASIN(C1)".to_string(),
+            cached_value: CellValue::Empty,
+        });
+        txn.apply(Mutation::SetCellFormula {
+            sheet: "Sheet1".to_string(),
+            row: 2,
+            col: 11,
+            formula: "=ACOS(C1)".to_string(),
+            cached_value: CellValue::Empty,
+        });
+        txn.apply(Mutation::SetCellFormula {
+            sheet: "Sheet1".to_string(),
+            row: 2,
+            col: 12,
+            formula: "=ATAN(1)".to_string(),
+            cached_value: CellValue::Empty,
+        });
+        txn.apply(Mutation::SetCellFormula {
+            sheet: "Sheet1".to_string(),
+            row: 2,
+            col: 13,
+            formula: "=ATAN2(1,1)".to_string(),
+            cached_value: CellValue::Empty,
+        });
+        txn.apply(Mutation::SetCellFormula {
+            sheet: "Sheet1".to_string(),
+            row: 2,
+            col: 14,
+            formula: "=DEGREES(PI())".to_string(),
+            cached_value: CellValue::Empty,
+        });
+        txn.apply(Mutation::SetCellFormula {
+            sheet: "Sheet1".to_string(),
+            row: 2,
+            col: 15,
+            formula: "=RADIANS(180)".to_string(),
+            cached_value: CellValue::Empty,
+        });
+        txn.apply(Mutation::SetCellFormula {
+            sheet: "Sheet1".to_string(),
+            row: 2,
+            col: 16,
+            formula: "=EXP(1000)".to_string(),
+            cached_value: CellValue::Empty,
+        });
+        txn.apply(Mutation::SetCellFormula {
+            sheet: "Sheet1".to_string(),
+            row: 2,
+            col: 17,
+            formula: "=LN(-1)".to_string(),
+            cached_value: CellValue::Empty,
+        });
+        txn.apply(Mutation::SetCellFormula {
+            sheet: "Sheet1".to_string(),
+            row: 2,
+            col: 18,
+            formula: "=ACOS(2)".to_string(),
+            cached_value: CellValue::Empty,
+        });
+        txn.apply(Mutation::SetCellFormula {
+            sheet: "Sheet1".to_string(),
+            row: 2,
+            col: 19,
+            formula: "=PI(1)".to_string(),
+            cached_value: CellValue::Empty,
+        });
+        txn.apply(Mutation::SetCellFormula {
+            sheet: "Sheet1".to_string(),
+            row: 2,
+            col: 20,
+            formula: "=LOG(A1,1)".to_string(),
+            cached_value: CellValue::Empty,
+        });
+        txn.apply(Mutation::SetCellFormula {
+            sheet: "Sheet1".to_string(),
+            row: 2,
+            col: 21,
+            formula: "=LOG(A1,-2)".to_string(),
+            cached_value: CellValue::Empty,
+        });
+        txn.apply(Mutation::SetCellFormula {
+            sheet: "Sheet1".to_string(),
+            row: 2,
+            col: 22,
+            formula: "=LOG(-10)".to_string(),
+            cached_value: CellValue::Empty,
+        });
+        txn.apply(Mutation::SetCellFormula {
+            sheet: "Sheet1".to_string(),
+            row: 2,
+            col: 23,
+            formula: "=ATAN2(1)".to_string(),
+            cached_value: CellValue::Empty,
+        });
+        txn.apply(Mutation::SetCellFormula {
+            sheet: "Sheet1".to_string(),
+            row: 2,
+            col: 24,
+            formula: "=SIN(PI()/2)".to_string(),
+            cached_value: CellValue::Empty,
+        });
+        txn.commit(&mut wb, &mut sink, &trace).expect("commit");
+
+        let report = recalc_sheet(&mut wb, "Sheet1", &mut sink, &trace).expect("recalc");
+        assert_eq!(report.parse_error_count, 8);
+
+        let value_at = |col: u32| -> CellValue {
+            wb.sheets
+                .get("Sheet1")
+                .and_then(|s| s.cells.get(&CellRef { row: 2, col }))
+                .expect("cell")
+                .value
+                .clone()
+        };
+        let assert_close = |value: CellValue, expected: f64, label: &str| match value {
+            CellValue::Number(actual) => {
+                assert!(
+                    (actual - expected).abs() < 1e-12,
+                    "{label} expected {expected}, got {actual}"
+                );
+            }
+            other => panic!("{label} expected number, got {other:?}"),
+        };
+
+        assert_close(value_at(1), std::f64::consts::PI, "A2");
+        assert_close(value_at(2), std::f64::consts::E, "B2");
+        assert_close(value_at(3), 8.0_f64.ln(), "C2");
+        assert_eq!(value_at(4), CellValue::Number(3.0));
+        assert_close(value_at(5), 8.0_f64.log10(), "E2");
+        assert_eq!(value_at(6), CellValue::Number(2.0));
+        assert_close(value_at(7), 1.0, "G2");
+        assert_close(value_at(8), 1.0, "H2");
+        assert_close(value_at(9), 0.0, "I2");
+        assert_close(value_at(10), std::f64::consts::PI / 6.0, "J2");
+        assert_close(value_at(11), std::f64::consts::PI / 3.0, "K2");
+        assert_close(value_at(12), std::f64::consts::PI / 4.0, "L2");
+        assert_close(value_at(13), std::f64::consts::PI / 4.0, "M2");
+        assert_close(value_at(14), 180.0, "N2");
+        assert_close(value_at(15), std::f64::consts::PI, "O2");
+        assert_eq!(value_at(16), CellValue::Error("#PARSE!".to_string()));
+        assert_eq!(value_at(17), CellValue::Error("#PARSE!".to_string()));
+        assert_eq!(value_at(18), CellValue::Error("#PARSE!".to_string()));
+        assert_eq!(value_at(19), CellValue::Error("#PARSE!".to_string()));
+        assert_eq!(value_at(20), CellValue::Error("#PARSE!".to_string()));
+        assert_eq!(value_at(21), CellValue::Error("#PARSE!".to_string()));
+        assert_eq!(value_at(22), CellValue::Error("#PARSE!".to_string()));
+        assert_eq!(value_at(23), CellValue::Error("#PARSE!".to_string()));
+        assert_close(value_at(24), 1.0, "X2");
     }
 
     #[test]
