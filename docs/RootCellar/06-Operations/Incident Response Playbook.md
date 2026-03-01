@@ -37,6 +37,7 @@ Related: [[docs/RootCellar/04-Observability/Dashboards SLOs and Alerts]]
   8. Use policy-escalation metadata (`ci-batch-policy-escalation.json`) to route to owner queues/channels and confirm adapter-export payloads match incident-system expectations.
   9. Confirm nightly artifacts passed full-family schema/compatibility validation (`python/validate_batch_adapter_contracts.py --full-family`) against `schemas/artifacts/v1/*`.
   10. Confirm schema-drift canary gate passed (`python/validate_batch_schema_canaries.py`) and review canary-case output for unexpected validator behavior.
+  11. Confirm dual-read migration drill gate passed (`python/validate_batch_dual_read_migration.py`) and verify no rollback regression for schema major transitions.
 
 ## Communication Cadence
 - Sev 1 updates every 30 minutes.

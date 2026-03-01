@@ -62,7 +62,7 @@ Parent: [[Environment Matrix]]
     - `ALERT_POLICY_OWNER_CONTACT_CHANNEL`
     - `ALERT_POLICY_ESCALATION_TARGET_P1`, `ALERT_POLICY_ESCALATION_TARGET_P2`, `ALERT_POLICY_ESCALATION_TARGET_P3`, `ALERT_POLICY_ESCALATION_TARGET_INFO`
     - `ALERT_POLICY_ESCALATION_SLA_MINUTES_P1`, `ALERT_POLICY_ESCALATION_SLA_MINUTES_P2`, `ALERT_POLICY_ESCALATION_SLA_MINUTES_P3`, `ALERT_POLICY_ESCALATION_SLA_MINUTES_INFO`
-    - `ALERT_POLICY_SCHEMA_VALIDATION_ENABLED`, `ALERT_POLICY_SCHEMA_CANARY_VALIDATION_ENABLED`
+    - `ALERT_POLICY_SCHEMA_VALIDATION_ENABLED`, `ALERT_POLICY_SCHEMA_CANARY_VALIDATION_ENABLED`, `ALERT_POLICY_SCHEMA_MIGRATION_DRILL_VALIDATION_ENABLED`
     - `ALERT_POLICY_SCHEMA_SNAPSHOT_PATH`, `ALERT_POLICY_SCHEMA_DISPATCH_PATH`, `ALERT_POLICY_SCHEMA_ACK_RETENTION_PATH`
     - `ALERT_POLICY_SCHEMA_DASHBOARD_PACK_PATH`, `ALERT_POLICY_SCHEMA_POLICY_PATH`
     - `ALERT_POLICY_SCHEMA_ESCALATION_PATH`, `ALERT_POLICY_SCHEMA_ADAPTER_EXPORTS_PATH`
@@ -77,9 +77,10 @@ Parent: [[Environment Matrix]]
     8. Build policy-owner escalation metadata + downstream adapter exports (`python/build_batch_policy_adapters.py`) from alert-policy and dashboard-pack artifacts.
     9. Validate full nightly artifact family against versioned schemas and compatibility contracts (`python/validate_batch_adapter_contracts.py --full-family`).
     10. Run schema-drift canary checks (`python/validate_batch_schema_canaries.py`) to assert deterministic fail behavior for representative compatibility regressions.
-    11. Enforce nightly gate from snapshot + policy status after dispatch routing.
-    12. Assemble standardized artifact bundle directory + manifest prior to upload.
-    13. Upload batch report + JSONL + trend snapshot + alert payload + dispatch report + ack-retention index + dashboard-pack + alert-policy + policy-escalation + adapter-exports + assembled corpus manifest/files as run artifacts.
+    11. Run dual-read migration drills (`python/validate_batch_dual_read_migration.py`) to verify producer/consumer overlap and rollback behavior for major-version schema transitions.
+    12. Enforce nightly gate from snapshot + policy status after dispatch routing.
+    13. Assemble standardized artifact bundle directory + manifest prior to upload.
+    14. Upload batch report + JSONL + trend snapshot + alert payload + dispatch report + ack-retention index + dashboard-pack + alert-policy + policy-escalation + adapter-exports + assembled corpus manifest/files as run artifacts.
 
 ## Failure Handling
 - Auto-create incident ticket for failing nightly gates with regression labels.
@@ -87,4 +88,5 @@ Parent: [[Environment Matrix]]
 - Incident/dash adapters consume `ci-batch-policy-escalation.json` + `ci-batch-dashboard-adapter-exports.json` for owner-targeted escalation and dashboard sync.
 - Nightly artifact publication is blocked when schema/compatibility validation fails for snapshot/dispatch/ack-retention/dashboard-pack/policy/escalation/adapter payloads.
 - Nightly artifact publication is also blocked when schema-drift canary assertions fail (unexpected validator pass/fail behavior).
+- Nightly artifact publication is also blocked when dual-read migration drill assertions fail (producer/consumer overlap or rollback regression).
 - Block release branch merge on unresolved P1/P2 alerts.

@@ -33,6 +33,7 @@ python python/build_batch_dashboard_pack.py --snapshot ./ci-batch-throughput-sna
 python python/build_batch_policy_adapters.py --policy ./ci-batch-alert-policy.json --dashboard-pack ./ci-batch-dashboard-pack.json --escalation ./ci-batch-policy-escalation.json --adapter-exports ./ci-batch-dashboard-adapter-exports.json
 python python/validate_batch_adapter_contracts.py --full-family
 python python/validate_batch_schema_canaries.py
+python python/validate_batch_dual_read_migration.py
 ```
 
 ## Current Status
@@ -60,6 +61,7 @@ python python/validate_batch_schema_canaries.py
 - Nightly escalation/adapter utility (`python/build_batch_policy_adapters.py`) publishes `ci-batch-policy-escalation.json` and `ci-batch-dashboard-adapter-exports.json` for downstream incident/dashboard ingestion integration.
 - Nightly batch artifact schema validator (`python/validate_batch_adapter_contracts.py --full-family`) enforces schema shape + compatibility version contracts before artifact publication.
 - Nightly schema-drift canary utility (`python/validate_batch_schema_canaries.py`) asserts expected validator failures for representative compatibility-regression scenarios.
+- Nightly dual-read migration drill utility (`python/validate_batch_dual_read_migration.py`) verifies producer/consumer overlap and rollback behavior for schema major-version transitions.
 - Nightly gate now enforces both throughput snapshot status and alert-policy status for route-delivery/forensic policy checks.
 - Minimal calculation engine supports A1 references, arithmetic formulas, and cycle detection.
 - Formula parser scaffold now supports precedence and parentheses for arithmetic recalc.
@@ -84,5 +86,5 @@ python python/validate_batch_schema_canaries.py
 ## Next Build Slice
 - Continue function parity expansion beyond current starter set.
 - Add parser/evaluator and scheduler optimization work on top of the AST interning scaffold.
-- Add dual-read migration drills for future artifact major-version rollouts (producer/consumer overlap and rollback verification).
+- Add multi-artifact dual-read migration matrices (beyond policy-only synthetic v2) for staged producer rollouts.
 - Start desktop shell initialization and bridge UI->engine trace context propagation.

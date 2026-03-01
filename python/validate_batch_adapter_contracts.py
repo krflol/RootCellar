@@ -67,9 +67,19 @@ def parse_args() -> argparse.Namespace:
         help="Path to throughput snapshot schema JSON.",
     )
     parser.add_argument(
+        "--schema-snapshot-fallback",
+        default=None,
+        help="Optional fallback schema path for throughput snapshot during dual-read migrations.",
+    )
+    parser.add_argument(
         "--schema-dispatch",
         default="./schemas/artifacts/v1/batch-alert-dispatch.schema.json",
         help="Path to dispatch report schema JSON.",
+    )
+    parser.add_argument(
+        "--schema-dispatch-fallback",
+        default=None,
+        help="Optional fallback schema path for dispatch report during dual-read migrations.",
     )
     parser.add_argument(
         "--schema-ack-retention",
@@ -77,9 +87,19 @@ def parse_args() -> argparse.Namespace:
         help="Path to acknowledgement retention index schema JSON.",
     )
     parser.add_argument(
+        "--schema-ack-retention-fallback",
+        default=None,
+        help="Optional fallback schema path for ack-retention index during dual-read migrations.",
+    )
+    parser.add_argument(
         "--schema-dashboard-pack",
         default="./schemas/artifacts/v1/batch-dashboard-pack.schema.json",
         help="Path to dashboard-pack schema JSON.",
+    )
+    parser.add_argument(
+        "--schema-dashboard-pack-fallback",
+        default=None,
+        help="Optional fallback schema path for dashboard-pack during dual-read migrations.",
     )
     parser.add_argument(
         "--schema-policy",
@@ -87,14 +107,29 @@ def parse_args() -> argparse.Namespace:
         help="Path to alert-policy schema JSON.",
     )
     parser.add_argument(
+        "--schema-policy-fallback",
+        default=None,
+        help="Optional fallback schema path for alert-policy during dual-read migrations.",
+    )
+    parser.add_argument(
         "--schema-escalation",
         default="./schemas/artifacts/v1/batch-policy-escalation.schema.json",
         help="Path to policy escalation schema JSON.",
     )
     parser.add_argument(
+        "--schema-escalation-fallback",
+        default=None,
+        help="Optional fallback schema path for policy escalation during dual-read migrations.",
+    )
+    parser.add_argument(
         "--schema-adapter-exports",
         default="./schemas/artifacts/v1/batch-dashboard-adapter-exports.schema.json",
         help="Path to adapter exports schema JSON.",
+    )
+    parser.add_argument(
+        "--schema-adapter-exports-fallback",
+        default=None,
+        help="Optional fallback schema path for adapter exports during dual-read migrations.",
     )
     return parser.parse_args()
 
@@ -288,16 +323,27 @@ def _validate_artifact(
     return errors
 
 
-def _artifact_pairs(args: argparse.Namespace) -> list[tuple[pathlib.Path, pathlib.Path, str]]:
+def _schema_candidates(primary: str, fallback: str | None) -> list[pathlib.Path]:
+    out = [pathlib.Path(primary)]
+    if fallback:
+        out.append(pathlib.Path(fallback))
+    return out
+
+
+def _artifact_pairs(
+    args: argparse.Namespace,
+) -> list[tuple[pathlib.Path, list[pathlib.Path], str]]:
     pairs = [
         (
             pathlib.Path(args.escalation),
-            pathlib.Path(args.schema_escalation),
+            _schema_candidates(args.schema_escalation, args.schema_escalation_fallback),
             "policy_escalation",
         ),
         (
             pathlib.Path(args.adapter_exports),
-            pathlib.Path(args.schema_adapter_exports),
+            _schema_candidates(
+                args.schema_adapter_exports, args.schema_adapter_exports_fallback
+            ),
             "adapter_exports",
         ),
     ]
@@ -307,31 +353,68 @@ def _artifact_pairs(args: argparse.Namespace) -> list[tuple[pathlib.Path, pathli
     extended_pairs = [
         (
             pathlib.Path(args.snapshot),
-            pathlib.Path(args.schema_snapshot),
+            _schema_candidates(args.schema_snapshot, args.schema_snapshot_fallback),
             "throughput_snapshot",
         ),
         (
             pathlib.Path(args.dispatch),
-            pathlib.Path(args.schema_dispatch),
+            _schema_candidates(args.schema_dispatch, args.schema_dispatch_fallback),
             "alert_dispatch",
         ),
         (
             pathlib.Path(args.ack_retention),
-            pathlib.Path(args.schema_ack_retention),
+            _schema_candidates(
+                args.schema_ack_retention, args.schema_ack_retention_fallback
+            ),
             "ack_retention_index",
         ),
         (
             pathlib.Path(args.dashboard_pack),
-            pathlib.Path(args.schema_dashboard_pack),
+            _schema_candidates(
+                args.schema_dashboard_pack, args.schema_dashboard_pack_fallback
+            ),
             "dashboard_pack",
         ),
         (
             pathlib.Path(args.policy),
-            pathlib.Path(args.schema_policy),
+            _schema_candidates(args.schema_policy, args.schema_policy_fallback),
             "alert_policy",
         ),
     ]
     return extended_pairs + pairs
+
+
+def _validate_with_schema_candidates(
+    payload_path: pathlib.Path,
+    schema_candidates: list[pathlib.Path],
+    label: str,
+) -> tuple[list[str], pathlib.Path | None]:
+    candidate_errors: list[tuple[pathlib.Path, list[str]]] = []
+
+    for schema_path in schema_candidates:
+        if not schema_path.exists():
+            candidate_errors.append(
+                (schema_path, [f"{label}: schema file not found: {schema_path}"])
+            )
+            continue
+        errors = _validate_artifact(payload_path, schema_path, label)
+        if not errors:
+            return [], schema_path
+        candidate_errors.append((schema_path, errors))
+
+    if len(candidate_errors) <= 1:
+        if not candidate_errors:
+            return [f"{label}: no schema candidates provided"], None
+        return candidate_errors[0][1], None
+
+    merged_errors: list[str] = []
+    for schema_path, errors in candidate_errors:
+        merged_errors.append(
+            f"{label}: validation failed against schema candidate {schema_path}"
+        )
+        for err in errors:
+            merged_errors.append(f"{label}@{schema_path.name}: {err}")
+    return merged_errors, None
 
 
 def main() -> int:
@@ -339,20 +422,19 @@ def main() -> int:
     pairs = _artifact_pairs(args)
 
     all_errors: list[str] = []
-    for payload_path, schema_path, label in pairs:
+    for payload_path, schema_candidates, label in pairs:
         if not payload_path.exists():
             all_errors.append(f"{label}: payload file not found: {payload_path}")
             continue
-        if not schema_path.exists():
-            all_errors.append(f"{label}: schema file not found: {schema_path}")
-            continue
-
-        errors = _validate_artifact(payload_path, schema_path, label)
+        errors, selected_schema = _validate_with_schema_candidates(
+            payload_path, schema_candidates, label
+        )
         if errors:
             all_errors.extend(errors)
         else:
+            assert selected_schema is not None
             print(
-                f"Validated {label}: payload={payload_path} schema={schema_path}"
+                f"Validated {label}: payload={payload_path} schema={selected_schema}"
             )
 
     if all_errors:

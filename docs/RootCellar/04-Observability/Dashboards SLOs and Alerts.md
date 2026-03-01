@@ -17,6 +17,7 @@ Parent: [[Observability Charter]]
   - Dashboard adapter export source: `ci-batch-dashboard-adapter-exports.json` (downstream incident/dashboard ingestion payload contracts).
   - Contract schemas: full artifact-family contracts in `schemas/artifacts/v1/*` (`batch-throughput-snapshot`, `batch-alert-dispatch`, `batch-ack-retention-index`, `batch-dashboard-pack`, `batch-alert-policy`, `batch-policy-escalation`, `batch-dashboard-adapter-exports`) validated in CI via `python/validate_batch_adapter_contracts.py --full-family`.
   - Contract drift canaries: `python/validate_batch_schema_canaries.py` verifies representative schema-regression failures; migration process is defined in [[docs/RootCellar/04-Observability/Artifact Schema Migration Playbook]].
+  - Dual-read migration drills: `python/validate_batch_dual_read_migration.py` verifies producer-major upgrades can be safely overlapped and rolled back before schema rollout.
   - Route dispatch drill-down: retry attempt counts, auth/signing configuration flags, idempotency/correlation IDs, replay timestamp/nonce/window metadata, and ack/correlation-required vs received/matched counters.
 
 ## Initial SLOs
