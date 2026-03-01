@@ -22,7 +22,7 @@ Enable reliable headless automation workflows with reproducibility records.
   - Adapter schema/compatibility validation delivered: `python/validate_batch_adapter_contracts.py` with versioned schemas (`schemas/artifacts/v1/*`) and nightly CI contract enforcement.
   - Full artifact-family schema/compatibility validation delivered: `python/validate_batch_adapter_contracts.py --full-family` now gates snapshot/dispatch/ack-retention/dashboard-pack/policy plus escalation/adapter artifacts in nightly CI.
   - Schema-drift canary fixture validation delivered: `python/validate_batch_schema_canaries.py` now asserts expected contract failures for representative drift scenarios in nightly CI.
-  - Dual-read migration drills delivered: `python/validate_batch_dual_read_migration.py` now verifies producer/consumer overlap and rollback behavior for schema major-version transitions.
+  - Dual-read migration drills delivered: `python/validate_batch_dual_read_migration.py` now verifies producer/consumer overlap and rollback behavior for schema major-version transitions across snapshot/dispatch/ack-retention/dashboard-pack/policy/escalation/adapter artifacts, with workflow subset control via `ALERT_POLICY_SCHEMA_MIGRATION_DRILL_ARTIFACTS`.
 - Repro baseline delivered:
   - `repro record`, `repro check`, and `repro diff` command paths.
   - CI execution/publishing flow: `.github/workflows/repro-bundle.yml`.

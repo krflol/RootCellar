@@ -37,6 +37,7 @@ Make every critical product path inspectable by humans and AI through structured
 25. Full artifact-family schema validation + compatibility contracts delivered in CI (`python/validate_batch_adapter_contracts.py --full-family`) covering snapshot/dispatch/ack-retention/dashboard-pack/policy plus escalation/adapter artifacts.
 26. Schema-drift canary fixture gate + migration playbook delivered (`python/validate_batch_schema_canaries.py`, `Artifact Schema Migration Playbook`) for compatibility-regression detection and major-version rollout discipline.
 27. Dual-read migration drill gate delivered (`python/validate_batch_dual_read_migration.py`) for producer/consumer overlap and rollback verification in schema major-version transitions.
+28. Multi-artifact dual-read matrix expansion delivered for snapshot/dispatch/ack-retention/dashboard-pack/policy/escalation/adapter families, including artifact-subset policy knob + manifest introspection (`ALERT_POLICY_SCHEMA_MIGRATION_DRILL_ARTIFACTS`, `alert_policy_schema_migration_drill_artifacts`).
 - Remaining:
 1. Cross-surface UI->engine->script trace bridge completion.
 2. AI introspection query surfaces over stored artifacts.

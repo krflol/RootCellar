@@ -56,8 +56,10 @@ Define how RootCellar evolves artifact schemas without breaking humans, AI agent
   3. producer `v2` -> consumer dual-read (`v1` primary + `v2` fallback) pass.
   4. producer rollback to `v1` -> consumer dual-read pass.
   5. producer `v1` -> consumer rollback to strict `v1` pass.
+- Drill execution supports artifact-family matrix selection with `--artifacts` (`snapshot,dispatch,ack_retention,dashboard_pack,policy,escalation,adapter_exports`) for staged rollout waves.
 - Current drill suite location: `python/validate_batch_dual_read_migration.py`.
 - Nightly gate location: `.github/workflows/batch-recalc-nightly.yml` (`Run dual-read migration drills`).
+- Nightly artifact-subset policy knob: `ALERT_POLICY_SCHEMA_MIGRATION_DRILL_ARTIFACTS` (manifest field: `alert_policy_schema_migration_drill_artifacts`).
 
 ## Rollback Policy
 - If canary or full-family schema validation fails in CI:
@@ -70,10 +72,11 @@ Define how RootCellar evolves artifact schemas without breaking humans, AI agent
   - re-run canary + dual-read suites before reopening rollout.
 
 ## Migration Checklist
-- [ ] Schema + payload contracts updated.
-- [ ] Full-family validator passes locally.
-- [ ] Schema-drift canaries pass locally.
-- [ ] Dual-read migration drills pass locally.
-- [ ] Nightly workflow knobs/manifest fields updated.
-- [ ] Execution board/status evidence links updated.
-- [ ] Incident playbook references reviewed.
+Current implementation status (March 1, 2026):
+- [x] Schema + payload contracts updated.
+- [x] Full-family validator passes locally.
+- [x] Schema-drift canaries pass locally.
+- [x] Dual-read migration drills pass locally.
+- [x] Nightly workflow knobs/manifest fields updated.
+- [x] Execution board/status evidence links updated.
+- [x] Incident playbook references reviewed.

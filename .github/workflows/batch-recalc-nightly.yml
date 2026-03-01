@@ -54,6 +54,7 @@ env:
   ALERT_POLICY_SCHEMA_VALIDATION_ENABLED: "true"
   ALERT_POLICY_SCHEMA_CANARY_VALIDATION_ENABLED: "true"
   ALERT_POLICY_SCHEMA_MIGRATION_DRILL_VALIDATION_ENABLED: "true"
+  ALERT_POLICY_SCHEMA_MIGRATION_DRILL_ARTIFACTS: "snapshot,dispatch,ack_retention,dashboard_pack,policy,escalation,adapter_exports"
   ALERT_POLICY_SCHEMA_SNAPSHOT_PATH: "./schemas/artifacts/v1/batch-throughput-snapshot.schema.json"
   ALERT_POLICY_SCHEMA_DISPATCH_PATH: "./schemas/artifacts/v1/batch-alert-dispatch.schema.json"
   ALERT_POLICY_SCHEMA_ACK_RETENTION_PATH: "./schemas/artifacts/v1/batch-ack-retention-index.schema.json"
@@ -300,7 +301,8 @@ jobs:
             --schema-dashboard-pack "${ALERT_POLICY_SCHEMA_DASHBOARD_PACK_PATH}" \
             --schema-policy "${ALERT_POLICY_SCHEMA_POLICY_PATH}" \
             --schema-escalation "${ALERT_POLICY_SCHEMA_ESCALATION_PATH}" \
-            --schema-adapter-exports "${ALERT_POLICY_SCHEMA_ADAPTER_EXPORTS_PATH}"
+            --schema-adapter-exports "${ALERT_POLICY_SCHEMA_ADAPTER_EXPORTS_PATH}" \
+            --artifacts "${ALERT_POLICY_SCHEMA_MIGRATION_DRILL_ARTIFACTS}"
 
       - name: Enforce nightly batch gate
         if: always()
@@ -431,6 +433,7 @@ jobs:
             "alert_policy_schema_validation_enabled": ${ALERT_POLICY_SCHEMA_VALIDATION_ENABLED},
             "alert_policy_schema_canary_validation_enabled": ${ALERT_POLICY_SCHEMA_CANARY_VALIDATION_ENABLED},
             "alert_policy_schema_migration_drill_validation_enabled": ${ALERT_POLICY_SCHEMA_MIGRATION_DRILL_VALIDATION_ENABLED},
+            "alert_policy_schema_migration_drill_artifacts": "${ALERT_POLICY_SCHEMA_MIGRATION_DRILL_ARTIFACTS}",
             "alert_policy_schema_snapshot_path": "${ALERT_POLICY_SCHEMA_SNAPSHOT_PATH}",
             "alert_policy_schema_dispatch_path": "${ALERT_POLICY_SCHEMA_DISPATCH_PATH}",
             "alert_policy_schema_ack_retention_path": "${ALERT_POLICY_SCHEMA_ACK_RETENTION_PATH}",

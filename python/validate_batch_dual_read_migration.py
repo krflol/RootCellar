@@ -12,6 +12,27 @@ import sys
 import tempfile
 
 
+ARTIFACT_KEYS = [
+    "snapshot",
+    "dispatch",
+    "ack_retention",
+    "dashboard_pack",
+    "policy",
+    "escalation",
+    "adapter_exports",
+]
+
+VALIDATOR_LABELS = {
+    "snapshot": "throughput_snapshot",
+    "dispatch": "alert_dispatch",
+    "ack_retention": "ack_retention_index",
+    "dashboard_pack": "dashboard_pack",
+    "policy": "alert_policy",
+    "escalation": "policy_escalation",
+    "adapter_exports": "adapter_exports",
+}
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description=(
@@ -93,6 +114,14 @@ def parse_args() -> argparse.Namespace:
         "--schema-adapter-exports",
         default="./schemas/artifacts/v1/batch-dashboard-adapter-exports.schema.json",
         help="Path to adapter exports schema JSON.",
+    )
+    parser.add_argument(
+        "--artifacts",
+        default="snapshot,dispatch,ack_retention,dashboard_pack,policy,escalation,adapter_exports",
+        help=(
+            "Comma-separated artifact keys to include in dual-read matrix. "
+            "Allowed values: snapshot,dispatch,ack_retention,dashboard_pack,policy,escalation,adapter_exports."
+        ),
     )
     return parser.parse_args()
 
@@ -251,8 +280,93 @@ def _require_contains(output: str, token: str, phase: str) -> None:
         )
 
 
+def _parse_artifacts(raw: str) -> list[str]:
+    values = [token.strip() for token in raw.split(",") if token.strip()]
+    if not values:
+        raise ValueError("--artifacts must include at least one artifact key")
+    unknown = sorted({item for item in values if item not in ARTIFACT_KEYS})
+    if unknown:
+        raise ValueError(f"--artifacts includes unsupported keys: {', '.join(unknown)}")
+    deduped: list[str] = []
+    seen: set[str] = set()
+    for item in values:
+        if item in seen:
+            continue
+        deduped.append(item)
+        seen.add(item)
+    return deduped
+
+
+def _schema_paths_by_key(args: argparse.Namespace) -> dict[str, pathlib.Path]:
+    return {
+        "snapshot": pathlib.Path(args.schema_snapshot),
+        "dispatch": pathlib.Path(args.schema_dispatch),
+        "ack_retention": pathlib.Path(args.schema_ack_retention),
+        "dashboard_pack": pathlib.Path(args.schema_dashboard_pack),
+        "policy": pathlib.Path(args.schema_policy),
+        "escalation": pathlib.Path(args.schema_escalation),
+        "adapter_exports": pathlib.Path(args.schema_adapter_exports),
+    }
+
+
+def _run_dual_read_case(
+    args: argparse.Namespace,
+    base_payloads: dict[str, dict],
+    artifact_key: str,
+    schema_v2: dict,
+    schema_v2_id: str,
+) -> None:
+    label = VALIDATOR_LABELS[artifact_key]
+
+    upgraded_payloads = copy.deepcopy(base_payloads)
+    upgraded_payloads[artifact_key]["artifact_contract"]["schema_id"] = schema_v2_id
+    upgraded_payloads[artifact_key]["artifact_contract"]["schema_version"] = "2.0.0"
+
+    code, output = _run_validator(args, copy.deepcopy(upgraded_payloads))
+    phase_fail = f"{artifact_key}_producer_v2_consumer_v1"
+    if code == 0:
+        raise AssertionError(
+            f"phase {phase_fail} unexpectedly passed; rollback detection broken"
+        )
+    _require_contains(output, f"{label}: artifact_contract.schema_id", phase_fail)
+    print(f"Dual-read drill passed ({phase_fail} expected fail)")
+
+    code, output = _run_validator(
+        args,
+        copy.deepcopy(upgraded_payloads),
+        fallback_overrides={artifact_key: schema_v2},
+    )
+    phase_overlap = f"{artifact_key}_producer_v2_consumer_dual_read"
+    if code != 0:
+        raise AssertionError(
+            f"phase {phase_overlap} failed unexpectedly\nvalidator output:\n{output}"
+        )
+    print(f"Dual-read drill passed ({phase_overlap})")
+
+    code, output = _run_validator(
+        args,
+        copy.deepcopy(base_payloads),
+        fallback_overrides={artifact_key: schema_v2},
+    )
+    phase_prod_rollback = f"{artifact_key}_producer_v1_consumer_dual_read"
+    if code != 0:
+        raise AssertionError(
+            f"phase {phase_prod_rollback} failed unexpectedly\nvalidator output:\n{output}"
+        )
+    print(f"Dual-read drill passed ({phase_prod_rollback})")
+
+    code, output = _run_validator(args, copy.deepcopy(base_payloads))
+    phase_consumer_rollback = f"{artifact_key}_producer_v1_consumer_v1_post_rollback"
+    if code != 0:
+        raise AssertionError(
+            f"phase {phase_consumer_rollback} failed unexpectedly\nvalidator output:\n{output}"
+        )
+    print(f"Dual-read drill passed ({phase_consumer_rollback})")
+
+
 def main() -> int:
     args = parse_args()
+    selected_artifacts = _parse_artifacts(args.artifacts)
 
     validator_path = pathlib.Path(args.validator_script)
     if not validator_path.exists():
@@ -267,8 +381,14 @@ def main() -> int:
         "escalation": _read_json(pathlib.Path(args.escalation)),
         "adapter_exports": _read_json(pathlib.Path(args.adapter_exports)),
     }
-    policy_schema_v1 = _read_json(pathlib.Path(args.schema_policy))
-    policy_schema_v2, policy_schema_v2_id = _build_synthetic_v2_schema(policy_schema_v1)
+    schemas_v1 = {
+        key: _read_json(path)
+        for key, path in _schema_paths_by_key(args).items()
+    }
+    schemas_v2 = {
+        key: _build_synthetic_v2_schema(schema_v1)
+        for key, schema_v1 in schemas_v1.items()
+    }
 
     # Phase 1: baseline with producer v1 and consumer v1.
     code, output = _run_validator(args, copy.deepcopy(base_payloads))
@@ -278,56 +398,14 @@ def main() -> int:
         )
     print("Dual-read drill passed (baseline_v1_to_v1)")
 
-    # Producer upgrade simulation for policy artifact only.
-    upgraded_payloads = copy.deepcopy(base_payloads)
-    upgraded_payloads["policy"]["artifact_contract"]["schema_id"] = policy_schema_v2_id
-    upgraded_payloads["policy"]["artifact_contract"]["schema_version"] = "2.0.0"
+    for artifact_key in selected_artifacts:
+        schema_v2, schema_v2_id = schemas_v2[artifact_key]
+        _run_dual_read_case(args, base_payloads, artifact_key, schema_v2, schema_v2_id)
 
-    # Phase 2: producer v2 but consumer still v1 should fail (rollback detection).
-    code, output = _run_validator(args, copy.deepcopy(upgraded_payloads))
-    if code == 0:
-        raise AssertionError(
-            "phase producer_v2_consumer_v1 unexpectedly passed; rollback detection broken"
-        )
-    _require_contains(output, "alert_policy: artifact_contract.schema_id", "producer_v2_consumer_v1")
-    print("Dual-read drill passed (producer_v2_consumer_v1 expected fail)")
-
-    # Phase 3: consumer dual-read (v1 primary + v2 fallback) should pass.
-    code, output = _run_validator(
-        args,
-        copy.deepcopy(upgraded_payloads),
-        fallback_overrides={"policy": policy_schema_v2},
+    print(
+        "Dual-read migration drill passed: producer/consumer overlap and rollback "
+        f"verified for artifacts={','.join(selected_artifacts)}"
     )
-    if code != 0:
-        raise AssertionError(
-            "phase producer_v2_consumer_dual_read failed unexpectedly\nvalidator output:\n"
-            + output
-        )
-    print("Dual-read drill passed (producer_v2_consumer_dual_read)")
-
-    # Phase 4: producer rollback to v1 while consumer still dual-read should pass.
-    code, output = _run_validator(
-        args,
-        copy.deepcopy(base_payloads),
-        fallback_overrides={"policy": policy_schema_v2},
-    )
-    if code != 0:
-        raise AssertionError(
-            "phase producer_v1_consumer_dual_read failed unexpectedly\nvalidator output:\n"
-            + output
-        )
-    print("Dual-read drill passed (producer_v1_consumer_dual_read)")
-
-    # Phase 5: consumer rollback to strict v1 with producer already rolled back should pass.
-    code, output = _run_validator(args, copy.deepcopy(base_payloads))
-    if code != 0:
-        raise AssertionError(
-            "phase producer_v1_consumer_v1_post_rollback failed unexpectedly\nvalidator output:\n"
-            + output
-        )
-    print("Dual-read drill passed (producer_v1_consumer_v1_post_rollback)")
-
-    print("Dual-read migration drill passed: producer/consumer overlap and rollback verified")
     return 0
 
 
