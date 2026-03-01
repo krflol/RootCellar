@@ -11,6 +11,7 @@ Enable reliable headless automation workflows with reproducibility records.
   - `batch recalc` command with bounded Rayon parallelism, deterministic ordering, fail-on-error gating, and detail-level artifact output.
   - Nightly CI execution/publishing flow: `.github/workflows/batch-recalc-nightly.yml`.
   - Nightly corpus coverage expanded to deterministic compatibility slices (`python/build_batch_nightly_corpus.py`, `target-files=32`) with throughput regression threshold checks.
+  - Nightly synthetic benchmark gate delivered: optional `bench recalc-synthetic` execution with CI policy knobs for workload/threshold control (`BATCH_BENCH_*`) and benchmark artifact publication (`ci-batch-bench-recalc-synthetic.json`, `ci-batch-bench-events.jsonl`).
   - Nightly trend snapshot + alert-hook artifacts delivered (`python/build_batch_trend_snapshot.py` producing `ci-batch-throughput-snapshot.json` and `ci-batch-alert-hook.json`).
   - Nightly alert-route dispatch utility delivered (`python/dispatch_batch_alert_hook.py` producing `ci-batch-alert-dispatch.json` for route status introspection).
   - Dispatch hardening delivered: token auth, optional signing, retry/backoff controls, and ack-required tracking for endpoint integrations.

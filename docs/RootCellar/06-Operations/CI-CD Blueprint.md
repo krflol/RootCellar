@@ -43,6 +43,10 @@ Parent: [[Environment Matrix]]
     6. Upload bundle + diff outputs + JSONL traces as run artifacts.
 - Workflow: `.github/workflows/batch-recalc-nightly.yml`.
   - Triggers: nightly `schedule` and `workflow_dispatch`.
+  - Benchmark env knobs:
+    - `BATCH_BENCH_RECALC_SYNTHETIC_ENABLED`
+    - `BATCH_BENCH_CHAINS`, `BATCH_BENCH_CHAIN_LENGTH`, `BATCH_BENCH_ITERATIONS`, `BATCH_BENCH_CHANGED_CHAIN`
+    - `BATCH_BENCH_MIN_DURATION_SPEEDUP_RATIO`, `BATCH_BENCH_MAX_EVALUATED_CELLS_RATIO`
   - Optional route config secrets:
     - `ROOTCELLAR_INCIDENT_WEBHOOK_URL`
     - `ROOTCELLAR_DASHBOARD_INGEST_URL`
@@ -74,22 +78,24 @@ Parent: [[Environment Matrix]]
     1. Assemble deterministic nightly compatibility corpus slice (`python/build_batch_nightly_corpus.py`) using generated fixtures + curated workbook samples.
     2. Run workspace tests.
     3. Run `batch recalc` with bounded concurrency and diagnostic detail output over the expanded corpus slice.
-    4. Build throughput trend snapshot + alert-hook payload (`python/build_batch_trend_snapshot.py`) with threshold metadata.
-    5. Dispatch alert payload to configured incident/dashboard ingestion routes (`python/dispatch_batch_alert_hook.py`) and emit dispatch report artifact with auth/retry/ack/idempotency/correlation/replay metadata.
-    6. Build acknowledgement-retention lookup index (`python/build_batch_ack_retention_index.py`) from dispatch output for incident forensics.
-    7. Build dashboard-pack and alert-policy artifacts (`python/build_batch_dashboard_pack.py`) from snapshot + dispatch + ack-retention outputs.
-    8. Build policy-owner escalation metadata + downstream adapter exports (`python/build_batch_policy_adapters.py`) from alert-policy and dashboard-pack artifacts.
-    9. Validate full nightly artifact family against versioned schemas and compatibility contracts (`python/validate_batch_adapter_contracts.py --full-family`).
-    10. Run schema-drift canary checks (`python/validate_batch_schema_canaries.py`) to assert deterministic fail behavior for representative compatibility regressions.
-    11. Run dual-read migration drills (`python/validate_batch_dual_read_migration.py`) to verify producer/consumer overlap and rollback behavior for major-version schema transitions across snapshot/dispatch/ack-retention/dashboard-pack/policy/escalation/adapter artifact families, including optional staged-wave scenarios, fault-injection cases (malformed fallback schemas + partial-wave rollback rehearsal), and structured diagnostics output (`ci-batch-schema-migration-drill.json`).
-    12. Run migration-policy dry-run checks (`python/validate_batch_migration_policy_dry_run.py`) to assert invalid staged-wave specs and unsupported fault-scenario keys are rejected by policy parsing.
-    13. Enforce nightly gate from snapshot + policy status after dispatch routing.
-    14. Assemble standardized artifact bundle directory + manifest prior to upload.
-    15. Upload batch report + JSONL + trend snapshot + alert payload + dispatch report + ack-retention index + dashboard-pack + alert-policy + policy-escalation + adapter-exports + schema-migration-drill diagnostics + assembled corpus manifest/files as run artifacts.
+    4. Optionally run synthetic recalc benchmark (`bench recalc-synthetic`) and publish benchmark report/events artifacts when enabled by policy.
+    5. Build throughput trend snapshot + alert-hook payload (`python/build_batch_trend_snapshot.py`) with threshold metadata.
+    6. Dispatch alert payload to configured incident/dashboard ingestion routes (`python/dispatch_batch_alert_hook.py`) and emit dispatch report artifact with auth/retry/ack/idempotency/correlation/replay metadata.
+    7. Build acknowledgement-retention lookup index (`python/build_batch_ack_retention_index.py`) from dispatch output for incident forensics.
+    8. Build dashboard-pack and alert-policy artifacts (`python/build_batch_dashboard_pack.py`) from snapshot + dispatch + ack-retention outputs.
+    9. Build policy-owner escalation metadata + downstream adapter exports (`python/build_batch_policy_adapters.py`) from alert-policy and dashboard-pack artifacts.
+    10. Validate full nightly artifact family against versioned schemas and compatibility contracts (`python/validate_batch_adapter_contracts.py --full-family`).
+    11. Run schema-drift canary checks (`python/validate_batch_schema_canaries.py`) to assert deterministic fail behavior for representative compatibility regressions.
+    12. Run dual-read migration drills (`python/validate_batch_dual_read_migration.py`) to verify producer/consumer overlap and rollback behavior for major-version schema transitions across snapshot/dispatch/ack-retention/dashboard-pack/policy/escalation/adapter artifact families, including optional staged-wave scenarios, fault-injection cases (malformed fallback schemas + partial-wave rollback rehearsal), and structured diagnostics output (`ci-batch-schema-migration-drill.json`).
+    13. Run migration-policy dry-run checks (`python/validate_batch_migration_policy_dry_run.py`) to assert invalid staged-wave specs and unsupported fault-scenario keys are rejected by policy parsing.
+    14. Enforce nightly gate from snapshot + policy status plus optional synthetic benchmark thresholds.
+    15. Assemble standardized artifact bundle directory + manifest prior to upload.
+    16. Upload batch report + batch/benchmark JSONL + trend snapshot + alert payload + dispatch report + ack-retention index + dashboard-pack + alert-policy + policy-escalation + adapter-exports + schema-migration-drill diagnostics + benchmark report + assembled corpus manifest/files as run artifacts.
 
 ## Failure Handling
 - Auto-create incident ticket for failing nightly gates with regression labels.
 - Nightly batch gate now fails on either throughput snapshot breach or alert-policy breach status.
+- Nightly batch gate also fails when synthetic benchmark thresholds are enabled and violated (`duration_speedup_ratio` below minimum or `evaluated_cells_reduction_ratio` above maximum).
 - Incident/dash adapters consume `ci-batch-policy-escalation.json` + `ci-batch-dashboard-adapter-exports.json` for owner-targeted escalation and dashboard sync.
 - Nightly artifact publication is blocked when schema/compatibility validation fails for snapshot/dispatch/ack-retention/dashboard-pack/policy/escalation/adapter payloads.
 - Nightly artifact publication is also blocked when schema-drift canary assertions fail (unexpected validator pass/fail behavior).

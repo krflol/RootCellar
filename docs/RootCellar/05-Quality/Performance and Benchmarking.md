@@ -17,6 +17,7 @@ Parent: [[Test Strategy]]
 - >10% regression in key SLO metric blocks merge unless waiver approved.
 - Waivers require mitigation issue and target sprint.
 - Nightly batch gate includes minimum throughput threshold checks on deterministic corpus slices (`throughput_files_per_sec`).
+- Nightly batch gate can also enforce synthetic recalc benchmark thresholds (`BATCH_BENCH_MIN_DURATION_SPEEDUP_RATIO`, `BATCH_BENCH_MAX_EVALUATED_CELLS_RATIO`) from `bench recalc-synthetic` summary metrics.
 
 ## Artifact Output
 - Perf samples stored as artifact bundle section `perf/`.

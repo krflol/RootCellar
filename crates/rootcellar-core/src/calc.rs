@@ -88,9 +88,13 @@ enum EvalError {
     DivisionByZero,
 }
 
+type EvalCache = BTreeMap<CellRef, Result<CellValue, EvalError>>;
+
 #[derive(Debug, Clone)]
 enum Expr {
     Number(f64),
+    Text(String),
+    Bool(bool),
     Cell(CellRef),
     Function {
         name: String,
@@ -137,6 +141,7 @@ struct SheetDependencyAnalysis {
     dependency_edge_count: usize,
     formula_edge_count: usize,
     topo_order: Vec<CellRef>,
+    topo_position_by_cell: BTreeMap<CellRef, usize>,
     cyclic_cells: Vec<CellRef>,
     parse_error_cells: Vec<CellRef>,
 }
@@ -178,6 +183,8 @@ impl AstInternPool {
     fn intern_expr(&mut self, expr: &Expr) -> u32 {
         let key = match expr {
             Expr::Number(n) => format!("num:{n:.15}"),
+            Expr::Text(text) => format!("text:{text:?}"),
+            Expr::Bool(value) => format!("bool:{value}"),
             Expr::Cell(cell) => format!("cell:r{}c{}", cell.row, cell.col),
             Expr::Function { name, args } => {
                 let arg_ids = args
@@ -388,7 +395,7 @@ fn recalc_sheet_impl(
     };
     let target_formula_cells = order_formula_cells(&analysis, &target_formula_set);
 
-    let mut cache = BTreeMap::<CellRef, Result<f64, EvalError>>::new();
+    let mut cache = BTreeMap::<CellRef, Result<CellValue, EvalError>>::new();
     let mut cycle_count = 0usize;
     let mut parse_error_count = 0usize;
     let mut duration_by_cell = BTreeMap::<CellRef, u64>::new();
@@ -401,7 +408,7 @@ fn recalc_sheet_impl(
     for cell_ref in &target_formula_cells {
         let mut stack = BTreeSet::new();
         let eval_started = Instant::now();
-        let result = eval_cell(
+        let result = eval_cell_value(
             workbook,
             sheet_name,
             *cell_ref,
@@ -423,7 +430,7 @@ fn recalc_sheet_impl(
             if let Some(cell) = sheet_mut.cells.get_mut(cell_ref) {
                 match result {
                     Ok(value) => {
-                        cell.value = CellValue::Number(value);
+                        cell.value = value;
                     }
                     Err(EvalError::Cycle(_)) => {
                         cycle_count += 1;
@@ -669,6 +676,11 @@ fn build_sheet_dependency_analysis(
 
     let (topo_order, formula_edge_count) =
         build_formula_topological_order(&formula_set, &dependency_refs);
+    let topo_position_by_cell = topo_order
+        .iter()
+        .enumerate()
+        .map(|(idx, cell)| (*cell, idx))
+        .collect::<BTreeMap<_, _>>();
     let topo_set = topo_order.iter().copied().collect::<BTreeSet<_>>();
     let cyclic_cells = formula_set
         .difference(&topo_set)
@@ -688,6 +700,7 @@ fn build_sheet_dependency_analysis(
         dependency_edge_count,
         formula_edge_count,
         topo_order,
+        topo_position_by_cell,
         cyclic_cells,
         parse_error_cells,
     })
@@ -729,18 +742,25 @@ fn order_formula_cells(
     analysis: &SheetDependencyAnalysis,
     target_cells: &BTreeSet<CellRef>,
 ) -> Vec<CellRef> {
-    let mut ordered = analysis
-        .topo_order
-        .iter()
-        .copied()
-        .filter(|cell| target_cells.contains(cell))
-        .collect::<Vec<_>>();
-    let ordered_set = ordered.iter().copied().collect::<BTreeSet<_>>();
-    let mut remaining = target_cells
-        .difference(&ordered_set)
-        .copied()
-        .collect::<Vec<_>>();
+    let mut in_topo = Vec::<(usize, CellRef)>::with_capacity(target_cells.len());
+    let mut remaining = Vec::<CellRef>::new();
+    for cell in target_cells {
+        if let Some(position) = analysis.topo_position_by_cell.get(cell).copied() {
+            in_topo.push((position, *cell));
+        } else {
+            remaining.push(*cell);
+        }
+    }
+
+    in_topo.sort_by(|(pos_a, cell_a), (pos_b, cell_b)| {
+        pos_a.cmp(pos_b).then_with(|| cell_a.cmp(cell_b))
+    });
     remaining.sort();
+
+    let mut ordered = in_topo
+        .into_iter()
+        .map(|(_, cell)| cell)
+        .collect::<Vec<_>>();
     ordered.extend(remaining);
     ordered
 }
@@ -965,11 +985,22 @@ fn build_dag_insights(
     let max_fan_in = node_degrees.iter().map(|n| n.fan_in).max().unwrap_or(0);
     let max_fan_out = node_degrees.iter().map(|n| n.fan_out).max().unwrap_or(0);
 
-    let topo_nodes = analysis
-        .topo_order
+    let mut topo_ranked = target_set
         .iter()
-        .copied()
-        .filter(|cell| target_set.contains(cell))
+        .filter_map(|cell| {
+            analysis
+                .topo_position_by_cell
+                .get(cell)
+                .copied()
+                .map(|position| (position, *cell))
+        })
+        .collect::<Vec<_>>();
+    topo_ranked.sort_by(|(pos_a, cell_a), (pos_b, cell_b)| {
+        pos_a.cmp(pos_b).then_with(|| cell_a.cmp(cell_b))
+    });
+    let topo_nodes = topo_ranked
+        .into_iter()
+        .map(|(_, cell)| cell)
         .collect::<Vec<_>>();
     let critical_path_truncated_by_cycles = topo_nodes.len() < target_set.len();
     let mut best_duration = BTreeMap::<CellRef, u64>::new();
@@ -1079,14 +1110,14 @@ fn build_dag_insights(
     }
 }
 
-fn eval_cell(
+fn eval_cell_value(
     workbook: &Workbook,
     sheet_name: &str,
     cell_ref: CellRef,
     parsed_formulas: &BTreeMap<CellRef, Result<Expr, EvalError>>,
     stack: &mut BTreeSet<CellRef>,
-    cache: &mut BTreeMap<CellRef, Result<f64, EvalError>>,
-) -> Result<f64, EvalError> {
+    cache: &mut EvalCache,
+) -> Result<CellValue, EvalError> {
     if let Some(cached) = cache.get(&cell_ref) {
         return cached.clone();
     }
@@ -1104,20 +1135,25 @@ fn eval_cell(
             if let Some(formula) = &cell.formula {
                 if let Some(parsed) = parsed_formulas.get(&cell_ref) {
                     match parsed {
-                        Ok(expr) => {
-                            eval_expr(workbook, sheet_name, expr, parsed_formulas, stack, cache)
-                        }
+                        Ok(expr) => eval_expr_value(
+                            workbook,
+                            sheet_name,
+                            expr,
+                            parsed_formulas,
+                            stack,
+                            cache,
+                        ),
                         Err(err) => Err(err.clone()),
                     }
                 } else {
                     let parsed = parse_formula_expression(formula)?;
-                    eval_expr(workbook, sheet_name, &parsed, parsed_formulas, stack, cache)
+                    eval_expr_value(workbook, sheet_name, &parsed, parsed_formulas, stack, cache)
                 }
             } else {
-                value_as_number(&cell.value)
+                Ok(cell.value.clone())
             }
         }
-        None => Ok(0.0),
+        None => Ok(CellValue::Empty),
     };
 
     stack.remove(&cell_ref);
@@ -1125,17 +1161,19 @@ fn eval_cell(
     result
 }
 
-fn eval_expr(
+fn eval_expr_value(
     workbook: &Workbook,
     sheet_name: &str,
     expr: &Expr,
     parsed_formulas: &BTreeMap<CellRef, Result<Expr, EvalError>>,
     stack: &mut BTreeSet<CellRef>,
-    cache: &mut BTreeMap<CellRef, Result<f64, EvalError>>,
-) -> Result<f64, EvalError> {
+    cache: &mut EvalCache,
+) -> Result<CellValue, EvalError> {
     match expr {
-        Expr::Number(n) => Ok(*n),
-        Expr::Cell(cell_ref) => eval_cell(
+        Expr::Number(n) => Ok(CellValue::Number(*n)),
+        Expr::Text(text) => Ok(CellValue::Text(text.clone())),
+        Expr::Bool(value) => Ok(CellValue::Bool(*value)),
+        Expr::Cell(cell_ref) => eval_cell_value(
             workbook,
             sheet_name,
             *cell_ref,
@@ -1143,7 +1181,7 @@ fn eval_expr(
             stack,
             cache,
         ),
-        Expr::Function { name, args } => eval_function(
+        Expr::Function { name, args } => eval_function_value(
             workbook,
             sheet_name,
             name,
@@ -1152,17 +1190,81 @@ fn eval_expr(
             stack,
             cache,
         ),
-        Expr::UnaryMinus(inner) => Ok(-eval_expr(
-            workbook,
-            sheet_name,
-            inner,
-            parsed_formulas,
-            stack,
-            cache,
-        )?),
+        Expr::UnaryMinus(inner) => {
+            let value =
+                eval_expr_value(workbook, sheet_name, inner, parsed_formulas, stack, cache)?;
+            Ok(CellValue::Number(-value_as_arithmetic_number(&value)?))
+        }
         Expr::Binary { op, left, right } => {
-            let lhs = eval_expr(workbook, sheet_name, left, parsed_formulas, stack, cache)?;
-            let rhs = eval_expr(workbook, sheet_name, right, parsed_formulas, stack, cache)?;
+            let lhs_value =
+                eval_expr_value(workbook, sheet_name, left, parsed_formulas, stack, cache)?;
+            let rhs_value =
+                eval_expr_value(workbook, sheet_name, right, parsed_formulas, stack, cache)?;
+            let lhs = value_as_arithmetic_number(&lhs_value)?;
+            let rhs = value_as_arithmetic_number(&rhs_value)?;
+            match op {
+                BinaryOp::Add => Ok(CellValue::Number(lhs + rhs)),
+                BinaryOp::Sub => Ok(CellValue::Number(lhs - rhs)),
+                BinaryOp::Mul => Ok(CellValue::Number(lhs * rhs)),
+                BinaryOp::Div => {
+                    if rhs == 0.0 {
+                        Err(EvalError::DivisionByZero)
+                    } else {
+                        Ok(CellValue::Number(lhs / rhs))
+                    }
+                }
+            }
+        }
+    }
+}
+
+fn eval_expr(
+    workbook: &Workbook,
+    sheet_name: &str,
+    expr: &Expr,
+    parsed_formulas: &BTreeMap<CellRef, Result<Expr, EvalError>>,
+    stack: &mut BTreeSet<CellRef>,
+    cache: &mut EvalCache,
+) -> Result<f64, EvalError> {
+    match expr {
+        Expr::Number(n) => Ok(*n),
+        Expr::Text(_) => Ok(0.0),
+        Expr::Bool(value) => Ok(if *value { 1.0 } else { 0.0 }),
+        Expr::Cell(cell_ref) => {
+            let value = eval_cell_value(
+                workbook,
+                sheet_name,
+                *cell_ref,
+                parsed_formulas,
+                stack,
+                cache,
+            )?;
+            value_as_number(&value)
+        }
+        Expr::Function { name, args } => {
+            let value = eval_function_value(
+                workbook,
+                sheet_name,
+                name,
+                args,
+                parsed_formulas,
+                stack,
+                cache,
+            )?;
+            value_as_number(&value)
+        }
+        Expr::UnaryMinus(inner) => {
+            let value =
+                eval_expr_value(workbook, sheet_name, inner, parsed_formulas, stack, cache)?;
+            Ok(-value_as_arithmetic_number(&value)?)
+        }
+        Expr::Binary { op, left, right } => {
+            let lhs_value =
+                eval_expr_value(workbook, sheet_name, left, parsed_formulas, stack, cache)?;
+            let rhs_value =
+                eval_expr_value(workbook, sheet_name, right, parsed_formulas, stack, cache)?;
+            let lhs = value_as_arithmetic_number(&lhs_value)?;
+            let rhs = value_as_arithmetic_number(&rhs_value)?;
             match op {
                 BinaryOp::Add => Ok(lhs + rhs),
                 BinaryOp::Sub => Ok(lhs - rhs),
@@ -1179,21 +1281,56 @@ fn eval_expr(
     }
 }
 
-fn eval_function(
+fn switch_values_equal(left: &CellValue, right: &CellValue) -> Result<bool, EvalError> {
+    match (left, right) {
+        (CellValue::Error(_), _) | (_, CellValue::Error(_)) => Err(EvalError::Parse),
+        (CellValue::Text(left_text), CellValue::Text(right_text)) => Ok(left_text == right_text),
+        (CellValue::Text(_), _) | (_, CellValue::Text(_)) => Ok(false),
+        _ => {
+            let left_number = value_as_number(left)?;
+            let right_number = value_as_number(right)?;
+            Ok(left_number.total_cmp(&right_number).is_eq())
+        }
+    }
+}
+
+fn value_as_condition(value: &CellValue) -> Result<bool, EvalError> {
+    match value {
+        CellValue::Number(n) => Ok(*n != 0.0),
+        CellValue::Bool(value) => Ok(*value),
+        CellValue::Empty => Ok(false),
+        CellValue::Text(text) => {
+            let trimmed = text.trim();
+            if trimmed.is_empty() {
+                return Ok(false);
+            }
+            if trimmed.eq_ignore_ascii_case("TRUE") {
+                return Ok(true);
+            }
+            if trimmed.eq_ignore_ascii_case("FALSE") {
+                return Ok(false);
+            }
+            Ok(parse_text_number(trimmed)? != 0.0)
+        }
+        CellValue::Error(_) => Err(EvalError::Parse),
+    }
+}
+
+fn eval_function_value(
     workbook: &Workbook,
     sheet_name: &str,
     name: &str,
     args: &[Expr],
     parsed_formulas: &BTreeMap<CellRef, Result<Expr, EvalError>>,
     stack: &mut BTreeSet<CellRef>,
-    cache: &mut BTreeMap<CellRef, Result<f64, EvalError>>,
-) -> Result<f64, EvalError> {
+    cache: &mut EvalCache,
+) -> Result<CellValue, EvalError> {
     match name {
         "IF" => {
             if args.len() < 2 || args.len() > 3 {
                 return Err(EvalError::Parse);
             }
-            let condition = eval_expr(
+            let condition_value = eval_expr_value(
                 workbook,
                 sheet_name,
                 &args[0],
@@ -1201,7 +1338,493 @@ fn eval_function(
                 stack,
                 cache,
             )?;
-            if condition != 0.0 {
+            if value_as_condition(&condition_value)? {
+                eval_expr_value(
+                    workbook,
+                    sheet_name,
+                    &args[1],
+                    parsed_formulas,
+                    stack,
+                    cache,
+                )
+            } else if args.len() == 3 {
+                eval_expr_value(
+                    workbook,
+                    sheet_name,
+                    &args[2],
+                    parsed_formulas,
+                    stack,
+                    cache,
+                )
+            } else {
+                Ok(CellValue::Number(0.0))
+            }
+        }
+        "IFERROR" => {
+            if args.len() != 2 {
+                return Err(EvalError::Parse);
+            }
+            match eval_expr_value(
+                workbook,
+                sheet_name,
+                &args[0],
+                parsed_formulas,
+                stack,
+                cache,
+            ) {
+                Ok(CellValue::Error(_)) => eval_expr_value(
+                    workbook,
+                    sheet_name,
+                    &args[1],
+                    parsed_formulas,
+                    stack,
+                    cache,
+                ),
+                Ok(value) => Ok(value),
+                Err(_) => eval_expr_value(
+                    workbook,
+                    sheet_name,
+                    &args[1],
+                    parsed_formulas,
+                    stack,
+                    cache,
+                ),
+            }
+        }
+        "IFS" => {
+            if args.len() < 2 || args.len() % 2 != 0 {
+                return Err(EvalError::Parse);
+            }
+            for pair in args.chunks(2) {
+                let condition_value = eval_expr_value(
+                    workbook,
+                    sheet_name,
+                    &pair[0],
+                    parsed_formulas,
+                    stack,
+                    cache,
+                )?;
+                if value_as_condition(&condition_value)? {
+                    return eval_expr_value(
+                        workbook,
+                        sheet_name,
+                        &pair[1],
+                        parsed_formulas,
+                        stack,
+                        cache,
+                    );
+                }
+            }
+            Err(EvalError::Parse)
+        }
+        "SWITCH" => {
+            if args.len() < 3 {
+                return Err(EvalError::Parse);
+            }
+            let expression_value = eval_expr_value(
+                workbook,
+                sheet_name,
+                &args[0],
+                parsed_formulas,
+                stack,
+                cache,
+            )?;
+            let options = &args[1..];
+            let has_default = options.len() % 2 == 1;
+            let pair_end = if has_default {
+                options.len() - 1
+            } else {
+                options.len()
+            };
+            for idx in (0..pair_end).step_by(2) {
+                let case_value = eval_expr_value(
+                    workbook,
+                    sheet_name,
+                    &options[idx],
+                    parsed_formulas,
+                    stack,
+                    cache,
+                )?;
+                if switch_values_equal(&expression_value, &case_value)? {
+                    return eval_expr_value(
+                        workbook,
+                        sheet_name,
+                        &options[idx + 1],
+                        parsed_formulas,
+                        stack,
+                        cache,
+                    );
+                }
+            }
+            if has_default {
+                eval_expr_value(
+                    workbook,
+                    sheet_name,
+                    &options[pair_end],
+                    parsed_formulas,
+                    stack,
+                    cache,
+                )
+            } else {
+                Err(EvalError::Parse)
+            }
+        }
+        "CHOOSE" => {
+            if args.len() < 2 {
+                return Err(EvalError::Parse);
+            }
+            let index_value = eval_expr(
+                workbook,
+                sheet_name,
+                &args[0],
+                parsed_formulas,
+                stack,
+                cache,
+            )?;
+            let option_index = trunc_f64_to_i64(index_value)?;
+            if option_index < 1 || option_index > (args.len() - 1) as i64 {
+                return Err(EvalError::Parse);
+            }
+            eval_expr_value(
+                workbook,
+                sheet_name,
+                &args[option_index as usize],
+                parsed_formulas,
+                stack,
+                cache,
+            )
+        }
+        "INDEX" => {
+            if args.len() < 2 {
+                return Err(EvalError::Parse);
+            }
+            let index_value = eval_expr(
+                workbook,
+                sheet_name,
+                &args[0],
+                parsed_formulas,
+                stack,
+                cache,
+            )?;
+            let selected_index = trunc_f64_to_i64(index_value)?;
+            if selected_index < 1 || selected_index > (args.len() - 1) as i64 {
+                return Err(EvalError::Parse);
+            }
+            eval_expr_value(
+                workbook,
+                sheet_name,
+                &args[selected_index as usize],
+                parsed_formulas,
+                stack,
+                cache,
+            )
+        }
+        "LOWER" => {
+            if args.len() != 1 {
+                return Err(EvalError::Parse);
+            }
+            let text = eval_expr_as_text(
+                workbook,
+                sheet_name,
+                &args[0],
+                parsed_formulas,
+                stack,
+                cache,
+            )?;
+            Ok(CellValue::Text(text.to_lowercase()))
+        }
+        "UPPER" => {
+            if args.len() != 1 {
+                return Err(EvalError::Parse);
+            }
+            let text = eval_expr_as_text(
+                workbook,
+                sheet_name,
+                &args[0],
+                parsed_formulas,
+                stack,
+                cache,
+            )?;
+            Ok(CellValue::Text(text.to_uppercase()))
+        }
+        "TRIM" => {
+            if args.len() != 1 {
+                return Err(EvalError::Parse);
+            }
+            let text = eval_expr_as_text(
+                workbook,
+                sheet_name,
+                &args[0],
+                parsed_formulas,
+                stack,
+                cache,
+            )?;
+            let trimmed = text.split_whitespace().collect::<Vec<_>>().join(" ");
+            Ok(CellValue::Text(trimmed))
+        }
+        "LEFT" => {
+            if args.is_empty() || args.len() > 2 {
+                return Err(EvalError::Parse);
+            }
+            let text = eval_expr_as_text(
+                workbook,
+                sheet_name,
+                &args[0],
+                parsed_formulas,
+                stack,
+                cache,
+            )?;
+            let count = if args.len() == 2 {
+                parse_non_negative_usize(eval_expr(
+                    workbook,
+                    sheet_name,
+                    &args[1],
+                    parsed_formulas,
+                    stack,
+                    cache,
+                )?)?
+            } else {
+                1
+            };
+            Ok(CellValue::Text(text.chars().take(count).collect()))
+        }
+        "RIGHT" => {
+            if args.is_empty() || args.len() > 2 {
+                return Err(EvalError::Parse);
+            }
+            let text = eval_expr_as_text(
+                workbook,
+                sheet_name,
+                &args[0],
+                parsed_formulas,
+                stack,
+                cache,
+            )?;
+            let count = if args.len() == 2 {
+                parse_non_negative_usize(eval_expr(
+                    workbook,
+                    sheet_name,
+                    &args[1],
+                    parsed_formulas,
+                    stack,
+                    cache,
+                )?)?
+            } else {
+                1
+            };
+            let chars = text.chars().collect::<Vec<_>>();
+            let start = chars.len().saturating_sub(count);
+            Ok(CellValue::Text(chars[start..].iter().collect()))
+        }
+        "MID" => {
+            if args.len() != 3 {
+                return Err(EvalError::Parse);
+            }
+            let text = eval_expr_as_text(
+                workbook,
+                sheet_name,
+                &args[0],
+                parsed_formulas,
+                stack,
+                cache,
+            )?;
+            let start_value = eval_expr(
+                workbook,
+                sheet_name,
+                &args[1],
+                parsed_formulas,
+                stack,
+                cache,
+            )?;
+            let count_value = eval_expr(
+                workbook,
+                sheet_name,
+                &args[2],
+                parsed_formulas,
+                stack,
+                cache,
+            )?;
+            let start = parse_text_start_position(start_value)?;
+            let count = parse_non_negative_usize(count_value)?;
+            let chars = text.chars().collect::<Vec<_>>();
+            if start > chars.len() || count == 0 {
+                return Ok(CellValue::Text(String::new()));
+            }
+            let start_index = start - 1;
+            let end_index = start_index.saturating_add(count).min(chars.len());
+            Ok(CellValue::Text(
+                chars[start_index..end_index].iter().collect(),
+            ))
+        }
+        "SUBSTITUTE" => {
+            if args.len() < 3 || args.len() > 4 {
+                return Err(EvalError::Parse);
+            }
+            let text = eval_expr_as_text(
+                workbook,
+                sheet_name,
+                &args[0],
+                parsed_formulas,
+                stack,
+                cache,
+            )?;
+            let old_text = eval_expr_as_text(
+                workbook,
+                sheet_name,
+                &args[1],
+                parsed_formulas,
+                stack,
+                cache,
+            )?;
+            if old_text.is_empty() {
+                return Err(EvalError::Parse);
+            }
+            let new_text = eval_expr_as_text(
+                workbook,
+                sheet_name,
+                &args[2],
+                parsed_formulas,
+                stack,
+                cache,
+            )?;
+            if args.len() == 4 {
+                let occurrence = parse_positive_usize(eval_expr(
+                    workbook,
+                    sheet_name,
+                    &args[3],
+                    parsed_formulas,
+                    stack,
+                    cache,
+                )?)?;
+                Ok(CellValue::Text(substitute_nth_occurrence(
+                    &text, &old_text, &new_text, occurrence,
+                )))
+            } else {
+                Ok(CellValue::Text(text.replace(&old_text, &new_text)))
+            }
+        }
+        "REPLACE" => {
+            if args.len() != 4 {
+                return Err(EvalError::Parse);
+            }
+            let text = eval_expr_as_text(
+                workbook,
+                sheet_name,
+                &args[0],
+                parsed_formulas,
+                stack,
+                cache,
+            )?;
+            let start = parse_text_start_position(eval_expr(
+                workbook,
+                sheet_name,
+                &args[1],
+                parsed_formulas,
+                stack,
+                cache,
+            )?)?;
+            let count = parse_non_negative_usize(eval_expr(
+                workbook,
+                sheet_name,
+                &args[2],
+                parsed_formulas,
+                stack,
+                cache,
+            )?)?;
+            let replacement = eval_expr_as_text(
+                workbook,
+                sheet_name,
+                &args[3],
+                parsed_formulas,
+                stack,
+                cache,
+            )?;
+            let chars = text.chars().collect::<Vec<_>>();
+            let start_index = start.saturating_sub(1).min(chars.len());
+            let end_index = start_index.saturating_add(count).min(chars.len());
+            let prefix = chars[..start_index].iter().collect::<String>();
+            let suffix = chars[end_index..].iter().collect::<String>();
+            Ok(CellValue::Text(format!("{prefix}{replacement}{suffix}")))
+        }
+        "CONCAT" => {
+            if args.is_empty() {
+                return Err(EvalError::Parse);
+            }
+            let mut joined = String::new();
+            for arg in args {
+                let text =
+                    eval_expr_as_text(workbook, sheet_name, arg, parsed_formulas, stack, cache)?;
+                joined.push_str(&text);
+            }
+            Ok(CellValue::Text(joined))
+        }
+        "TEXTJOIN" => {
+            if args.len() < 3 {
+                return Err(EvalError::Parse);
+            }
+            let delimiter = eval_expr_as_text(
+                workbook,
+                sheet_name,
+                &args[0],
+                parsed_formulas,
+                stack,
+                cache,
+            )?;
+            let ignore_empty = eval_expr(
+                workbook,
+                sheet_name,
+                &args[1],
+                parsed_formulas,
+                stack,
+                cache,
+            )? != 0.0;
+            let mut parts = Vec::with_capacity(args.len().saturating_sub(2));
+            for arg in &args[2..] {
+                let value =
+                    eval_expr_value(workbook, sheet_name, arg, parsed_formulas, stack, cache)?;
+                let text = cell_value_as_text(&value)?;
+                if ignore_empty && text.is_empty() {
+                    continue;
+                }
+                parts.push(text);
+            }
+            Ok(CellValue::Text(parts.join(&delimiter)))
+        }
+        _ => Ok(CellValue::Number(eval_function(
+            workbook,
+            sheet_name,
+            name,
+            args,
+            parsed_formulas,
+            stack,
+            cache,
+        )?)),
+    }
+}
+
+fn eval_function(
+    workbook: &Workbook,
+    sheet_name: &str,
+    name: &str,
+    args: &[Expr],
+    parsed_formulas: &BTreeMap<CellRef, Result<Expr, EvalError>>,
+    stack: &mut BTreeSet<CellRef>,
+    cache: &mut EvalCache,
+) -> Result<f64, EvalError> {
+    match name {
+        "IF" => {
+            if args.len() < 2 || args.len() > 3 {
+                return Err(EvalError::Parse);
+            }
+            let condition_value = eval_expr_value(
+                workbook,
+                sheet_name,
+                &args[0],
+                parsed_formulas,
+                stack,
+                cache,
+            )?;
+            if value_as_condition(&condition_value)? {
                 eval_expr(
                     workbook,
                     sheet_name,
@@ -1244,6 +1867,86 @@ fn eval_function(
                     stack,
                     cache,
                 ),
+            }
+        }
+        "IFS" => {
+            if args.len() < 2 || args.len() % 2 != 0 {
+                return Err(EvalError::Parse);
+            }
+            for pair in args.chunks(2) {
+                let condition_value = eval_expr_value(
+                    workbook,
+                    sheet_name,
+                    &pair[0],
+                    parsed_formulas,
+                    stack,
+                    cache,
+                )?;
+                if value_as_condition(&condition_value)? {
+                    return eval_expr(
+                        workbook,
+                        sheet_name,
+                        &pair[1],
+                        parsed_formulas,
+                        stack,
+                        cache,
+                    );
+                }
+            }
+            Err(EvalError::Parse)
+        }
+        "SWITCH" => {
+            if args.len() < 3 {
+                return Err(EvalError::Parse);
+            }
+            let expression_value = eval_expr_value(
+                workbook,
+                sheet_name,
+                &args[0],
+                parsed_formulas,
+                stack,
+                cache,
+            )?;
+            let options = &args[1..];
+            let has_default = options.len() % 2 == 1;
+            let pair_end = if has_default {
+                options.len() - 1
+            } else {
+                options.len()
+            };
+            let mut idx = 0usize;
+            while idx < pair_end {
+                let case_value = eval_expr_value(
+                    workbook,
+                    sheet_name,
+                    &options[idx],
+                    parsed_formulas,
+                    stack,
+                    cache,
+                )?;
+                if switch_values_equal(&expression_value, &case_value)? {
+                    return eval_expr(
+                        workbook,
+                        sheet_name,
+                        &options[idx + 1],
+                        parsed_formulas,
+                        stack,
+                        cache,
+                    );
+                }
+                idx += 2;
+            }
+            if has_default {
+                eval_expr(
+                    workbook,
+                    sheet_name,
+                    &options[pair_end],
+                    parsed_formulas,
+                    stack,
+                    cache,
+                )
+            } else {
+                Err(EvalError::Parse)
             }
         }
         "CHOOSE" => {
@@ -1681,6 +2384,70 @@ fn eval_function(
             Ok(found as f64)
         }
         _ => {
+            match name {
+                "AND" | "OR" | "XOR" => {
+                    if args.is_empty() {
+                        return Err(EvalError::Parse);
+                    }
+                    let mut bool_values = Vec::<bool>::with_capacity(args.len());
+                    for arg in args {
+                        let value = eval_expr_value(
+                            workbook,
+                            sheet_name,
+                            arg,
+                            parsed_formulas,
+                            stack,
+                            cache,
+                        )?;
+                        bool_values.push(value_as_condition(&value)?);
+                    }
+                    return Ok(match name {
+                        "AND" => {
+                            if bool_values.iter().all(|value| *value) {
+                                1.0
+                            } else {
+                                0.0
+                            }
+                        }
+                        "OR" => {
+                            if bool_values.iter().any(|value| *value) {
+                                1.0
+                            } else {
+                                0.0
+                            }
+                        }
+                        "XOR" => {
+                            let true_count = bool_values.iter().filter(|value| **value).count();
+                            if true_count % 2 == 1 {
+                                1.0
+                            } else {
+                                0.0
+                            }
+                        }
+                        _ => unreachable!(),
+                    });
+                }
+                "NOT" => {
+                    if args.len() != 1 {
+                        return Err(EvalError::Parse);
+                    }
+                    let value = eval_expr_value(
+                        workbook,
+                        sheet_name,
+                        &args[0],
+                        parsed_formulas,
+                        stack,
+                        cache,
+                    )?;
+                    return Ok(if value_as_condition(&value)? {
+                        0.0
+                    } else {
+                        1.0
+                    });
+                }
+                _ => {}
+            }
+
             let mut values = Vec::<f64>::with_capacity(args.len());
             for arg in args {
                 values.push(eval_expr(
@@ -2349,32 +3116,6 @@ fn eval_function(
                         Ok(result as f64)
                     }
                 }
-                "AND" => {
-                    if values.is_empty() {
-                        return Err(EvalError::Parse);
-                    }
-                    Ok(if values.iter().all(|v| *v != 0.0) {
-                        1.0
-                    } else {
-                        0.0
-                    })
-                }
-                "OR" => {
-                    if values.is_empty() {
-                        return Err(EvalError::Parse);
-                    }
-                    Ok(if values.iter().any(|v| *v != 0.0) {
-                        1.0
-                    } else {
-                        0.0
-                    })
-                }
-                "NOT" => {
-                    if values.len() != 1 {
-                        return Err(EvalError::Parse);
-                    }
-                    Ok(if values[0] == 0.0 { 1.0 } else { 0.0 })
-                }
                 "MATCH" => {
                     if values.len() < 2 {
                         return Err(EvalError::Parse);
@@ -2539,7 +3280,7 @@ fn eval_function(
     }
 }
 
-fn eval_status(result: &Result<f64, EvalError>) -> &'static str {
+fn eval_status(result: &Result<CellValue, EvalError>) -> &'static str {
     match result {
         Ok(_) => "ok",
         Err(EvalError::Cycle(_)) => "cycle",
@@ -2564,7 +3305,7 @@ fn parse_formula_expression(formula: &str) -> Result<Expr, EvalError> {
 
 fn collect_expr_references(expr: &Expr, out: &mut BTreeSet<CellRef>) {
     match expr {
-        Expr::Number(_) => {}
+        Expr::Number(_) | Expr::Text(_) | Expr::Bool(_) => {}
         Expr::Cell(cell) => {
             out.insert(*cell);
         }
@@ -2583,7 +3324,7 @@ fn collect_expr_references(expr: &Expr, out: &mut BTreeSet<CellRef>) {
 
 fn count_expr_functions(expr: &Expr) -> usize {
     match expr {
-        Expr::Number(_) | Expr::Cell(_) => 0,
+        Expr::Number(_) | Expr::Text(_) | Expr::Bool(_) | Expr::Cell(_) => 0,
         Expr::Function { args, .. } => 1 + args.iter().map(count_expr_functions).sum::<usize>(),
         Expr::UnaryMinus(inner) => count_expr_functions(inner),
         Expr::Binary { left, right, .. } => {
@@ -2594,7 +3335,7 @@ fn count_expr_functions(expr: &Expr) -> usize {
 
 fn count_expr_nodes(expr: &Expr) -> usize {
     match expr {
-        Expr::Number(_) | Expr::Cell(_) => 1,
+        Expr::Number(_) | Expr::Text(_) | Expr::Bool(_) | Expr::Cell(_) => 1,
         Expr::Function { args, .. } => 1 + args.iter().map(count_expr_nodes).sum::<usize>(),
         Expr::UnaryMinus(inner) => 1 + count_expr_nodes(inner),
         Expr::Binary { left, right, .. } => 1 + count_expr_nodes(left) + count_expr_nodes(right),
@@ -2695,6 +3436,7 @@ impl<'a> FormulaParser<'a> {
                 }
                 Ok(expr)
             }
+            Some('"') => self.parse_string_literal(),
             Some(ch) if ch.is_ascii_digit() || ch == '.' => self.parse_number(),
             Some(ch) if ch.is_ascii_alphabetic() || ch == '_' => self.parse_identifier_expr(),
             _ => Err(EvalError::Parse),
@@ -2755,9 +3497,40 @@ impl<'a> FormulaParser<'a> {
             });
         }
 
+        let upper_token = token.to_ascii_uppercase();
+        if upper_token == "TRUE" {
+            return Ok(Expr::Bool(true));
+        }
+        if upper_token == "FALSE" {
+            return Ok(Expr::Bool(false));
+        }
+
         parse_a1_cell(&token)
             .map(Expr::Cell)
             .ok_or(EvalError::Parse)
+    }
+
+    fn parse_string_literal(&mut self) -> Result<Expr, EvalError> {
+        if self.bump_char() != Some('"') {
+            return Err(EvalError::Parse);
+        }
+
+        let mut value = String::new();
+        loop {
+            match self.bump_char() {
+                Some('"') => {
+                    if self.peek_char() == Some('"') {
+                        self.bump_char();
+                        value.push('"');
+                    } else {
+                        break;
+                    }
+                }
+                Some(ch) => value.push(ch),
+                None => return Err(EvalError::Parse),
+            }
+        }
+        Ok(Expr::Text(value))
     }
 
     fn parse_identifier_token(&mut self) -> Result<String, EvalError> {
@@ -2825,40 +3598,34 @@ fn value_as_number(value: &CellValue) -> Result<f64, EvalError> {
     }
 }
 
+fn value_as_arithmetic_number(value: &CellValue) -> Result<f64, EvalError> {
+    match value {
+        CellValue::Number(n) => Ok(*n),
+        CellValue::Bool(true) => Ok(1.0),
+        CellValue::Bool(false) => Ok(0.0),
+        CellValue::Empty => Ok(0.0),
+        CellValue::Text(text) => {
+            let trimmed = text.trim();
+            if trimmed.is_empty() {
+                Ok(0.0)
+            } else {
+                parse_text_number(trimmed)
+            }
+        }
+        CellValue::Error(_) => Err(EvalError::Parse),
+    }
+}
+
 fn eval_expr_as_text(
     workbook: &Workbook,
     sheet_name: &str,
     expr: &Expr,
     parsed_formulas: &BTreeMap<CellRef, Result<Expr, EvalError>>,
     stack: &mut BTreeSet<CellRef>,
-    cache: &mut BTreeMap<CellRef, Result<f64, EvalError>>,
+    cache: &mut EvalCache,
 ) -> Result<String, EvalError> {
-    match expr {
-        Expr::Cell(cell_ref) => {
-            let maybe_cell = workbook
-                .sheets
-                .get(sheet_name)
-                .and_then(|sheet| sheet.cells.get(cell_ref));
-            match maybe_cell {
-                Some(cell) if cell.formula.is_none() => cell_value_as_text(&cell.value),
-                _ => {
-                    let value = eval_cell(
-                        workbook,
-                        sheet_name,
-                        *cell_ref,
-                        parsed_formulas,
-                        stack,
-                        cache,
-                    )?;
-                    Ok(format_number_for_text(value))
-                }
-            }
-        }
-        _ => {
-            let value = eval_expr(workbook, sheet_name, expr, parsed_formulas, stack, cache)?;
-            Ok(format_number_for_text(value))
-        }
-    }
+    let value = eval_expr_value(workbook, sheet_name, expr, parsed_formulas, stack, cache)?;
+    cell_value_as_text(&value)
 }
 
 fn cell_value_as_text(value: &CellValue) -> Result<String, EvalError> {
@@ -3107,6 +3874,19 @@ fn parse_non_negative_i64(value: f64) -> Result<i64, EvalError> {
     Ok(parsed)
 }
 
+fn parse_non_negative_usize(value: f64) -> Result<usize, EvalError> {
+    let parsed = parse_non_negative_i64(value)?;
+    usize::try_from(parsed).map_err(|_| EvalError::Parse)
+}
+
+fn parse_positive_usize(value: f64) -> Result<usize, EvalError> {
+    let parsed = trunc_f64_to_i64(value)?;
+    if parsed < 1 {
+        return Err(EvalError::Parse);
+    }
+    usize::try_from(parsed).map_err(|_| EvalError::Parse)
+}
+
 const MAX_BIT_OPERAND: u64 = (1u64 << 48) - 1;
 
 fn parse_bit_operand(value: f64) -> Result<u64, EvalError> {
@@ -3201,10 +3981,10 @@ fn trunc_f64_to_i64(value: f64) -> Result<i64, EvalError> {
 
 fn parse_text_start_position(value: f64) -> Result<usize, EvalError> {
     let start = trunc_f64_to_i64(value)?;
-    if start < 1 || start > usize::MAX as i64 {
+    if start < 1 {
         return Err(EvalError::Parse);
     }
-    Ok(start as usize)
+    usize::try_from(start).map_err(|_| EvalError::Parse)
 }
 
 fn parse_text_number(input: &str) -> Result<f64, EvalError> {
@@ -3368,6 +4148,33 @@ fn find_text_position(
     None
 }
 
+fn substitute_nth_occurrence(
+    text: &str,
+    old_text: &str,
+    new_text: &str,
+    occurrence: usize,
+) -> String {
+    let mut seen = 0usize;
+    let mut replaced: Option<(usize, usize)> = None;
+    for (index, matched) in text.match_indices(old_text) {
+        seen = seen.saturating_add(1);
+        if seen == occurrence {
+            replaced = Some((index, matched.len()));
+            break;
+        }
+    }
+
+    if let Some((match_index, match_len)) = replaced {
+        let mut result = String::new();
+        result.push_str(&text[..match_index]);
+        result.push_str(new_text);
+        result.push_str(&text[match_index + match_len..]);
+        result
+    } else {
+        text.to_string()
+    }
+}
+
 fn validated_excel_serial_day(value: f64) -> Result<i64, EvalError> {
     let serial = trunc_f64_to_i64(value)?;
     if serial <= 0 {
@@ -3383,34 +4190,11 @@ fn eval_expr_as_scalar_value(
     expr: &Expr,
     parsed_formulas: &BTreeMap<CellRef, Result<Expr, EvalError>>,
     stack: &mut BTreeSet<CellRef>,
-    cache: &mut BTreeMap<CellRef, Result<f64, EvalError>>,
+    cache: &mut EvalCache,
 ) -> CellValue {
-    match expr {
-        Expr::Cell(cell_ref) => {
-            let maybe_cell = workbook
-                .sheets
-                .get(sheet_name)
-                .and_then(|sheet| sheet.cells.get(cell_ref));
-            match maybe_cell {
-                None => CellValue::Empty,
-                Some(cell) if cell.formula.is_none() => cell.value.clone(),
-                Some(_) => match eval_cell(
-                    workbook,
-                    sheet_name,
-                    *cell_ref,
-                    parsed_formulas,
-                    stack,
-                    cache,
-                ) {
-                    Ok(value) => CellValue::Number(value),
-                    Err(_) => CellValue::Error("#ERROR".to_string()),
-                },
-            }
-        }
-        _ => match eval_expr(workbook, sheet_name, expr, parsed_formulas, stack, cache) {
-            Ok(value) => CellValue::Number(value),
-            Err(_) => CellValue::Error("#ERROR".to_string()),
-        },
+    match eval_expr_value(workbook, sheet_name, expr, parsed_formulas, stack, cache) {
+        Ok(value) => value,
+        Err(_) => CellValue::Error("#ERROR".to_string()),
     }
 }
 
@@ -4058,6 +4842,12 @@ mod tests {
             col: 3,
             value: CellValue::Text("root".to_string()),
         });
+        txn.apply(Mutation::SetCellValue {
+            sheet: "Sheet1".to_string(),
+            row: 1,
+            col: 4,
+            value: CellValue::Text("  Root   Cellar  ".to_string()),
+        });
         txn.apply(Mutation::SetCellFormula {
             sheet: "Sheet1".to_string(),
             row: 2,
@@ -4154,6 +4944,76 @@ mod tests {
             row: 2,
             col: 14,
             formula: "=CODE(A1)".to_string(),
+            cached_value: CellValue::Empty,
+        });
+        txn.apply(Mutation::SetCellFormula {
+            sheet: "Sheet1".to_string(),
+            row: 2,
+            col: 15,
+            formula: "=LOWER(B1)".to_string(),
+            cached_value: CellValue::Empty,
+        });
+        txn.apply(Mutation::SetCellFormula {
+            sheet: "Sheet1".to_string(),
+            row: 2,
+            col: 16,
+            formula: "=UPPER(C1)".to_string(),
+            cached_value: CellValue::Empty,
+        });
+        txn.apply(Mutation::SetCellFormula {
+            sheet: "Sheet1".to_string(),
+            row: 2,
+            col: 17,
+            formula: "=TRIM(D1)".to_string(),
+            cached_value: CellValue::Empty,
+        });
+        txn.apply(Mutation::SetCellFormula {
+            sheet: "Sheet1".to_string(),
+            row: 2,
+            col: 18,
+            formula: "=LEFT(B1,4)".to_string(),
+            cached_value: CellValue::Empty,
+        });
+        txn.apply(Mutation::SetCellFormula {
+            sheet: "Sheet1".to_string(),
+            row: 2,
+            col: 19,
+            formula: "=RIGHT(B1,6)".to_string(),
+            cached_value: CellValue::Empty,
+        });
+        txn.apply(Mutation::SetCellFormula {
+            sheet: "Sheet1".to_string(),
+            row: 2,
+            col: 20,
+            formula: "=MID(B1,5,3)".to_string(),
+            cached_value: CellValue::Empty,
+        });
+        txn.apply(Mutation::SetCellFormula {
+            sheet: "Sheet1".to_string(),
+            row: 2,
+            col: 21,
+            formula: "=LEN(LOWER(B1))".to_string(),
+            cached_value: CellValue::Empty,
+        });
+        txn.apply(Mutation::SetCellFormula {
+            sheet: "Sheet1".to_string(),
+            row: 2,
+            col: 22,
+            formula: "=LEFT(B1)".to_string(),
+            cached_value: CellValue::Empty,
+        });
+        txn.apply(Mutation::SetCellFormula {
+            sheet: "Sheet1".to_string(),
+            row: 2,
+            col: 23,
+            formula: "=RIGHT(B1)".to_string(),
+            cached_value: CellValue::Empty,
+        });
+        txn.apply(Mutation::SetCellFormula {
+            sheet: "Sheet1".to_string(),
+            row: 2,
+            col: 24,
+            formula: "=MID(B1,20,3)".to_string(),
             cached_value: CellValue::Empty,
         });
         txn.commit(&mut wb, &mut sink, &trace).expect("commit");
@@ -4257,6 +5117,76 @@ mod tests {
             .expect("n2")
             .value
             .clone();
+        let o2 = wb
+            .sheets
+            .get("Sheet1")
+            .and_then(|s| s.cells.get(&CellRef { row: 2, col: 15 }))
+            .expect("o2")
+            .value
+            .clone();
+        let p2 = wb
+            .sheets
+            .get("Sheet1")
+            .and_then(|s| s.cells.get(&CellRef { row: 2, col: 16 }))
+            .expect("p2")
+            .value
+            .clone();
+        let q2 = wb
+            .sheets
+            .get("Sheet1")
+            .and_then(|s| s.cells.get(&CellRef { row: 2, col: 17 }))
+            .expect("q2")
+            .value
+            .clone();
+        let r2 = wb
+            .sheets
+            .get("Sheet1")
+            .and_then(|s| s.cells.get(&CellRef { row: 2, col: 18 }))
+            .expect("r2")
+            .value
+            .clone();
+        let s2 = wb
+            .sheets
+            .get("Sheet1")
+            .and_then(|s| s.cells.get(&CellRef { row: 2, col: 19 }))
+            .expect("s2")
+            .value
+            .clone();
+        let t2 = wb
+            .sheets
+            .get("Sheet1")
+            .and_then(|s| s.cells.get(&CellRef { row: 2, col: 20 }))
+            .expect("t2")
+            .value
+            .clone();
+        let u2 = wb
+            .sheets
+            .get("Sheet1")
+            .and_then(|s| s.cells.get(&CellRef { row: 2, col: 21 }))
+            .expect("u2")
+            .value
+            .clone();
+        let v2 = wb
+            .sheets
+            .get("Sheet1")
+            .and_then(|s| s.cells.get(&CellRef { row: 2, col: 22 }))
+            .expect("v2")
+            .value
+            .clone();
+        let w2 = wb
+            .sheets
+            .get("Sheet1")
+            .and_then(|s| s.cells.get(&CellRef { row: 2, col: 23 }))
+            .expect("w2")
+            .value
+            .clone();
+        let x2 = wb
+            .sheets
+            .get("Sheet1")
+            .and_then(|s| s.cells.get(&CellRef { row: 2, col: 24 }))
+            .expect("x2")
+            .value
+            .clone();
 
         assert_eq!(a2, CellValue::Number(1.0));
         assert_eq!(b2, CellValue::Number(0.0));
@@ -4272,6 +5202,16 @@ mod tests {
         assert_eq!(l2, CellValue::Number(9.0));
         assert_eq!(m2, CellValue::Number(9.0));
         assert_eq!(n2, CellValue::Number(67.0));
+        assert_eq!(o2, CellValue::Text("rootcellar".to_string()));
+        assert_eq!(p2, CellValue::Text("ROOT".to_string()));
+        assert_eq!(q2, CellValue::Text("Root Cellar".to_string()));
+        assert_eq!(r2, CellValue::Text("Root".to_string()));
+        assert_eq!(s2, CellValue::Text("Cellar".to_string()));
+        assert_eq!(t2, CellValue::Text("Cel".to_string()));
+        assert_eq!(u2, CellValue::Number(10.0));
+        assert_eq!(v2, CellValue::Text("R".to_string()));
+        assert_eq!(w2, CellValue::Text("r".to_string()));
+        assert_eq!(x2, CellValue::Text(String::new()));
     }
 
     #[test]
@@ -4343,6 +5283,1183 @@ mod tests {
         assert_eq!(a2, CellValue::Error("#PARSE!".to_string()));
         assert_eq!(b2, CellValue::Error("#PARSE!".to_string()));
         assert_eq!(c2, CellValue::Error("#PARSE!".to_string()));
+    }
+
+    #[test]
+    fn text_transform_invalid_inputs_yield_parse_error() {
+        let mut wb = Workbook::new();
+        let mut sink = NoopEventSink;
+        let trace = TraceContext::root();
+
+        let mut txn = wb.begin_txn(&mut sink, &trace).expect("begin");
+        txn.apply(Mutation::SetCellValue {
+            sheet: "Sheet1".to_string(),
+            row: 1,
+            col: 1,
+            value: CellValue::Text("RootCellar".to_string()),
+        });
+        txn.apply(Mutation::SetCellFormula {
+            sheet: "Sheet1".to_string(),
+            row: 2,
+            col: 1,
+            formula: "=LEFT(A1,-1)".to_string(),
+            cached_value: CellValue::Empty,
+        });
+        txn.apply(Mutation::SetCellFormula {
+            sheet: "Sheet1".to_string(),
+            row: 2,
+            col: 2,
+            formula: "=RIGHT(A1,-1)".to_string(),
+            cached_value: CellValue::Empty,
+        });
+        txn.apply(Mutation::SetCellFormula {
+            sheet: "Sheet1".to_string(),
+            row: 2,
+            col: 3,
+            formula: "=MID(A1,0,1)".to_string(),
+            cached_value: CellValue::Empty,
+        });
+        txn.apply(Mutation::SetCellFormula {
+            sheet: "Sheet1".to_string(),
+            row: 2,
+            col: 4,
+            formula: "=MID(A1,1,-1)".to_string(),
+            cached_value: CellValue::Empty,
+        });
+        txn.apply(Mutation::SetCellFormula {
+            sheet: "Sheet1".to_string(),
+            row: 2,
+            col: 5,
+            formula: "=LOWER()".to_string(),
+            cached_value: CellValue::Empty,
+        });
+        txn.apply(Mutation::SetCellFormula {
+            sheet: "Sheet1".to_string(),
+            row: 2,
+            col: 6,
+            formula: "=TRIM(A1,A1)".to_string(),
+            cached_value: CellValue::Empty,
+        });
+        txn.commit(&mut wb, &mut sink, &trace).expect("commit");
+
+        let report = recalc_sheet(&mut wb, "Sheet1", &mut sink, &trace).expect("recalc");
+        assert_eq!(report.parse_error_count, 6);
+
+        let value_at = |col: u32| -> CellValue {
+            wb.sheets
+                .get("Sheet1")
+                .and_then(|s| s.cells.get(&CellRef { row: 2, col }))
+                .expect("cell")
+                .value
+                .clone()
+        };
+
+        assert_eq!(value_at(1), CellValue::Error("#PARSE!".to_string()));
+        assert_eq!(value_at(2), CellValue::Error("#PARSE!".to_string()));
+        assert_eq!(value_at(3), CellValue::Error("#PARSE!".to_string()));
+        assert_eq!(value_at(4), CellValue::Error("#PARSE!".to_string()));
+        assert_eq!(value_at(5), CellValue::Error("#PARSE!".to_string()));
+        assert_eq!(value_at(6), CellValue::Error("#PARSE!".to_string()));
+    }
+
+    #[test]
+    fn evaluates_text_composition_extension_functions() {
+        let mut wb = Workbook::new();
+        let mut sink = NoopEventSink;
+        let trace = TraceContext::root();
+
+        let mut txn = wb.begin_txn(&mut sink, &trace).expect("begin");
+        txn.apply(Mutation::SetCellValue {
+            sheet: "Sheet1".to_string(),
+            row: 1,
+            col: 1,
+            value: CellValue::Text("Root Cellar Root".to_string()),
+        });
+        txn.apply(Mutation::SetCellValue {
+            sheet: "Sheet1".to_string(),
+            row: 1,
+            col: 2,
+            value: CellValue::Text("Root".to_string()),
+        });
+        txn.apply(Mutation::SetCellValue {
+            sheet: "Sheet1".to_string(),
+            row: 1,
+            col: 3,
+            value: CellValue::Text("Barrel".to_string()),
+        });
+        txn.apply(Mutation::SetCellValue {
+            sheet: "Sheet1".to_string(),
+            row: 1,
+            col: 4,
+            value: CellValue::Text("|".to_string()),
+        });
+        txn.apply(Mutation::SetCellValue {
+            sheet: "Sheet1".to_string(),
+            row: 1,
+            col: 6,
+            value: CellValue::Number(42.0),
+        });
+        txn.apply(Mutation::SetCellValue {
+            sheet: "Sheet1".to_string(),
+            row: 1,
+            col: 7,
+            value: CellValue::Bool(true),
+        });
+        txn.apply(Mutation::SetCellValue {
+            sheet: "Sheet1".to_string(),
+            row: 1,
+            col: 8,
+            value: CellValue::Text(String::new()),
+        });
+
+        txn.apply(Mutation::SetCellFormula {
+            sheet: "Sheet1".to_string(),
+            row: 2,
+            col: 1,
+            formula: "=SUBSTITUTE(A1,B1,C1)".to_string(),
+            cached_value: CellValue::Empty,
+        });
+        txn.apply(Mutation::SetCellFormula {
+            sheet: "Sheet1".to_string(),
+            row: 2,
+            col: 2,
+            formula: "=SUBSTITUTE(A1,B1,C1,2)".to_string(),
+            cached_value: CellValue::Empty,
+        });
+        txn.apply(Mutation::SetCellFormula {
+            sheet: "Sheet1".to_string(),
+            row: 2,
+            col: 3,
+            formula: "=SUBSTITUTE(A1,B1,C1,5)".to_string(),
+            cached_value: CellValue::Empty,
+        });
+        txn.apply(Mutation::SetCellFormula {
+            sheet: "Sheet1".to_string(),
+            row: 2,
+            col: 4,
+            formula: "=REPLACE(A1,6,6,C1)".to_string(),
+            cached_value: CellValue::Empty,
+        });
+        txn.apply(Mutation::SetCellFormula {
+            sheet: "Sheet1".to_string(),
+            row: 2,
+            col: 5,
+            formula: "=REPLACE(A1,20,3,C1)".to_string(),
+            cached_value: CellValue::Empty,
+        });
+        txn.apply(Mutation::SetCellFormula {
+            sheet: "Sheet1".to_string(),
+            row: 2,
+            col: 6,
+            formula: "=REPLACE(B1,1,0,C1)".to_string(),
+            cached_value: CellValue::Empty,
+        });
+        txn.apply(Mutation::SetCellFormula {
+            sheet: "Sheet1".to_string(),
+            row: 2,
+            col: 7,
+            formula: "=CONCAT(B1,D1,C1,D1,F1)".to_string(),
+            cached_value: CellValue::Empty,
+        });
+        txn.apply(Mutation::SetCellFormula {
+            sheet: "Sheet1".to_string(),
+            row: 2,
+            col: 8,
+            formula: "=TEXTJOIN(D1,1,B1,H1,C1,E1,F1)".to_string(),
+            cached_value: CellValue::Empty,
+        });
+        txn.apply(Mutation::SetCellFormula {
+            sheet: "Sheet1".to_string(),
+            row: 2,
+            col: 9,
+            formula: "=TEXTJOIN(D1,0,B1,H1,C1,E1,F1)".to_string(),
+            cached_value: CellValue::Empty,
+        });
+        txn.apply(Mutation::SetCellFormula {
+            sheet: "Sheet1".to_string(),
+            row: 2,
+            col: 10,
+            formula: "=TEXTJOIN(D1,1,B1,G1,C1)".to_string(),
+            cached_value: CellValue::Empty,
+        });
+        txn.apply(Mutation::SetCellFormula {
+            sheet: "Sheet1".to_string(),
+            row: 2,
+            col: 11,
+            formula: "=LEN(CONCAT(B1,C1))".to_string(),
+            cached_value: CellValue::Empty,
+        });
+        txn.apply(Mutation::SetCellFormula {
+            sheet: "Sheet1".to_string(),
+            row: 2,
+            col: 12,
+            formula: "=TEXTJOIN(D1,1,H1,E1)".to_string(),
+            cached_value: CellValue::Empty,
+        });
+        txn.commit(&mut wb, &mut sink, &trace).expect("commit");
+
+        recalc_sheet(&mut wb, "Sheet1", &mut sink, &trace).expect("recalc");
+
+        let value_at = |col: u32| -> CellValue {
+            wb.sheets
+                .get("Sheet1")
+                .and_then(|s| s.cells.get(&CellRef { row: 2, col }))
+                .expect("cell")
+                .value
+                .clone()
+        };
+
+        assert_eq!(
+            value_at(1),
+            CellValue::Text("Barrel Cellar Barrel".to_string())
+        );
+        assert_eq!(
+            value_at(2),
+            CellValue::Text("Root Cellar Barrel".to_string())
+        );
+        assert_eq!(value_at(3), CellValue::Text("Root Cellar Root".to_string()));
+        assert_eq!(value_at(4), CellValue::Text("Root Barrel Root".to_string()));
+        assert_eq!(
+            value_at(5),
+            CellValue::Text("Root Cellar RootBarrel".to_string())
+        );
+        assert_eq!(value_at(6), CellValue::Text("BarrelRoot".to_string()));
+        assert_eq!(value_at(7), CellValue::Text("Root|Barrel|42".to_string()));
+        assert_eq!(value_at(8), CellValue::Text("Root|Barrel|42".to_string()));
+        assert_eq!(value_at(9), CellValue::Text("Root||Barrel||42".to_string()));
+        assert_eq!(
+            value_at(10),
+            CellValue::Text("Root|TRUE|Barrel".to_string())
+        );
+        assert_eq!(value_at(11), CellValue::Number(10.0));
+        assert_eq!(value_at(12), CellValue::Text(String::new()));
+    }
+
+    #[test]
+    fn text_composition_invalid_inputs_yield_parse_error() {
+        let mut wb = Workbook::new();
+        let mut sink = NoopEventSink;
+        let trace = TraceContext::root();
+
+        let mut txn = wb.begin_txn(&mut sink, &trace).expect("begin");
+        txn.apply(Mutation::SetCellValue {
+            sheet: "Sheet1".to_string(),
+            row: 1,
+            col: 1,
+            value: CellValue::Text("Root Cellar".to_string()),
+        });
+        txn.apply(Mutation::SetCellValue {
+            sheet: "Sheet1".to_string(),
+            row: 1,
+            col: 2,
+            value: CellValue::Text("Root".to_string()),
+        });
+        txn.apply(Mutation::SetCellValue {
+            sheet: "Sheet1".to_string(),
+            row: 1,
+            col: 3,
+            value: CellValue::Text("Barrel".to_string()),
+        });
+        txn.apply(Mutation::SetCellValue {
+            sheet: "Sheet1".to_string(),
+            row: 1,
+            col: 4,
+            value: CellValue::Text("|".to_string()),
+        });
+        txn.apply(Mutation::SetCellValue {
+            sheet: "Sheet1".to_string(),
+            row: 1,
+            col: 5,
+            value: CellValue::Text(String::new()),
+        });
+
+        txn.apply(Mutation::SetCellFormula {
+            sheet: "Sheet1".to_string(),
+            row: 2,
+            col: 1,
+            formula: "=SUBSTITUTE(A1,B1)".to_string(),
+            cached_value: CellValue::Empty,
+        });
+        txn.apply(Mutation::SetCellFormula {
+            sheet: "Sheet1".to_string(),
+            row: 2,
+            col: 2,
+            formula: "=SUBSTITUTE(A1,B1,C1,0)".to_string(),
+            cached_value: CellValue::Empty,
+        });
+        txn.apply(Mutation::SetCellFormula {
+            sheet: "Sheet1".to_string(),
+            row: 2,
+            col: 3,
+            formula: "=SUBSTITUTE(A1,B1,C1,-1)".to_string(),
+            cached_value: CellValue::Empty,
+        });
+        txn.apply(Mutation::SetCellFormula {
+            sheet: "Sheet1".to_string(),
+            row: 2,
+            col: 4,
+            formula: "=SUBSTITUTE(A1,E1,C1)".to_string(),
+            cached_value: CellValue::Empty,
+        });
+        txn.apply(Mutation::SetCellFormula {
+            sheet: "Sheet1".to_string(),
+            row: 2,
+            col: 5,
+            formula: "=SUBSTITUTE(A1,B1,C1,1,2)".to_string(),
+            cached_value: CellValue::Empty,
+        });
+        txn.apply(Mutation::SetCellFormula {
+            sheet: "Sheet1".to_string(),
+            row: 2,
+            col: 6,
+            formula: "=REPLACE(A1,0,1,C1)".to_string(),
+            cached_value: CellValue::Empty,
+        });
+        txn.apply(Mutation::SetCellFormula {
+            sheet: "Sheet1".to_string(),
+            row: 2,
+            col: 7,
+            formula: "=REPLACE(A1,1,-1,C1)".to_string(),
+            cached_value: CellValue::Empty,
+        });
+        txn.apply(Mutation::SetCellFormula {
+            sheet: "Sheet1".to_string(),
+            row: 2,
+            col: 8,
+            formula: "=REPLACE(A1,1,1)".to_string(),
+            cached_value: CellValue::Empty,
+        });
+        txn.apply(Mutation::SetCellFormula {
+            sheet: "Sheet1".to_string(),
+            row: 2,
+            col: 9,
+            formula: "=CONCAT()".to_string(),
+            cached_value: CellValue::Empty,
+        });
+        txn.apply(Mutation::SetCellFormula {
+            sheet: "Sheet1".to_string(),
+            row: 2,
+            col: 10,
+            formula: "=TEXTJOIN(D1,1)".to_string(),
+            cached_value: CellValue::Empty,
+        });
+        txn.commit(&mut wb, &mut sink, &trace).expect("commit");
+
+        let report = recalc_sheet(&mut wb, "Sheet1", &mut sink, &trace).expect("recalc");
+        assert_eq!(report.parse_error_count, 10);
+
+        let value_at = |col: u32| -> CellValue {
+            wb.sheets
+                .get("Sheet1")
+                .and_then(|s| s.cells.get(&CellRef { row: 2, col }))
+                .expect("cell")
+                .value
+                .clone()
+        };
+
+        assert_eq!(value_at(1), CellValue::Error("#PARSE!".to_string()));
+        assert_eq!(value_at(2), CellValue::Error("#PARSE!".to_string()));
+        assert_eq!(value_at(3), CellValue::Error("#PARSE!".to_string()));
+        assert_eq!(value_at(4), CellValue::Error("#PARSE!".to_string()));
+        assert_eq!(value_at(5), CellValue::Error("#PARSE!".to_string()));
+        assert_eq!(value_at(6), CellValue::Error("#PARSE!".to_string()));
+        assert_eq!(value_at(7), CellValue::Error("#PARSE!".to_string()));
+        assert_eq!(value_at(8), CellValue::Error("#PARSE!".to_string()));
+        assert_eq!(value_at(9), CellValue::Error("#PARSE!".to_string()));
+        assert_eq!(value_at(10), CellValue::Error("#PARSE!".to_string()));
+    }
+
+    #[test]
+    fn evaluates_formula_text_and_boolean_literals() {
+        let mut wb = Workbook::new();
+        let mut sink = NoopEventSink;
+        let trace = TraceContext::root();
+
+        let mut txn = wb.begin_txn(&mut sink, &trace).expect("begin");
+        txn.apply(Mutation::SetCellValue {
+            sheet: "Sheet1".to_string(),
+            row: 2,
+            col: 1,
+            value: CellValue::Error("#N/A".to_string()),
+        });
+        txn.apply(Mutation::SetCellValue {
+            sheet: "Sheet1".to_string(),
+            row: 2,
+            col: 2,
+            value: CellValue::Text("barrel".to_string()),
+        });
+        txn.apply(Mutation::SetCellValue {
+            sheet: "Sheet1".to_string(),
+            row: 2,
+            col: 3,
+            value: CellValue::Bool(false),
+        });
+        txn.apply(Mutation::SetCellFormula {
+            sheet: "Sheet1".to_string(),
+            row: 1,
+            col: 1,
+            formula: "=\"Root\"".to_string(),
+            cached_value: CellValue::Empty,
+        });
+        txn.apply(Mutation::SetCellFormula {
+            sheet: "Sheet1".to_string(),
+            row: 1,
+            col: 2,
+            formula: "=CONCAT(\"Root\",\"Cellar\")".to_string(),
+            cached_value: CellValue::Empty,
+        });
+        txn.apply(Mutation::SetCellFormula {
+            sheet: "Sheet1".to_string(),
+            row: 1,
+            col: 3,
+            formula: "=CONCAT(\"He said \"\"Hi\"\"\",\"!\")".to_string(),
+            cached_value: CellValue::Empty,
+        });
+        txn.apply(Mutation::SetCellFormula {
+            sheet: "Sheet1".to_string(),
+            row: 1,
+            col: 4,
+            formula: "=IF(TRUE,10,20)".to_string(),
+            cached_value: CellValue::Empty,
+        });
+        txn.apply(Mutation::SetCellFormula {
+            sheet: "Sheet1".to_string(),
+            row: 1,
+            col: 5,
+            formula: "=IF(FALSE,10,20)".to_string(),
+            cached_value: CellValue::Empty,
+        });
+        txn.apply(Mutation::SetCellFormula {
+            sheet: "Sheet1".to_string(),
+            row: 1,
+            col: 6,
+            formula: "=N(TRUE)".to_string(),
+            cached_value: CellValue::Empty,
+        });
+        txn.apply(Mutation::SetCellFormula {
+            sheet: "Sheet1".to_string(),
+            row: 1,
+            col: 7,
+            formula: "=N(FALSE)".to_string(),
+            cached_value: CellValue::Empty,
+        });
+        txn.apply(Mutation::SetCellFormula {
+            sheet: "Sheet1".to_string(),
+            row: 1,
+            col: 8,
+            formula: "=TEXTJOIN(\"|\",TRUE,\"A\",\"\",\"B\")".to_string(),
+            cached_value: CellValue::Empty,
+        });
+        txn.apply(Mutation::SetCellFormula {
+            sheet: "Sheet1".to_string(),
+            row: 1,
+            col: 9,
+            formula: "=TEXTJOIN(\"|\",FALSE,\"A\",\"\",\"B\")".to_string(),
+            cached_value: CellValue::Empty,
+        });
+        txn.apply(Mutation::SetCellFormula {
+            sheet: "Sheet1".to_string(),
+            row: 1,
+            col: 10,
+            formula: "=SUBSTITUTE(\"Root Root\",\"Root\",\"Cellar\",2)".to_string(),
+            cached_value: CellValue::Empty,
+        });
+        txn.apply(Mutation::SetCellFormula {
+            sheet: "Sheet1".to_string(),
+            row: 1,
+            col: 11,
+            formula: "=TRUE+1".to_string(),
+            cached_value: CellValue::Empty,
+        });
+        txn.apply(Mutation::SetCellFormula {
+            sheet: "Sheet1".to_string(),
+            row: 1,
+            col: 12,
+            formula: "=LOWER(\"RoOt\")".to_string(),
+            cached_value: CellValue::Empty,
+        });
+        txn.apply(Mutation::SetCellFormula {
+            sheet: "Sheet1".to_string(),
+            row: 1,
+            col: 13,
+            formula: "=IF(TRUE,\"Yes\",\"No\")".to_string(),
+            cached_value: CellValue::Empty,
+        });
+        txn.apply(Mutation::SetCellFormula {
+            sheet: "Sheet1".to_string(),
+            row: 1,
+            col: 14,
+            formula: "=IF(FALSE,TRUE,FALSE)".to_string(),
+            cached_value: CellValue::Empty,
+        });
+        txn.apply(Mutation::SetCellFormula {
+            sheet: "Sheet1".to_string(),
+            row: 1,
+            col: 15,
+            formula: "=IFS(FALSE,\"A\",TRUE,\"B\")".to_string(),
+            cached_value: CellValue::Empty,
+        });
+        txn.apply(Mutation::SetCellFormula {
+            sheet: "Sheet1".to_string(),
+            row: 1,
+            col: 16,
+            formula: "=SWITCH(2,1,\"one\",2,\"two\",\"other\")".to_string(),
+            cached_value: CellValue::Empty,
+        });
+        txn.apply(Mutation::SetCellFormula {
+            sheet: "Sheet1".to_string(),
+            row: 1,
+            col: 17,
+            formula: "=SWITCH(3,1,\"one\",2,\"two\",\"other\")".to_string(),
+            cached_value: CellValue::Empty,
+        });
+        txn.apply(Mutation::SetCellFormula {
+            sheet: "Sheet1".to_string(),
+            row: 1,
+            col: 18,
+            formula: "=CHOOSE(2,10,\"pick\",TRUE)".to_string(),
+            cached_value: CellValue::Empty,
+        });
+        txn.apply(Mutation::SetCellFormula {
+            sheet: "Sheet1".to_string(),
+            row: 1,
+            col: 19,
+            formula: "=INDEX(3,10,\"pick\",TRUE)".to_string(),
+            cached_value: CellValue::Empty,
+        });
+        txn.apply(Mutation::SetCellFormula {
+            sheet: "Sheet1".to_string(),
+            row: 1,
+            col: 20,
+            formula: "=IFERROR(1/0,\"fallback\")".to_string(),
+            cached_value: CellValue::Empty,
+        });
+        txn.apply(Mutation::SetCellFormula {
+            sheet: "Sheet1".to_string(),
+            row: 1,
+            col: 21,
+            formula: "=IFERROR(\"ok\",\"fallback\")".to_string(),
+            cached_value: CellValue::Empty,
+        });
+        txn.apply(Mutation::SetCellFormula {
+            sheet: "Sheet1".to_string(),
+            row: 1,
+            col: 22,
+            formula: "=IFERROR(A2,\"fallback-from-cell-error\")".to_string(),
+            cached_value: CellValue::Empty,
+        });
+        txn.apply(Mutation::SetCellFormula {
+            sheet: "Sheet1".to_string(),
+            row: 1,
+            col: 23,
+            formula: "=IFERROR(IF(TRUE,A2,0),TRUE)".to_string(),
+            cached_value: CellValue::Empty,
+        });
+        txn.apply(Mutation::SetCellFormula {
+            sheet: "Sheet1".to_string(),
+            row: 1,
+            col: 24,
+            formula: "=IFERROR(IF(FALSE,A2,\"ok\"),\"fallback\")".to_string(),
+            cached_value: CellValue::Empty,
+        });
+        txn.apply(Mutation::SetCellFormula {
+            sheet: "Sheet1".to_string(),
+            row: 1,
+            col: 25,
+            formula: "=SWITCH(\"beta\",\"alpha\",\"A\",\"beta\",\"B\",\"Z\")".to_string(),
+            cached_value: CellValue::Empty,
+        });
+        txn.apply(Mutation::SetCellFormula {
+            sheet: "Sheet1".to_string(),
+            row: 1,
+            col: 26,
+            formula: "=SWITCH(TRUE,FALSE,\"no\",TRUE,\"yes\",\"default\")".to_string(),
+            cached_value: CellValue::Empty,
+        });
+        txn.apply(Mutation::SetCellFormula {
+            sheet: "Sheet1".to_string(),
+            row: 1,
+            col: 27,
+            formula: "=SWITCH(FALSE,\"text-case\",1,TRUE,2,\"none\")".to_string(),
+            cached_value: CellValue::Empty,
+        });
+        txn.apply(Mutation::SetCellFormula {
+            sheet: "Sheet1".to_string(),
+            row: 1,
+            col: 28,
+            formula: "=SWITCH(B2,\"root\",\"R\",\"barrel\",\"B\",\"X\")".to_string(),
+            cached_value: CellValue::Empty,
+        });
+        txn.apply(Mutation::SetCellFormula {
+            sheet: "Sheet1".to_string(),
+            row: 1,
+            col: 29,
+            formula: "=SWITCH(C2,TRUE,\"T\",FALSE,\"F\",\"D\")".to_string(),
+            cached_value: CellValue::Empty,
+        });
+        txn.commit(&mut wb, &mut sink, &trace).expect("commit");
+
+        let report = recalc_sheet(&mut wb, "Sheet1", &mut sink, &trace).expect("recalc");
+        assert_eq!(report.parse_error_count, 0);
+
+        let value_at = |col: u32| -> CellValue {
+            wb.sheets
+                .get("Sheet1")
+                .and_then(|s| s.cells.get(&CellRef { row: 1, col }))
+                .expect("cell")
+                .value
+                .clone()
+        };
+
+        assert_eq!(value_at(1), CellValue::Text("Root".to_string()));
+        assert_eq!(value_at(2), CellValue::Text("RootCellar".to_string()));
+        assert_eq!(value_at(3), CellValue::Text("He said \"Hi\"!".to_string()));
+        assert_eq!(value_at(4), CellValue::Number(10.0));
+        assert_eq!(value_at(5), CellValue::Number(20.0));
+        assert_eq!(value_at(6), CellValue::Number(1.0));
+        assert_eq!(value_at(7), CellValue::Number(0.0));
+        assert_eq!(value_at(8), CellValue::Text("A|B".to_string()));
+        assert_eq!(value_at(9), CellValue::Text("A||B".to_string()));
+        assert_eq!(value_at(10), CellValue::Text("Root Cellar".to_string()));
+        assert_eq!(value_at(11), CellValue::Number(2.0));
+        assert_eq!(value_at(12), CellValue::Text("root".to_string()));
+        assert_eq!(value_at(13), CellValue::Text("Yes".to_string()));
+        assert_eq!(value_at(14), CellValue::Bool(false));
+        assert_eq!(value_at(15), CellValue::Text("B".to_string()));
+        assert_eq!(value_at(16), CellValue::Text("two".to_string()));
+        assert_eq!(value_at(17), CellValue::Text("other".to_string()));
+        assert_eq!(value_at(18), CellValue::Text("pick".to_string()));
+        assert_eq!(value_at(19), CellValue::Bool(true));
+        assert_eq!(value_at(20), CellValue::Text("fallback".to_string()));
+        assert_eq!(value_at(21), CellValue::Text("ok".to_string()));
+        assert_eq!(
+            value_at(22),
+            CellValue::Text("fallback-from-cell-error".to_string())
+        );
+        assert_eq!(value_at(23), CellValue::Bool(true));
+        assert_eq!(value_at(24), CellValue::Text("ok".to_string()));
+        assert_eq!(value_at(25), CellValue::Text("B".to_string()));
+        assert_eq!(value_at(26), CellValue::Text("yes".to_string()));
+        assert_eq!(value_at(27), CellValue::Text("none".to_string()));
+        assert_eq!(value_at(28), CellValue::Text("B".to_string()));
+        assert_eq!(value_at(29), CellValue::Text("F".to_string()));
+    }
+
+    #[test]
+    fn literal_formula_invalid_inputs_yield_parse_error() {
+        let mut wb = Workbook::new();
+        let mut sink = NoopEventSink;
+        let trace = TraceContext::root();
+
+        let mut txn = wb.begin_txn(&mut sink, &trace).expect("begin");
+        txn.apply(Mutation::SetCellFormula {
+            sheet: "Sheet1".to_string(),
+            row: 1,
+            col: 1,
+            formula: "=CONCAT(\"unterminated)".to_string(),
+            cached_value: CellValue::Empty,
+        });
+        txn.apply(Mutation::SetCellFormula {
+            sheet: "Sheet1".to_string(),
+            row: 1,
+            col: 2,
+            formula: "=\"still unterminated".to_string(),
+            cached_value: CellValue::Empty,
+        });
+        txn.apply(Mutation::SetCellFormula {
+            sheet: "Sheet1".to_string(),
+            row: 1,
+            col: 3,
+            formula: "=IF(TRUE(),1,0)".to_string(),
+            cached_value: CellValue::Empty,
+        });
+        txn.apply(Mutation::SetCellFormula {
+            sheet: "Sheet1".to_string(),
+            row: 1,
+            col: 4,
+            formula: "=TRUEFALSE".to_string(),
+            cached_value: CellValue::Empty,
+        });
+        txn.apply(Mutation::SetCellFormula {
+            sheet: "Sheet1".to_string(),
+            row: 1,
+            col: 5,
+            formula: "=TEXTJOIN(\"|\",TRUE)".to_string(),
+            cached_value: CellValue::Empty,
+        });
+        txn.commit(&mut wb, &mut sink, &trace).expect("commit");
+
+        let report = recalc_sheet(&mut wb, "Sheet1", &mut sink, &trace).expect("recalc");
+        assert_eq!(report.parse_error_count, 5);
+
+        let value_at = |col: u32| -> CellValue {
+            wb.sheets
+                .get("Sheet1")
+                .and_then(|s| s.cells.get(&CellRef { row: 1, col }))
+                .expect("cell")
+                .value
+                .clone()
+        };
+
+        assert_eq!(value_at(1), CellValue::Error("#PARSE!".to_string()));
+        assert_eq!(value_at(2), CellValue::Error("#PARSE!".to_string()));
+        assert_eq!(value_at(3), CellValue::Error("#PARSE!".to_string()));
+        assert_eq!(value_at(4), CellValue::Error("#PARSE!".to_string()));
+        assert_eq!(value_at(5), CellValue::Error("#PARSE!".to_string()));
+    }
+
+    #[test]
+    fn coerces_text_conditions_in_if_and_ifs() {
+        let mut wb = Workbook::new();
+        let mut sink = NoopEventSink;
+        let trace = TraceContext::root();
+
+        let mut txn = wb.begin_txn(&mut sink, &trace).expect("begin");
+        txn.apply(Mutation::SetCellValue {
+            sheet: "Sheet1".to_string(),
+            row: 2,
+            col: 1,
+            value: CellValue::Text("TRUE".to_string()),
+        });
+        txn.apply(Mutation::SetCellValue {
+            sheet: "Sheet1".to_string(),
+            row: 2,
+            col: 2,
+            value: CellValue::Text("0".to_string()),
+        });
+        txn.apply(Mutation::SetCellValue {
+            sheet: "Sheet1".to_string(),
+            row: 2,
+            col: 3,
+            value: CellValue::Text("foo".to_string()),
+        });
+
+        txn.apply(Mutation::SetCellFormula {
+            sheet: "Sheet1".to_string(),
+            row: 1,
+            col: 1,
+            formula: "=IF(\"TRUE\",10,20)".to_string(),
+            cached_value: CellValue::Empty,
+        });
+        txn.apply(Mutation::SetCellFormula {
+            sheet: "Sheet1".to_string(),
+            row: 1,
+            col: 2,
+            formula: "=IF(\"FALSE\",10,20)".to_string(),
+            cached_value: CellValue::Empty,
+        });
+        txn.apply(Mutation::SetCellFormula {
+            sheet: "Sheet1".to_string(),
+            row: 1,
+            col: 3,
+            formula: "=IF(\"2\",10,20)".to_string(),
+            cached_value: CellValue::Empty,
+        });
+        txn.apply(Mutation::SetCellFormula {
+            sheet: "Sheet1".to_string(),
+            row: 1,
+            col: 4,
+            formula: "=IF(\"0\",10,20)".to_string(),
+            cached_value: CellValue::Empty,
+        });
+        txn.apply(Mutation::SetCellFormula {
+            sheet: "Sheet1".to_string(),
+            row: 1,
+            col: 5,
+            formula: "=IF(\"\",10,20)".to_string(),
+            cached_value: CellValue::Empty,
+        });
+        txn.apply(Mutation::SetCellFormula {
+            sheet: "Sheet1".to_string(),
+            row: 1,
+            col: 6,
+            formula: "=IFS(\"FALSE\",\"A\",\"TRUE\",\"B\")".to_string(),
+            cached_value: CellValue::Empty,
+        });
+        txn.apply(Mutation::SetCellFormula {
+            sheet: "Sheet1".to_string(),
+            row: 1,
+            col: 7,
+            formula: "=IF(\"foo\",10,20)".to_string(),
+            cached_value: CellValue::Empty,
+        });
+        txn.apply(Mutation::SetCellFormula {
+            sheet: "Sheet1".to_string(),
+            row: 1,
+            col: 8,
+            formula: "=IFS(\"foo\",\"A\",TRUE,\"B\")".to_string(),
+            cached_value: CellValue::Empty,
+        });
+        txn.apply(Mutation::SetCellFormula {
+            sheet: "Sheet1".to_string(),
+            row: 1,
+            col: 9,
+            formula: "=IF(A2,1,0)".to_string(),
+            cached_value: CellValue::Empty,
+        });
+        txn.apply(Mutation::SetCellFormula {
+            sheet: "Sheet1".to_string(),
+            row: 1,
+            col: 10,
+            formula: "=IF(B2,1,0)".to_string(),
+            cached_value: CellValue::Empty,
+        });
+        txn.apply(Mutation::SetCellFormula {
+            sheet: "Sheet1".to_string(),
+            row: 1,
+            col: 11,
+            formula: "=IF(C2,1,0)".to_string(),
+            cached_value: CellValue::Empty,
+        });
+        txn.apply(Mutation::SetCellFormula {
+            sheet: "Sheet1".to_string(),
+            row: 1,
+            col: 12,
+            formula: "=IFS(B2,\"zero\",A2,\"truthy\")".to_string(),
+            cached_value: CellValue::Empty,
+        });
+        txn.commit(&mut wb, &mut sink, &trace).expect("commit");
+
+        let report = recalc_sheet(&mut wb, "Sheet1", &mut sink, &trace).expect("recalc");
+        assert_eq!(report.parse_error_count, 3);
+
+        let value_at = |col: u32| -> CellValue {
+            wb.sheets
+                .get("Sheet1")
+                .and_then(|s| s.cells.get(&CellRef { row: 1, col }))
+                .expect("cell")
+                .value
+                .clone()
+        };
+
+        assert_eq!(value_at(1), CellValue::Number(10.0));
+        assert_eq!(value_at(2), CellValue::Number(20.0));
+        assert_eq!(value_at(3), CellValue::Number(10.0));
+        assert_eq!(value_at(4), CellValue::Number(20.0));
+        assert_eq!(value_at(5), CellValue::Number(20.0));
+        assert_eq!(value_at(6), CellValue::Text("B".to_string()));
+        assert_eq!(value_at(7), CellValue::Error("#PARSE!".to_string()));
+        assert_eq!(value_at(8), CellValue::Error("#PARSE!".to_string()));
+        assert_eq!(value_at(9), CellValue::Number(1.0));
+        assert_eq!(value_at(10), CellValue::Number(0.0));
+        assert_eq!(value_at(11), CellValue::Error("#PARSE!".to_string()));
+        assert_eq!(value_at(12), CellValue::Text("truthy".to_string()));
+    }
+
+    #[test]
+    fn coerces_text_conditions_in_logical_functions() {
+        let mut wb = Workbook::new();
+        let mut sink = NoopEventSink;
+        let trace = TraceContext::root();
+
+        let mut txn = wb.begin_txn(&mut sink, &trace).expect("begin");
+        txn.apply(Mutation::SetCellValue {
+            sheet: "Sheet1".to_string(),
+            row: 1,
+            col: 1,
+            value: CellValue::Text("TRUE".to_string()),
+        });
+        txn.apply(Mutation::SetCellValue {
+            sheet: "Sheet1".to_string(),
+            row: 1,
+            col: 2,
+            value: CellValue::Text("FALSE".to_string()),
+        });
+        txn.apply(Mutation::SetCellValue {
+            sheet: "Sheet1".to_string(),
+            row: 1,
+            col: 3,
+            value: CellValue::Text("2".to_string()),
+        });
+        txn.apply(Mutation::SetCellValue {
+            sheet: "Sheet1".to_string(),
+            row: 1,
+            col: 4,
+            value: CellValue::Text("0".to_string()),
+        });
+        txn.apply(Mutation::SetCellValue {
+            sheet: "Sheet1".to_string(),
+            row: 1,
+            col: 5,
+            value: CellValue::Text("foo".to_string()),
+        });
+        txn.apply(Mutation::SetCellValue {
+            sheet: "Sheet1".to_string(),
+            row: 1,
+            col: 6,
+            value: CellValue::Bool(true),
+        });
+
+        txn.apply(Mutation::SetCellFormula {
+            sheet: "Sheet1".to_string(),
+            row: 2,
+            col: 1,
+            formula: "=AND(A1,C1,F1)".to_string(),
+            cached_value: CellValue::Empty,
+        });
+        txn.apply(Mutation::SetCellFormula {
+            sheet: "Sheet1".to_string(),
+            row: 2,
+            col: 2,
+            formula: "=OR(B1,D1,0)".to_string(),
+            cached_value: CellValue::Empty,
+        });
+        txn.apply(Mutation::SetCellFormula {
+            sheet: "Sheet1".to_string(),
+            row: 2,
+            col: 3,
+            formula: "=XOR(A1,B1,C1)".to_string(),
+            cached_value: CellValue::Empty,
+        });
+        txn.apply(Mutation::SetCellFormula {
+            sheet: "Sheet1".to_string(),
+            row: 2,
+            col: 4,
+            formula: "=NOT(B1)".to_string(),
+            cached_value: CellValue::Empty,
+        });
+        txn.apply(Mutation::SetCellFormula {
+            sheet: "Sheet1".to_string(),
+            row: 2,
+            col: 5,
+            formula: "=NOT(A1)".to_string(),
+            cached_value: CellValue::Empty,
+        });
+        txn.apply(Mutation::SetCellFormula {
+            sheet: "Sheet1".to_string(),
+            row: 2,
+            col: 6,
+            formula: "=AND(A1,E1)".to_string(),
+            cached_value: CellValue::Empty,
+        });
+        txn.apply(Mutation::SetCellFormula {
+            sheet: "Sheet1".to_string(),
+            row: 2,
+            col: 7,
+            formula: "=OR(E1,0)".to_string(),
+            cached_value: CellValue::Empty,
+        });
+        txn.apply(Mutation::SetCellFormula {
+            sheet: "Sheet1".to_string(),
+            row: 2,
+            col: 8,
+            formula: "=XOR(A1,E1)".to_string(),
+            cached_value: CellValue::Empty,
+        });
+        txn.apply(Mutation::SetCellFormula {
+            sheet: "Sheet1".to_string(),
+            row: 2,
+            col: 9,
+            formula: "=NOT(E1)".to_string(),
+            cached_value: CellValue::Empty,
+        });
+        txn.apply(Mutation::SetCellFormula {
+            sheet: "Sheet1".to_string(),
+            row: 2,
+            col: 10,
+            formula: "=AND(\"\")".to_string(),
+            cached_value: CellValue::Empty,
+        });
+        txn.apply(Mutation::SetCellFormula {
+            sheet: "Sheet1".to_string(),
+            row: 2,
+            col: 11,
+            formula: "=OR(\"\")".to_string(),
+            cached_value: CellValue::Empty,
+        });
+        txn.apply(Mutation::SetCellFormula {
+            sheet: "Sheet1".to_string(),
+            row: 2,
+            col: 12,
+            formula: "=NOT(\"\")".to_string(),
+            cached_value: CellValue::Empty,
+        });
+        txn.apply(Mutation::SetCellFormula {
+            sheet: "Sheet1".to_string(),
+            row: 2,
+            col: 13,
+            formula: "=AND(\" 2 \",\"TRUE\")".to_string(),
+            cached_value: CellValue::Empty,
+        });
+        txn.apply(Mutation::SetCellFormula {
+            sheet: "Sheet1".to_string(),
+            row: 2,
+            col: 14,
+            formula: "=XOR(\"TRUE\",\"TRUE\",\"FALSE\")".to_string(),
+            cached_value: CellValue::Empty,
+        });
+        txn.apply(Mutation::SetCellFormula {
+            sheet: "Sheet1".to_string(),
+            row: 2,
+            col: 15,
+            formula: "=OR(\"FALSE\",\" 0 \",FALSE)".to_string(),
+            cached_value: CellValue::Empty,
+        });
+        txn.apply(Mutation::SetCellFormula {
+            sheet: "Sheet1".to_string(),
+            row: 2,
+            col: 16,
+            formula: "=OR(\"FALSE\",\" 1 \",FALSE)".to_string(),
+            cached_value: CellValue::Empty,
+        });
+        txn.apply(Mutation::SetCellFormula {
+            sheet: "Sheet1".to_string(),
+            row: 2,
+            col: 17,
+            formula: "=AND(\"FALSE\",TRUE)".to_string(),
+            cached_value: CellValue::Empty,
+        });
+        txn.apply(Mutation::SetCellFormula {
+            sheet: "Sheet1".to_string(),
+            row: 2,
+            col: 18,
+            formula: "=XOR(\"FALSE\",\"1\")".to_string(),
+            cached_value: CellValue::Empty,
+        });
+        txn.commit(&mut wb, &mut sink, &trace).expect("commit");
+
+        let report = recalc_sheet(&mut wb, "Sheet1", &mut sink, &trace).expect("recalc");
+        assert_eq!(report.parse_error_count, 4);
+
+        let value_at = |col: u32| -> CellValue {
+            wb.sheets
+                .get("Sheet1")
+                .and_then(|s| s.cells.get(&CellRef { row: 2, col }))
+                .expect("cell")
+                .value
+                .clone()
+        };
+
+        assert_eq!(value_at(1), CellValue::Number(1.0));
+        assert_eq!(value_at(2), CellValue::Number(0.0));
+        assert_eq!(value_at(3), CellValue::Number(0.0));
+        assert_eq!(value_at(4), CellValue::Number(1.0));
+        assert_eq!(value_at(5), CellValue::Number(0.0));
+        assert_eq!(value_at(6), CellValue::Error("#PARSE!".to_string()));
+        assert_eq!(value_at(7), CellValue::Error("#PARSE!".to_string()));
+        assert_eq!(value_at(8), CellValue::Error("#PARSE!".to_string()));
+        assert_eq!(value_at(9), CellValue::Error("#PARSE!".to_string()));
+        assert_eq!(value_at(10), CellValue::Number(0.0));
+        assert_eq!(value_at(11), CellValue::Number(0.0));
+        assert_eq!(value_at(12), CellValue::Number(1.0));
+        assert_eq!(value_at(13), CellValue::Number(1.0));
+        assert_eq!(value_at(14), CellValue::Number(0.0));
+        assert_eq!(value_at(15), CellValue::Number(0.0));
+        assert_eq!(value_at(16), CellValue::Number(1.0));
+        assert_eq!(value_at(17), CellValue::Number(0.0));
+        assert_eq!(value_at(18), CellValue::Number(1.0));
+    }
+
+    #[test]
+    fn coerces_numeric_text_in_arithmetic_and_rejects_invalid_text() {
+        let mut wb = Workbook::new();
+        let mut sink = NoopEventSink;
+        let trace = TraceContext::root();
+
+        let mut txn = wb.begin_txn(&mut sink, &trace).expect("begin");
+        txn.apply(Mutation::SetCellValue {
+            sheet: "Sheet1".to_string(),
+            row: 1,
+            col: 1,
+            value: CellValue::Text("2".to_string()),
+        });
+        txn.apply(Mutation::SetCellValue {
+            sheet: "Sheet1".to_string(),
+            row: 1,
+            col: 2,
+            value: CellValue::Text("foo".to_string()),
+        });
+        txn.apply(Mutation::SetCellValue {
+            sheet: "Sheet1".to_string(),
+            row: 1,
+            col: 3,
+            value: CellValue::Text(String::new()),
+        });
+        txn.apply(Mutation::SetCellValue {
+            sheet: "Sheet1".to_string(),
+            row: 1,
+            col: 4,
+            value: CellValue::Bool(true),
+        });
+
+        txn.apply(Mutation::SetCellFormula {
+            sheet: "Sheet1".to_string(),
+            row: 2,
+            col: 1,
+            formula: "=A1+1".to_string(),
+            cached_value: CellValue::Empty,
+        });
+        txn.apply(Mutation::SetCellFormula {
+            sheet: "Sheet1".to_string(),
+            row: 2,
+            col: 2,
+            formula: "=B1+1".to_string(),
+            cached_value: CellValue::Empty,
+        });
+        txn.apply(Mutation::SetCellFormula {
+            sheet: "Sheet1".to_string(),
+            row: 2,
+            col: 3,
+            formula: "=\"2\"+1".to_string(),
+            cached_value: CellValue::Empty,
+        });
+        txn.apply(Mutation::SetCellFormula {
+            sheet: "Sheet1".to_string(),
+            row: 2,
+            col: 4,
+            formula: "=\"foo\"+1".to_string(),
+            cached_value: CellValue::Empty,
+        });
+        txn.apply(Mutation::SetCellFormula {
+            sheet: "Sheet1".to_string(),
+            row: 2,
+            col: 5,
+            formula: "=-A1".to_string(),
+            cached_value: CellValue::Empty,
+        });
+        txn.apply(Mutation::SetCellFormula {
+            sheet: "Sheet1".to_string(),
+            row: 2,
+            col: 6,
+            formula: "=-B1".to_string(),
+            cached_value: CellValue::Empty,
+        });
+        txn.apply(Mutation::SetCellFormula {
+            sheet: "Sheet1".to_string(),
+            row: 2,
+            col: 7,
+            formula: "=C1+1".to_string(),
+            cached_value: CellValue::Empty,
+        });
+        txn.apply(Mutation::SetCellFormula {
+            sheet: "Sheet1".to_string(),
+            row: 2,
+            col: 8,
+            formula: "=D1+1".to_string(),
+            cached_value: CellValue::Empty,
+        });
+        txn.commit(&mut wb, &mut sink, &trace).expect("commit");
+
+        let report = recalc_sheet(&mut wb, "Sheet1", &mut sink, &trace).expect("recalc");
+        assert_eq!(report.parse_error_count, 3);
+
+        let value_at = |col: u32| -> CellValue {
+            wb.sheets
+                .get("Sheet1")
+                .and_then(|s| s.cells.get(&CellRef { row: 2, col }))
+                .expect("cell")
+                .value
+                .clone()
+        };
+
+        assert_eq!(value_at(1), CellValue::Number(3.0));
+        assert_eq!(value_at(2), CellValue::Error("#PARSE!".to_string()));
+        assert_eq!(value_at(3), CellValue::Number(3.0));
+        assert_eq!(value_at(4), CellValue::Error("#PARSE!".to_string()));
+        assert_eq!(value_at(5), CellValue::Number(-2.0));
+        assert_eq!(value_at(6), CellValue::Error("#PARSE!".to_string()));
+        assert_eq!(value_at(7), CellValue::Number(1.0));
+        assert_eq!(value_at(8), CellValue::Number(2.0));
     }
 
     #[test]
@@ -5205,6 +7322,175 @@ mod tests {
         assert_eq!(p2, CellValue::Number(10.0));
         assert_eq!(q2, CellValue::Number(10.0));
         assert_eq!(r2, CellValue::Number(3.0));
+    }
+
+    #[test]
+    fn evaluates_xor_ifs_and_switch_extension_functions() {
+        let mut wb = Workbook::new();
+        let mut sink = NoopEventSink;
+        let trace = TraceContext::root();
+
+        let mut txn = wb.begin_txn(&mut sink, &trace).expect("begin");
+        txn.apply(Mutation::SetCellValue {
+            sheet: "Sheet1".to_string(),
+            row: 1,
+            col: 1,
+            value: CellValue::Number(1.0),
+        });
+        txn.apply(Mutation::SetCellValue {
+            sheet: "Sheet1".to_string(),
+            row: 1,
+            col: 2,
+            value: CellValue::Number(0.0),
+        });
+        txn.apply(Mutation::SetCellValue {
+            sheet: "Sheet1".to_string(),
+            row: 1,
+            col: 3,
+            value: CellValue::Number(2.0),
+        });
+        txn.apply(Mutation::SetCellFormula {
+            sheet: "Sheet1".to_string(),
+            row: 2,
+            col: 1,
+            formula: "=XOR(A1,B1)".to_string(),
+            cached_value: CellValue::Empty,
+        });
+        txn.apply(Mutation::SetCellFormula {
+            sheet: "Sheet1".to_string(),
+            row: 2,
+            col: 2,
+            formula: "=XOR(A1,B1,C1)".to_string(),
+            cached_value: CellValue::Empty,
+        });
+        txn.apply(Mutation::SetCellFormula {
+            sheet: "Sheet1".to_string(),
+            row: 2,
+            col: 3,
+            formula: "=XOR(B1,0)".to_string(),
+            cached_value: CellValue::Empty,
+        });
+        txn.apply(Mutation::SetCellFormula {
+            sheet: "Sheet1".to_string(),
+            row: 2,
+            col: 4,
+            formula: "=XOR()".to_string(),
+            cached_value: CellValue::Empty,
+        });
+        txn.apply(Mutation::SetCellFormula {
+            sheet: "Sheet1".to_string(),
+            row: 2,
+            col: 5,
+            formula: "=IFS(A1,10,B1,20)".to_string(),
+            cached_value: CellValue::Empty,
+        });
+        txn.apply(Mutation::SetCellFormula {
+            sheet: "Sheet1".to_string(),
+            row: 2,
+            col: 6,
+            formula: "=IFS(B1,10,C1,20)".to_string(),
+            cached_value: CellValue::Empty,
+        });
+        txn.apply(Mutation::SetCellFormula {
+            sheet: "Sheet1".to_string(),
+            row: 2,
+            col: 7,
+            formula: "=IFS(B1,10,0,20)".to_string(),
+            cached_value: CellValue::Empty,
+        });
+        txn.apply(Mutation::SetCellFormula {
+            sheet: "Sheet1".to_string(),
+            row: 2,
+            col: 8,
+            formula: "=IFS(A1,10,B1)".to_string(),
+            cached_value: CellValue::Empty,
+        });
+        txn.apply(Mutation::SetCellFormula {
+            sheet: "Sheet1".to_string(),
+            row: 2,
+            col: 9,
+            formula: "=SWITCH(A1,1,100,2,200,300)".to_string(),
+            cached_value: CellValue::Empty,
+        });
+        txn.apply(Mutation::SetCellFormula {
+            sheet: "Sheet1".to_string(),
+            row: 2,
+            col: 10,
+            formula: "=SWITCH(C1,1,100,2,200,300)".to_string(),
+            cached_value: CellValue::Empty,
+        });
+        txn.apply(Mutation::SetCellFormula {
+            sheet: "Sheet1".to_string(),
+            row: 2,
+            col: 11,
+            formula: "=SWITCH(B1,1,100,2,200,300)".to_string(),
+            cached_value: CellValue::Empty,
+        });
+        txn.apply(Mutation::SetCellFormula {
+            sheet: "Sheet1".to_string(),
+            row: 2,
+            col: 12,
+            formula: "=SWITCH(B1,1,100,2,200)".to_string(),
+            cached_value: CellValue::Empty,
+        });
+        txn.apply(Mutation::SetCellFormula {
+            sheet: "Sheet1".to_string(),
+            row: 2,
+            col: 13,
+            formula: "=SWITCH(A1,1)".to_string(),
+            cached_value: CellValue::Empty,
+        });
+        txn.apply(Mutation::SetCellFormula {
+            sheet: "Sheet1".to_string(),
+            row: 2,
+            col: 14,
+            formula: "=SWITCH(A1,1,100,2)".to_string(),
+            cached_value: CellValue::Empty,
+        });
+        txn.apply(Mutation::SetCellFormula {
+            sheet: "Sheet1".to_string(),
+            row: 2,
+            col: 15,
+            formula: "=IFS(A1,1,1/0,2)".to_string(),
+            cached_value: CellValue::Empty,
+        });
+        txn.apply(Mutation::SetCellFormula {
+            sheet: "Sheet1".to_string(),
+            row: 2,
+            col: 16,
+            formula: "=SWITCH(A1,1,1,1/0,2,3)".to_string(),
+            cached_value: CellValue::Empty,
+        });
+        txn.commit(&mut wb, &mut sink, &trace).expect("commit");
+
+        let report = recalc_sheet(&mut wb, "Sheet1", &mut sink, &trace).expect("recalc");
+        assert_eq!(report.parse_error_count, 5);
+
+        let value_at = |col: u32| -> CellValue {
+            wb.sheets
+                .get("Sheet1")
+                .and_then(|s| s.cells.get(&CellRef { row: 2, col }))
+                .expect("cell")
+                .value
+                .clone()
+        };
+
+        assert_eq!(value_at(1), CellValue::Number(1.0));
+        assert_eq!(value_at(2), CellValue::Number(0.0));
+        assert_eq!(value_at(3), CellValue::Number(0.0));
+        assert_eq!(value_at(4), CellValue::Error("#PARSE!".to_string()));
+        assert_eq!(value_at(5), CellValue::Number(10.0));
+        assert_eq!(value_at(6), CellValue::Number(20.0));
+        assert_eq!(value_at(7), CellValue::Error("#PARSE!".to_string()));
+        assert_eq!(value_at(8), CellValue::Error("#PARSE!".to_string()));
+        assert_eq!(value_at(9), CellValue::Number(100.0));
+        assert_eq!(value_at(10), CellValue::Number(200.0));
+        assert_eq!(value_at(11), CellValue::Number(300.0));
+        assert_eq!(value_at(12), CellValue::Error("#PARSE!".to_string()));
+        assert_eq!(value_at(13), CellValue::Error("#PARSE!".to_string()));
+        assert_eq!(value_at(14), CellValue::Number(100.0));
+        assert_eq!(value_at(15), CellValue::Number(1.0));
+        assert_eq!(value_at(16), CellValue::Number(1.0));
     }
 
     #[test]
@@ -7408,6 +9694,80 @@ mod tests {
             .clone();
         assert_eq!(b1, CellValue::Number(6.0));
         assert_eq!(c1, CellValue::Number(12.0));
+    }
+
+    #[test]
+    fn orders_incremental_formula_subset_by_topo_position_with_cycle_tail() {
+        let mut wb = Workbook::new();
+        let mut sink = NoopEventSink;
+        let trace = TraceContext::root();
+
+        let mut txn = wb.begin_txn(&mut sink, &trace).expect("begin");
+        txn.apply(Mutation::SetCellValue {
+            sheet: "Sheet1".to_string(),
+            row: 1,
+            col: 1,
+            value: CellValue::Number(1.0),
+        });
+        txn.apply(Mutation::SetCellFormula {
+            sheet: "Sheet1".to_string(),
+            row: 1,
+            col: 2,
+            formula: "=A1+1".to_string(),
+            cached_value: CellValue::Empty,
+        });
+        txn.apply(Mutation::SetCellFormula {
+            sheet: "Sheet1".to_string(),
+            row: 1,
+            col: 3,
+            formula: "=B1+1".to_string(),
+            cached_value: CellValue::Empty,
+        });
+        txn.apply(Mutation::SetCellFormula {
+            sheet: "Sheet1".to_string(),
+            row: 1,
+            col: 4,
+            formula: "=E1".to_string(),
+            cached_value: CellValue::Empty,
+        });
+        txn.apply(Mutation::SetCellFormula {
+            sheet: "Sheet1".to_string(),
+            row: 1,
+            col: 5,
+            formula: "=D1".to_string(),
+            cached_value: CellValue::Empty,
+        });
+        txn.commit(&mut wb, &mut sink, &trace).expect("commit");
+
+        let formula_cells = collect_formula_cells(&wb, "Sheet1").expect("formula cells");
+        let analysis =
+            build_sheet_dependency_analysis(&wb, "Sheet1", &formula_cells).expect("analysis");
+
+        let subset = [
+            CellRef { row: 1, col: 3 },
+            CellRef { row: 1, col: 2 },
+            CellRef { row: 1, col: 5 },
+        ]
+        .into_iter()
+        .collect::<BTreeSet<_>>();
+        let ordered_subset = order_formula_cells(&analysis, &subset);
+        assert_eq!(
+            ordered_subset,
+            vec![
+                CellRef { row: 1, col: 2 },
+                CellRef { row: 1, col: 3 },
+                CellRef { row: 1, col: 5 }
+            ]
+        );
+
+        let cycle_only = [CellRef { row: 1, col: 5 }, CellRef { row: 1, col: 4 }]
+            .into_iter()
+            .collect::<BTreeSet<_>>();
+        let ordered_cycle_only = order_formula_cells(&analysis, &cycle_only);
+        assert_eq!(
+            ordered_cycle_only,
+            vec![CellRef { row: 1, col: 4 }, CellRef { row: 1, col: 5 }]
+        );
     }
 
     #[test]

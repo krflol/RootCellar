@@ -14,20 +14,26 @@ Related epic: [[docs/RootCellar/01-Epics/Epic 05 - Headless CLI and SDK]]
 - `rootcellar recalc <file> [--mode preserve|normalize]`
 - `rootcellar run-macro <file> --macro <name>`
 - `rootcellar batch recalc <dir> [--threads N] [--detail-level minimal|diagnostic|forensic]`
+- `rootcellar bench recalc-synthetic [--chains N] [--chain-length N] [--iterations N] [--changed-chain N] [--report <path>]`
 - `rootcellar repro record|check <bundle>`
 
 ## Current Implemented Baseline (March 1, 2026)
-- Implemented: `open`, `save`, `recalc`, `tx-demo`, `tx-save`, `batch recalc`, `repro record`, `repro check`, `repro diff`.
+- Implemented: `open`, `save`, `recalc`, `tx-demo`, `tx-save`, `batch recalc`, `bench recalc-synthetic`, `repro record`, `repro check`, `repro diff`.
 - Implemented corpus validator: `part-graph-corpus <dir> [--max-files N] [--fail-on-errors]`.
 - Implemented diff artifact output: `repro diff --format text|json --output <path>`.
 - Implemented dependency graph artifact output: `recalc --dep-graph-report <path>`.
 - Implemented DAG timing artifact output: `recalc --dag-timing-report <path>`.
 - Implemented DAG threshold override: `recalc --dag-slow-threshold-us <microseconds>` (requires `--dag-timing-report`).
+- Implemented synthetic benchmark report command: `bench recalc-synthetic` (full vs incremental recalc duration/evaluated-cell report on generated dependency chains).
+- Implemented nightly synthetic benchmark CI wiring in `.github/workflows/batch-recalc-nightly.yml` with optional execution (`BATCH_BENCH_RECALC_SYNTHETIC_ENABLED`), threshold gates (`BATCH_BENCH_MIN_DURATION_SPEEDUP_RATIO`, `BATCH_BENCH_MAX_EVALUATED_CELLS_RATIO`), and benchmark artifact/manifest publication (`ci-batch-bench-recalc-synthetic.json`, `ci-batch-bench-events.jsonl`).
 - Implemented incremental post-mutation recalc in `tx-save` using changed-root invalidation.
 - Implemented parser introspection metrics in dependency artifacts (`function_call_count`, `ast_node_count`, `ast_unique_node_count`, `formula_ast_ids`).
+- Implemented formula-language literal support for quoted text (`"..."` with escaped `""`) and boolean constants (`TRUE`/`FALSE`) in parser/evaluator paths.
+- Implemented typed branch-preserving conditional/selector evaluation (`IF`, `IFERROR`, `IFS`, `SWITCH`, `CHOOSE`, `INDEX`) so non-numeric literal/text results flow without helper-cell indirection.
 - Implemented DAG analysis metrics in timing artifacts (`critical_path`, `max_fan_in`, `max_fan_out`, slow-node threshold).
-- Implemented function evaluator starter set: `SUM`, `SUMSQ`, `PRODUCT`, `MIN`, `MAX`, `MEDIAN`, `SMALL`, `LARGE`, `GEOMEAN`, `HARMEAN`, `VARP`, `VAR`/`VARS`, `STDEVP`, `STDEV`/`STDEVS`, `IF`, `IFERROR`, `AVERAGE`/`AVG`, `ABS`, `INT`, `FACT`, `FACTDOUBLE`, `COMBIN`, `PERMUT`, `GCD`, `LCM`, `QUOTIENT`, `MOD`, `ROUND`, `ROUNDUP`, `ROUNDDOWN`, `TRUNC`, `MROUND`, `POWER`, `SQRT`, `SIGN`, `EVEN`, `ODD`, `ISEVEN`, `ISODD`, `CEILING`, `FLOOR`, `PI`, `EXP`, `LN`, `LOG`, `LOG10`, `SIN`, `COS`, `TAN`, `SINH`, `COSH`, `TANH`, `ASINH`, `ACOSH`, `ATANH`, `ASIN`, `ACOS`, `ATAN`, `ATAN2`, `RADIANS`, `DEGREES`, `PV`, `FV`, `NPV`, `PMT`, `BITAND`, `BITOR`, `BITXOR`, `BITLSHIFT`, `BITRSHIFT`, `AND`, `OR`, `NOT`, `LEN`, `CHOOSE`, `MATCH`, `EXACT`, `FIND`, `SEARCH`, `CODE`, `N`, `VALUE`, `DATEVALUE`, `TIMEVALUE`, `ISNUMBER`, `ISTEXT`, `ISBLANK`, `ISLOGICAL`, `ISERROR`, `COUNT`, `COUNTA`, `COUNTBLANK`, `DATE`, `YEAR`, `MONTH`, `DAY`, `DAYS`, `TIME`, `HOUR`, `MINUTE`, `SECOND`, `EDATE`, `EOMONTH`, `WEEKDAY`, `WEEKNUM`, `ISOWEEKNUM`.
+- Implemented function evaluator starter set: `SUM`, `SUMSQ`, `PRODUCT`, `MIN`, `MAX`, `MEDIAN`, `SMALL`, `LARGE`, `GEOMEAN`, `HARMEAN`, `VARP`, `VAR`/`VARS`, `STDEVP`, `STDEV`/`STDEVS`, `IF`, `IFERROR`, `IFS`, `SWITCH`, `AVERAGE`/`AVG`, `ABS`, `INT`, `FACT`, `FACTDOUBLE`, `COMBIN`, `PERMUT`, `GCD`, `LCM`, `QUOTIENT`, `MOD`, `ROUND`, `ROUNDUP`, `ROUNDDOWN`, `TRUNC`, `MROUND`, `POWER`, `SQRT`, `SIGN`, `EVEN`, `ODD`, `ISEVEN`, `ISODD`, `CEILING`, `FLOOR`, `PI`, `EXP`, `LN`, `LOG`, `LOG10`, `SIN`, `COS`, `TAN`, `SINH`, `COSH`, `TANH`, `ASINH`, `ACOSH`, `ATANH`, `ASIN`, `ACOS`, `ATAN`, `ATAN2`, `RADIANS`, `DEGREES`, `PV`, `FV`, `NPV`, `PMT`, `BITAND`, `BITOR`, `BITXOR`, `BITLSHIFT`, `BITRSHIFT`, `AND`, `OR`, `XOR`, `NOT`, `LEN`, `LOWER`, `UPPER`, `TRIM`, `LEFT`, `RIGHT`, `MID`, `SUBSTITUTE`, `REPLACE`, `CONCAT`, `TEXTJOIN`, `CHOOSE`, `MATCH`, `EXACT`, `FIND`, `SEARCH`, `CODE`, `N`, `VALUE`, `DATEVALUE`, `TIMEVALUE`, `ISNUMBER`, `ISTEXT`, `ISBLANK`, `ISLOGICAL`, `ISERROR`, `COUNT`, `COUNTA`, `COUNTBLANK`, `DATE`, `YEAR`, `MONTH`, `DAY`, `DAYS`, `TIME`, `HOUR`, `MINUTE`, `SECOND`, `EDATE`, `EOMONTH`, `WEEKDAY`, `WEEKNUM`, `ISOWEEKNUM`.
 - Implemented incremental scheduler/perf optimization via reverse-dependency index reuse for impacted-formula selection and DAG degree/adjacency derivation.
+- Implemented incremental scheduler/perf optimization via cached topological-position indexes for impacted-formula ordering and DAG topological filtering.
 - Implemented workbook part-graph artifacts in `open` reports and graph-aware preserve/normalize save flags in `save`/`tx-save` outputs.
 - Implemented CI workflow publication for corpus validator artifacts (`.github/workflows/corpus-part-graph.yml`).
 - Implemented CI workflow publication for repro bundle artifacts (`.github/workflows/repro-bundle.yml`).
@@ -76,3 +82,4 @@ Each run emits JSONL lines for:
 - Keep CLI command behavior stable while function-parity expansion continues in `rootcellar-core`.
 - Preserve deterministic artifact shape and schema-contract compatibility in nightly CI as primary guardrails.
 - Add a minimal UI smoke path (shell startup + one engine command round-trip) so desktop initialization work has CI coverage early.
+- Stabilize literal-coercion semantics (quoted text + `TRUE`/`FALSE`) and continue parser/evaluator hot-path optimization with benchmark-backed validation.

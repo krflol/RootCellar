@@ -20,6 +20,7 @@ cargo run -p rootcellar-cli -- recalc ./example.xlsx --jsonl ./events.jsonl
 cargo run -p rootcellar-cli -- recalc ./example.xlsx --dep-graph-report ./dep-graph.json --jsonl ./events.jsonl
 cargo run -p rootcellar-cli -- recalc ./example.xlsx --dag-timing-report ./dag-timing.json --jsonl ./events.jsonl
 cargo run -p rootcellar-cli -- recalc ./example.xlsx --dag-timing-report ./dag-timing.json --dag-slow-threshold-us 10 --jsonl ./events.jsonl
+cargo run -p rootcellar-cli -- bench recalc-synthetic --chains 16 --chain-length 256 --iterations 5 --changed-chain 1 --report ./bench-recalc-report.json --jsonl ./events.jsonl
 cargo run -p rootcellar-cli -- save ./example.xlsx ./normalized.xlsx --mode normalize --jsonl ./events.jsonl
 cargo run -p rootcellar-cli -- repro record ./example.xlsx --bundle ./repro-bundle --jsonl ./events.jsonl
 cargo run -p rootcellar-cli -- repro check ./repro-bundle --jsonl ./events.jsonl
@@ -48,6 +49,8 @@ python python/validate_batch_migration_policy_dry_run.py
 - CI baseline includes `.github/workflows/batch-recalc-nightly.yml` to publish nightly bounded-parallel batch recalc artifacts.
 - CI workflows now use aligned artifact naming/retention policy and include manifest metadata.
 - Batch recalc command surface (`batch recalc`) now supports bounded Rayon threadpool sizing, deterministic file ordering, and detail-level report payload control.
+- Synthetic recalc benchmark command surface (`bench recalc-synthetic`) emits repeatable full-vs-incremental performance reports on generated dependency workloads.
+- Nightly batch CI now supports optional synthetic benchmark execution/gating via `BATCH_BENCH_*` policy knobs and publishes benchmark artifacts (`ci-batch-bench-recalc-synthetic.json`, `ci-batch-bench-events.jsonl`) in the bundle.
 - Nightly batch corpus assembly utility (`python/build_batch_nightly_corpus.py`) builds deterministic compatibility slices for broader CI coverage.
 - Batch recalc artifacts now include throughput summaries (`throughput_files_per_sec`, `aggregate_file_time_ratio`) used by nightly regression thresholds.
 - Nightly throughput trend + alert utility (`python/build_batch_trend_snapshot.py`) emits dashboard-ready snapshot and alert-hook payload artifacts.
@@ -66,11 +69,17 @@ python python/validate_batch_migration_policy_dry_run.py
 - Nightly migration-policy dry-run harness (`python/validate_batch_migration_policy_dry_run.py`) asserts invalid staged-wave specs and unsupported fault-scenario keys fail fast in CI policy validation.
 - Nightly gate now enforces both throughput snapshot status and alert-policy status for route-delivery/forensic policy checks.
 - Minimal calculation engine supports A1 references, arithmetic formulas, and cycle detection.
-- Formula parser scaffold now supports precedence and parentheses for arithmetic recalc.
-- Built-in function baseline now supports `SUM`, `SUMSQ`, `PRODUCT`, `MIN`, `MAX`, `MEDIAN`, `SMALL`, `LARGE`, `GEOMEAN`, `HARMEAN`, `VARP`, `VAR`/`VARS`, `STDEVP`, `STDEV`/`STDEVS`, `IF`, `IFERROR`, `AVERAGE`/`AVG`, `ABS`, `INT`, `FACT`, `FACTDOUBLE`, `COMBIN`, `PERMUT`, `GCD`, `LCM`, `QUOTIENT`, `MOD`, `ROUND`, `ROUNDUP`, `ROUNDDOWN`, `TRUNC`, `MROUND`, `POWER`, `SQRT`, `SIGN`, `EVEN`, `ODD`, `ISEVEN`, `ISODD`, `CEILING`, `FLOOR`, `PI`, `EXP`, `LN`, `LOG`, `LOG10`, `SIN`, `COS`, `TAN`, `SINH`, `COSH`, `TANH`, `ASINH`, `ACOSH`, `ATANH`, `ASIN`, `ACOS`, `ATAN`, `ATAN2`, `RADIANS`, `DEGREES`, `PV`, `FV`, `NPV`, `PMT`, `BITAND`, `BITOR`, `BITXOR`, `BITLSHIFT`, `BITRSHIFT`, `AND`, `OR`, `NOT`, `LEN`, `CHOOSE`, `MATCH`, `EXACT`, `FIND`, `SEARCH`, `CODE`, `N`, `VALUE`, `DATEVALUE`, `TIMEVALUE`, `ISNUMBER`, `ISTEXT`, `ISBLANK`, `ISLOGICAL`, `ISERROR`, `COUNT`, `COUNTA`, `COUNTBLANK`, `DATE`, `YEAR`, `MONTH`, `DAY`, `DAYS`, `TIME`, `HOUR`, `MINUTE`, `SECOND`, `EDATE`, `EOMONTH`, `WEEKDAY`, `WEEKNUM`, and `ISOWEEKNUM`.
+- Formula parser scaffold now supports precedence and parentheses for arithmetic recalc, plus quoted text literals and boolean constants (`TRUE`/`FALSE`).
+- Built-in function baseline now supports `SUM`, `SUMSQ`, `PRODUCT`, `MIN`, `MAX`, `MEDIAN`, `SMALL`, `LARGE`, `GEOMEAN`, `HARMEAN`, `VARP`, `VAR`/`VARS`, `STDEVP`, `STDEV`/`STDEVS`, `IF`, `IFERROR`, `IFS`, `SWITCH`, `AVERAGE`/`AVG`, `ABS`, `INT`, `FACT`, `FACTDOUBLE`, `COMBIN`, `PERMUT`, `GCD`, `LCM`, `QUOTIENT`, `MOD`, `ROUND`, `ROUNDUP`, `ROUNDDOWN`, `TRUNC`, `MROUND`, `POWER`, `SQRT`, `SIGN`, `EVEN`, `ODD`, `ISEVEN`, `ISODD`, `CEILING`, `FLOOR`, `PI`, `EXP`, `LN`, `LOG`, `LOG10`, `SIN`, `COS`, `TAN`, `SINH`, `COSH`, `TANH`, `ASINH`, `ACOSH`, `ATANH`, `ASIN`, `ACOS`, `ATAN`, `ATAN2`, `RADIANS`, `DEGREES`, `PV`, `FV`, `NPV`, `PMT`, `BITAND`, `BITOR`, `BITXOR`, `BITLSHIFT`, `BITRSHIFT`, `AND`, `OR`, `XOR`, `NOT`, `LEN`, `LOWER`, `UPPER`, `TRIM`, `LEFT`, `RIGHT`, `MID`, `SUBSTITUTE`, `REPLACE`, `CONCAT`, `TEXTJOIN`, `CHOOSE`, `MATCH`, `EXACT`, `FIND`, `SEARCH`, `CODE`, `N`, `VALUE`, `DATEVALUE`, `TIMEVALUE`, `ISNUMBER`, `ISTEXT`, `ISBLANK`, `ISLOGICAL`, `ISERROR`, `COUNT`, `COUNTA`, `COUNTBLANK`, `DATE`, `YEAR`, `MONTH`, `DAY`, `DAYS`, `TIME`, `HOUR`, `MINUTE`, `SECOND`, `EDATE`, `EOMONTH`, `WEEKDAY`, `WEEKNUM`, and `ISOWEEKNUM`.
+- Conditional/selector evaluation (`IF`, `IFERROR`, `IFS`, `SWITCH`, `CHOOSE`, `INDEX`) now preserves typed branch results (text/bool/number) instead of forcing numeric-only outputs.
+- `SWITCH` case matching now avoids cross-type text-to-zero false matches by comparing text cases as text (with numeric coercion retained for non-text scalar cases).
+- `IF`/`IFS` condition coercion now supports `TRUE`/`FALSE` text and numeric text while treating invalid non-numeric/non-boolean text conditions as parse errors.
+- Logical aggregators (`AND`, `OR`, `XOR`, `NOT`) now share the same condition coercion semantics as `IF`/`IFS` for text/boolean/numeric-text inputs.
+- Arithmetic operators now coerce numeric text (including trimmed numeric text) while treating invalid non-numeric text operands as parse errors.
 - AST interning scaffold now exposes deduplicated formula-node IDs for parser introspection.
 - Incremental recalc from changed roots is available in core and used by `tx-save` post-mutation workflows.
 - Incremental recalc now reuses cached reverse-dependency indexes during impacted-cell discovery and DAG degree analysis to reduce repeated graph traversal overhead on larger formula sets.
+- Incremental formula ordering now reuses cached topological-position indexes, reducing repeated full-topo scans for dependency-scoped recompute and DAG topological targeting.
 - XLSX workbook loader projects worksheet values/formulas into the in-memory model for recalc workflows.
 - XLSX saver writes workbook model back to `.xlsx` with deterministic sheet/cell ordering baseline.
 - Preserve mode now uses passthrough copy semantics to retain unknown XML parts exactly.
@@ -87,7 +96,7 @@ python python/validate_batch_migration_policy_dry_run.py
 - DAG timing observability includes `critical_path`, `max_fan_in`, `max_fan_out`, and slow-node threshold diagnostics.
 
 ## Next Build Slice
-- Continue function parity expansion in higher-impact text/lookup families (`LEFT`, `RIGHT`, `MID`, `LOWER`, `UPPER`, `TRIM`, `SUBSTITUTE`, `REPLACE`, `CONCAT`, `TEXTJOIN`) with compatibility-focused test coverage.
 - Continue parser/evaluator and scheduler optimization work on top of the AST interning scaffold with benchmark-backed validation.
+- Stabilize and harden literal-coercion semantics (quoted text + `TRUE`/`FALSE`) across text/logical flows with compatibility-focused tests.
 - Start desktop shell initialization and bridge UI->engine trace context propagation.
 - Add a minimal UI smoke check in CI (startup + one engine command round-trip) to guard M0 readiness.

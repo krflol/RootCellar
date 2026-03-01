@@ -13,6 +13,13 @@ env:
   CI_ARTIFACT_ROOT: ./ci-artifacts
   BATCH_MIN_PROCESSED_FILES: "24"
   BATCH_MIN_THROUGHPUT_FILES_PER_SEC: "5.0"
+  BATCH_BENCH_RECALC_SYNTHETIC_ENABLED: "true"
+  BATCH_BENCH_CHAINS: "16"
+  BATCH_BENCH_CHAIN_LENGTH: "256"
+  BATCH_BENCH_ITERATIONS: "5"
+  BATCH_BENCH_CHANGED_CHAIN: "1"
+  BATCH_BENCH_MIN_DURATION_SPEEDUP_RATIO: "1.0"
+  BATCH_BENCH_MAX_EVALUATED_CELLS_RATIO: "0.50"
   ROOTCELLAR_INCIDENT_WEBHOOK_URL: ${{ secrets.ROOTCELLAR_INCIDENT_WEBHOOK_URL }}
   ROOTCELLAR_DASHBOARD_INGEST_URL: ${{ secrets.ROOTCELLAR_DASHBOARD_INGEST_URL }}
   ROOTCELLAR_INCIDENT_WEBHOOK_TOKEN: ${{ secrets.ROOTCELLAR_INCIDENT_WEBHOOK_TOKEN }}
@@ -103,6 +110,16 @@ jobs:
         continue-on-error: true
         run: |
           cargo run -p rootcellar-cli --locked -- batch recalc ./.ci/batch-nightly-corpus/files --threads 4 --detail-level diagnostic --fail-on-errors --report ./ci-batch-recalc-report.json --jsonl ./ci-batch-recalc-events.jsonl
+
+      - name: Run synthetic recalc benchmark
+        if: always()
+        continue-on-error: true
+        run: |
+          if [ "${BATCH_BENCH_RECALC_SYNTHETIC_ENABLED}" != "true" ]; then
+            echo "synthetic recalc benchmark disabled by policy knob"
+            exit 0
+          fi
+          cargo run -p rootcellar-cli --locked -- bench recalc-synthetic --chains "${BATCH_BENCH_CHAINS}" --chain-length "${BATCH_BENCH_CHAIN_LENGTH}" --iterations "${BATCH_BENCH_ITERATIONS}" --changed-chain "${BATCH_BENCH_CHANGED_CHAIN}" --report ./ci-batch-bench-recalc-synthetic.json --jsonl ./ci-batch-bench-events.jsonl
 
       - name: Build throughput trend snapshot and alert payload
         if: always()
@@ -354,6 +371,8 @@ jobs:
         run: |
           python - <<'PY'
           import json
+          import os
+
           with open("./ci-batch-throughput-snapshot.json", "r", encoding="utf-8") as fh:
               snapshot = json.load(fh)
           with open("./ci-batch-alert-policy.json", "r", encoding="utf-8") as fh:
@@ -369,6 +388,34 @@ jobs:
                   f"nightly batch policy gate failed with status={policy_status}, "
                   f"highest_severity={severity}, breaches={breaches}"
               )
+
+          bench_enabled = os.environ.get("BATCH_BENCH_RECALC_SYNTHETIC_ENABLED", "").lower() == "true"
+          if bench_enabled:
+              bench_path = "./ci-batch-bench-recalc-synthetic.json"
+              try:
+                  with open(bench_path, "r", encoding="utf-8") as fh:
+                      bench = json.load(fh)
+              except FileNotFoundError as exc:
+                  raise SystemExit(
+                      f"nightly benchmark gate enabled but benchmark report missing: {bench_path}"
+                  ) from exc
+
+              summary = bench.get("summary", {})
+              speedup = float(summary.get("duration_speedup_ratio", 0.0))
+              eval_ratio = float(summary.get("evaluated_cells_reduction_ratio", 1.0))
+              min_speedup = float(os.environ["BATCH_BENCH_MIN_DURATION_SPEEDUP_RATIO"])
+              max_eval_ratio = float(os.environ["BATCH_BENCH_MAX_EVALUATED_CELLS_RATIO"])
+              if speedup < min_speedup:
+                  raise SystemExit(
+                      "nightly benchmark gate failed: "
+                      f"duration_speedup_ratio={speedup:.4f} < min={min_speedup:.4f}"
+                  )
+              if eval_ratio > max_eval_ratio:
+                  raise SystemExit(
+                      "nightly benchmark gate failed: "
+                      f"evaluated_cells_reduction_ratio={eval_ratio:.4f} > max={max_eval_ratio:.4f}"
+                  )
+
           print("nightly batch gate passed")
           PY
 
@@ -378,7 +425,7 @@ jobs:
           set -euo pipefail
           bundle_dir="${CI_ARTIFACT_ROOT}/batch-recalc"
           mkdir -p "${bundle_dir}"
-          for file in ci-batch-recalc-report.json ci-batch-recalc-events.jsonl ci-batch-throughput-snapshot.json ci-batch-alert-hook.json ci-batch-alert-dispatch.json ci-batch-ack-retention-index.json ci-batch-dashboard-pack.json ci-batch-alert-policy.json ci-batch-policy-escalation.json ci-batch-dashboard-adapter-exports.json ci-batch-schema-migration-drill.json; do
+          for file in ci-batch-recalc-report.json ci-batch-recalc-events.jsonl ci-batch-bench-recalc-synthetic.json ci-batch-bench-events.jsonl ci-batch-throughput-snapshot.json ci-batch-alert-hook.json ci-batch-alert-dispatch.json ci-batch-ack-retention-index.json ci-batch-dashboard-pack.json ci-batch-alert-policy.json ci-batch-policy-escalation.json ci-batch-dashboard-adapter-exports.json ci-batch-schema-migration-drill.json; do
             if [ -f "${file}" ]; then
               cp "${file}" "${bundle_dir}/"
             fi
@@ -432,6 +479,14 @@ jobs:
           if [ -f "./ci-batch-schema-migration-drill.json" ]; then
             schema_migration_drill_report_generated=true
           fi
+          benchmark_report_generated=false
+          if [ -f "./ci-batch-bench-recalc-synthetic.json" ]; then
+            benchmark_report_generated=true
+          fi
+          benchmark_events_generated=false
+          if [ -f "./ci-batch-bench-events.jsonl" ]; then
+            benchmark_events_generated=true
+          fi
           cat > "${bundle_dir}/manifest.json" <<EOF
           {
             "workflow": "batch-recalc-nightly",
@@ -443,6 +498,15 @@ jobs:
             "run_attempt": "${GITHUB_RUN_ATTEMPT}",
             "min_processed_files": ${BATCH_MIN_PROCESSED_FILES},
             "min_throughput_files_per_sec": ${BATCH_MIN_THROUGHPUT_FILES_PER_SEC},
+            "benchmark_recalc_synthetic_enabled": ${BATCH_BENCH_RECALC_SYNTHETIC_ENABLED},
+            "benchmark_chains": ${BATCH_BENCH_CHAINS},
+            "benchmark_chain_length": ${BATCH_BENCH_CHAIN_LENGTH},
+            "benchmark_iterations": ${BATCH_BENCH_ITERATIONS},
+            "benchmark_changed_chain": ${BATCH_BENCH_CHANGED_CHAIN},
+            "benchmark_min_duration_speedup_ratio": ${BATCH_BENCH_MIN_DURATION_SPEEDUP_RATIO},
+            "benchmark_max_evaluated_cells_ratio": ${BATCH_BENCH_MAX_EVALUATED_CELLS_RATIO},
+            "benchmark_report_generated": ${benchmark_report_generated},
+            "benchmark_events_generated": ${benchmark_events_generated},
             "incident_route_configured": ${incident_route_configured},
             "dashboard_route_configured": ${dashboard_route_configured},
             "incident_auth_configured": ${incident_auth_configured},

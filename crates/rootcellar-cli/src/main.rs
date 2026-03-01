@@ -1,5 +1,6 @@
 use clap::{Parser, Subcommand, ValueEnum};
 use rayon::prelude::*;
+use rootcellar_core::model::CellRef;
 use rootcellar_core::{
     analyze_sheet_dependencies, inspect_xlsx, load_workbook_model, preserve_xlsx_passthrough,
     preserve_xlsx_with_sheet_overrides, recalc_sheet, recalc_sheet_from_roots,
@@ -57,6 +58,11 @@ enum Commands {
     Batch {
         #[command(subcommand)]
         command: BatchCommands,
+    },
+    /// Run synthetic benchmark workloads.
+    Bench {
+        #[command(subcommand)]
+        command: BenchCommands,
     },
     /// Run an in-memory transaction demo and print snapshot output.
     TxDemo {
@@ -161,6 +167,31 @@ enum BatchCommands {
         /// Artifact detail level for per-file payloads.
         #[arg(long = "detail-level", value_enum, default_value_t = CliBatchDetailLevel::Minimal)]
         detail_level: CliBatchDetailLevel,
+        /// Optional telemetry JSONL output path.
+        #[arg(long)]
+        jsonl: Option<PathBuf>,
+    },
+}
+
+#[derive(Debug, Subcommand)]
+enum BenchCommands {
+    /// Benchmark full vs incremental recalc on a generated dependency workload.
+    RecalcSynthetic {
+        /// Optional path to write benchmark report JSON.
+        #[arg(long)]
+        report: Option<PathBuf>,
+        /// Number of independent dependency chains (rows).
+        #[arg(long, default_value_t = 16)]
+        chains: usize,
+        /// Number of formula cells per chain.
+        #[arg(long = "chain-length", default_value_t = 256)]
+        chain_length: usize,
+        /// Number of benchmark iterations.
+        #[arg(long, default_value_t = 5)]
+        iterations: usize,
+        /// 1-based chain index whose root value is changed per iteration.
+        #[arg(long = "changed-chain", default_value_t = 1)]
+        changed_chain: usize,
         /// Optional telemetry JSONL output path.
         #[arg(long)]
         jsonl: Option<PathBuf>,
@@ -304,6 +335,8 @@ enum CliError {
     InvalidBatchArgs(String),
     #[error("batch recalc failed: {0}")]
     BatchRecalcFailed(String),
+    #[error("invalid benchmark arguments: {0}")]
+    InvalidBenchArgs(String),
     #[error("bundle missing required file: {0}")]
     MissingBundleFile(String),
     #[error("repro check failed: {0}")]
@@ -426,6 +459,40 @@ struct BatchRecalcReport {
     failures: Vec<BatchRecalcFailure>,
 }
 
+#[derive(Debug, Serialize, Deserialize)]
+struct BenchRecalcSyntheticIteration {
+    iteration: usize,
+    full_duration_us: u128,
+    incremental_duration_us: u128,
+    full_evaluated_cells: usize,
+    incremental_evaluated_cells: usize,
+    duration_speedup_ratio: f64,
+    evaluated_cells_reduction_ratio: f64,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+struct BenchRecalcSyntheticSummary {
+    chains: usize,
+    chain_length: usize,
+    iterations: usize,
+    changed_chain: usize,
+    total_formula_cells: usize,
+    average_full_duration_us: f64,
+    average_incremental_duration_us: f64,
+    duration_speedup_ratio: f64,
+    average_full_evaluated_cells: f64,
+    average_incremental_evaluated_cells: f64,
+    evaluated_cells_reduction_ratio: f64,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+struct BenchRecalcSyntheticReport {
+    generated_at: chrono::DateTime<chrono::Utc>,
+    benchmark: String,
+    summary: BenchRecalcSyntheticSummary,
+    iterations: Vec<BenchRecalcSyntheticIteration>,
+}
+
 fn main() {
     if let Err(err) = run() {
         eprintln!("error: {err}");
@@ -473,6 +540,23 @@ fn run() -> Result<(), CliError> {
                 threads,
                 fail_on_errors,
                 detail_level,
+                jsonl.as_ref(),
+            ),
+        },
+        Commands::Bench { command } => match command {
+            BenchCommands::RecalcSynthetic {
+                report,
+                chains,
+                chain_length,
+                iterations,
+                changed_chain,
+                jsonl,
+            } => run_bench_recalc_synthetic(
+                report.as_ref(),
+                chains,
+                chain_length,
+                iterations,
+                changed_chain,
                 jsonl.as_ref(),
             ),
         },
@@ -1072,6 +1156,264 @@ fn run_batch_recalc(
     }
 
     Ok(())
+}
+
+fn run_bench_recalc_synthetic(
+    report_override: Option<&PathBuf>,
+    chains: usize,
+    chain_length: usize,
+    iterations: usize,
+    changed_chain: usize,
+    jsonl_path: Option<&PathBuf>,
+) -> Result<(), CliError> {
+    if chains == 0 {
+        return Err(CliError::InvalidBenchArgs(
+            "--chains must be greater than zero".to_string(),
+        ));
+    }
+    if chain_length == 0 {
+        return Err(CliError::InvalidBenchArgs(
+            "--chain-length must be greater than zero".to_string(),
+        ));
+    }
+    if iterations == 0 {
+        return Err(CliError::InvalidBenchArgs(
+            "--iterations must be greater than zero".to_string(),
+        ));
+    }
+    if changed_chain == 0 || changed_chain > chains {
+        return Err(CliError::InvalidBenchArgs(format!(
+            "--changed-chain must be within 1..={chains}"
+        )));
+    }
+    if chains > u32::MAX as usize {
+        return Err(CliError::InvalidBenchArgs(format!(
+            "--chains exceeds supported row range: {chains}"
+        )));
+    }
+    if chain_length > (u32::MAX as usize).saturating_sub(1) {
+        return Err(CliError::InvalidBenchArgs(format!(
+            "--chain-length exceeds supported column range: {chain_length}"
+        )));
+    }
+
+    let trace = TraceContext::root();
+    let mut sink = make_sink(jsonl_path)?;
+    sink.emit(
+        EventEnvelope::info("benchmark.recalc.synthetic.start", &trace).with_context(json!({
+            "chains": chains,
+            "chain_length": chain_length,
+            "iterations": iterations,
+            "changed_chain": changed_chain,
+            "report": report_override
+                .map(|p| normalize_path_for_report(p.as_path()))
+                .unwrap_or_else(|| normalize_path_for_report(default_bench_recalc_report_path().as_path())),
+        })),
+    )?;
+
+    let template = build_synthetic_recalc_benchmark_workbook(chains, chain_length)?;
+    let changed_row = changed_chain as u32;
+    let changed_root = CellRef {
+        row: changed_row,
+        col: 1,
+    };
+
+    let mut iteration_rows = Vec::<BenchRecalcSyntheticIteration>::with_capacity(iterations);
+    let mut full_duration_total_us = 0f64;
+    let mut incremental_duration_total_us = 0f64;
+    let mut full_eval_total = 0f64;
+    let mut incremental_eval_total = 0f64;
+
+    for iteration in 0..iterations {
+        let next_value = (iteration as f64) + 1.0;
+
+        let mut full_wb = template.clone();
+        let mut no_op_sink = NoopEventSink;
+        let mut full_txn = full_wb.begin_txn(&mut no_op_sink, &trace).expect("begin");
+        full_txn.apply(Mutation::SetCellValue {
+            sheet: "Sheet1".to_string(),
+            row: changed_row,
+            col: 1,
+            value: CellValue::Number(next_value),
+        });
+        full_txn
+            .commit(&mut full_wb, &mut no_op_sink, &trace)
+            .expect("commit");
+
+        let full_started = Instant::now();
+        let full_report = recalc_sheet(&mut full_wb, "Sheet1", &mut no_op_sink, &trace)?;
+        let full_duration_us = full_started.elapsed().as_micros();
+
+        let mut incremental_wb = template.clone();
+        let mut incremental_txn = incremental_wb
+            .begin_txn(&mut no_op_sink, &trace)
+            .expect("begin");
+        incremental_txn.apply(Mutation::SetCellValue {
+            sheet: "Sheet1".to_string(),
+            row: changed_row,
+            col: 1,
+            value: CellValue::Number(next_value),
+        });
+        incremental_txn
+            .commit(&mut incremental_wb, &mut no_op_sink, &trace)
+            .expect("commit");
+
+        let incremental_started = Instant::now();
+        let incremental_report = recalc_sheet_from_roots(
+            &mut incremental_wb,
+            "Sheet1",
+            &[changed_root],
+            &mut no_op_sink,
+            &trace,
+        )?;
+        let incremental_duration_us = incremental_started.elapsed().as_micros();
+
+        let duration_speedup_ratio = if incremental_duration_us == 0 {
+            0.0
+        } else {
+            full_duration_us as f64 / incremental_duration_us as f64
+        };
+        let evaluated_cells_reduction_ratio = if full_report.evaluated_cells == 0 {
+            0.0
+        } else {
+            incremental_report.evaluated_cells as f64 / full_report.evaluated_cells as f64
+        };
+
+        full_duration_total_us += full_duration_us as f64;
+        incremental_duration_total_us += incremental_duration_us as f64;
+        full_eval_total += full_report.evaluated_cells as f64;
+        incremental_eval_total += incremental_report.evaluated_cells as f64;
+
+        iteration_rows.push(BenchRecalcSyntheticIteration {
+            iteration: iteration + 1,
+            full_duration_us,
+            incremental_duration_us,
+            full_evaluated_cells: full_report.evaluated_cells,
+            incremental_evaluated_cells: incremental_report.evaluated_cells,
+            duration_speedup_ratio,
+            evaluated_cells_reduction_ratio,
+        });
+    }
+
+    let count = iterations as f64;
+    let average_full_duration_us = full_duration_total_us / count;
+    let average_incremental_duration_us = incremental_duration_total_us / count;
+    let duration_speedup_ratio = if average_incremental_duration_us == 0.0 {
+        0.0
+    } else {
+        average_full_duration_us / average_incremental_duration_us
+    };
+    let average_full_evaluated_cells = full_eval_total / count;
+    let average_incremental_evaluated_cells = incremental_eval_total / count;
+    let evaluated_cells_reduction_ratio = if average_full_evaluated_cells == 0.0 {
+        0.0
+    } else {
+        average_incremental_evaluated_cells / average_full_evaluated_cells
+    };
+
+    let report = BenchRecalcSyntheticReport {
+        generated_at: chrono::Utc::now(),
+        benchmark: "recalc_synthetic".to_string(),
+        summary: BenchRecalcSyntheticSummary {
+            chains,
+            chain_length,
+            iterations,
+            changed_chain,
+            total_formula_cells: chains.saturating_mul(chain_length),
+            average_full_duration_us,
+            average_incremental_duration_us,
+            duration_speedup_ratio,
+            average_full_evaluated_cells,
+            average_incremental_evaluated_cells,
+            evaluated_cells_reduction_ratio,
+        },
+        iterations: iteration_rows,
+    };
+
+    let report_path = report_override
+        .cloned()
+        .unwrap_or_else(default_bench_recalc_report_path);
+    let report_json = to_string_pretty(&report)?;
+    fs::write(&report_path, report_json.as_bytes())?;
+
+    sink.emit(
+        EventEnvelope::info("benchmark.recalc.synthetic.end", &trace)
+            .with_context(json!({
+                "report": normalize_path_for_report(report_path.as_path()),
+            }))
+            .with_metrics(json!({
+                "chains": chains,
+                "chain_length": chain_length,
+                "iterations": iterations,
+                "changed_chain": changed_chain,
+                "total_formula_cells": report.summary.total_formula_cells,
+                "average_full_duration_us": report.summary.average_full_duration_us,
+                "average_incremental_duration_us": report.summary.average_incremental_duration_us,
+                "duration_speedup_ratio": report.summary.duration_speedup_ratio,
+                "average_full_evaluated_cells": report.summary.average_full_evaluated_cells,
+                "average_incremental_evaluated_cells": report.summary.average_incremental_evaluated_cells,
+                "evaluated_cells_reduction_ratio": report.summary.evaluated_cells_reduction_ratio,
+                "output_bytes": report_json.len(),
+            })),
+    )?;
+
+    println!(
+        "Synthetic recalc benchmark report: {}",
+        report_path.display()
+    );
+    println!(
+        "Workload: chains={}, chain_length={}, iterations={}, changed_chain={}",
+        chains, chain_length, iterations, changed_chain
+    );
+    println!(
+        "Average duration (us): full={:.2}, incremental={:.2}, speedup={:.2}x",
+        report.summary.average_full_duration_us,
+        report.summary.average_incremental_duration_us,
+        report.summary.duration_speedup_ratio
+    );
+    println!(
+        "Average evaluated cells: full={:.2}, incremental={:.2}, ratio={:.4}",
+        report.summary.average_full_evaluated_cells,
+        report.summary.average_incremental_evaluated_cells,
+        report.summary.evaluated_cells_reduction_ratio
+    );
+
+    Ok(())
+}
+
+fn build_synthetic_recalc_benchmark_workbook(
+    chains: usize,
+    chain_length: usize,
+) -> Result<Workbook, CliError> {
+    let mut workbook = Workbook::new();
+    let trace = TraceContext::root();
+    let mut sink = NoopEventSink;
+    let mut txn = workbook.begin_txn(&mut sink, &trace).expect("begin");
+
+    for chain_idx in 0..chains {
+        let row = (chain_idx + 1) as u32;
+        txn.apply(Mutation::SetCellValue {
+            sheet: "Sheet1".to_string(),
+            row,
+            col: 1,
+            value: CellValue::Number(chain_idx as f64),
+        });
+        for step in 0..chain_length {
+            let col = (step + 2) as u32;
+            let prior_ref = to_a1(row, col - 1);
+            txn.apply(Mutation::SetCellFormula {
+                sheet: "Sheet1".to_string(),
+                row,
+                col,
+                formula: format!("={prior_ref}+1"),
+                cached_value: CellValue::Empty,
+            });
+        }
+    }
+
+    txn.commit(&mut workbook, &mut sink, &trace)
+        .expect("commit");
+    Ok(workbook)
 }
 
 fn run_save(
@@ -2216,6 +2558,10 @@ fn default_batch_recalc_report_path(dir: &Path) -> PathBuf {
     dir.join("rootcellar-batch-recalc-report.json")
 }
 
+fn default_bench_recalc_report_path() -> PathBuf {
+    PathBuf::from("rootcellar-bench-recalc-report.json")
+}
+
 fn default_batch_threads() -> usize {
     std::thread::available_parallelism()
         .map(|v| v.get())
@@ -2462,6 +2808,30 @@ mod tests {
             out,
             PathBuf::from("./corpus").join("rootcellar-batch-recalc-report.json")
         );
+    }
+
+    #[test]
+    fn bench_report_default_path_is_stable() {
+        assert_eq!(
+            default_bench_recalc_report_path(),
+            PathBuf::from("rootcellar-bench-recalc-report.json")
+        );
+    }
+
+    #[test]
+    fn synthetic_benchmark_workbook_shape_matches_requested_dimensions() {
+        let wb = build_synthetic_recalc_benchmark_workbook(3, 4).expect("workbook");
+        let sheet = wb.sheets.get("Sheet1").expect("sheet1");
+        assert_eq!(sheet.cells.len(), 15);
+
+        for row in 1..=3u32 {
+            let root = sheet.cells.get(&CellRef { row, col: 1 }).expect("root");
+            assert!(root.formula.is_none());
+            for col in 2..=5u32 {
+                let cell = sheet.cells.get(&CellRef { row, col }).expect("formula");
+                assert!(cell.formula.is_some());
+            }
+        }
     }
 
     #[test]
