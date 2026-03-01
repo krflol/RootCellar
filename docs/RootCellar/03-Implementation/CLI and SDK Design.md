@@ -16,7 +16,7 @@ Related epic: [[docs/RootCellar/01-Epics/Epic 05 - Headless CLI and SDK]]
 - `rootcellar batch recalc <dir> [--threads N] [--detail-level minimal|diagnostic|forensic]`
 - `rootcellar repro record|check <bundle>`
 
-## Current Implemented Baseline (February 28, 2026)
+## Current Implemented Baseline (March 1, 2026)
 - Implemented: `open`, `save`, `recalc`, `tx-demo`, `tx-save`, `batch recalc`, `repro record`, `repro check`, `repro diff`.
 - Implemented corpus validator: `part-graph-corpus <dir> [--max-files N] [--fail-on-errors]`.
 - Implemented diff artifact output: `repro diff --format text|json --output <path>`.
@@ -26,7 +26,7 @@ Related epic: [[docs/RootCellar/01-Epics/Epic 05 - Headless CLI and SDK]]
 - Implemented incremental post-mutation recalc in `tx-save` using changed-root invalidation.
 - Implemented parser introspection metrics in dependency artifacts (`function_call_count`, `ast_node_count`, `ast_unique_node_count`, `formula_ast_ids`).
 - Implemented DAG analysis metrics in timing artifacts (`critical_path`, `max_fan_in`, `max_fan_out`, slow-node threshold).
-- Implemented function evaluator starter set: `SUM`, `SUMSQ`, `PRODUCT`, `MIN`, `MAX`, `MEDIAN`, `SMALL`, `LARGE`, `GEOMEAN`, `HARMEAN`, `VARP`, `VAR`/`VARS`, `STDEVP`, `STDEV`/`STDEVS`, `IF`, `IFERROR`, `AVERAGE`/`AVG`, `ABS`, `INT`, `FACT`, `FACTDOUBLE`, `COMBIN`, `PERMUT`, `GCD`, `LCM`, `QUOTIENT`, `MOD`, `ROUND`, `ROUNDUP`, `ROUNDDOWN`, `TRUNC`, `MROUND`, `POWER`, `SQRT`, `SIGN`, `EVEN`, `ODD`, `ISEVEN`, `ISODD`, `CEILING`, `FLOOR`, `PI`, `EXP`, `LN`, `LOG`, `LOG10`, `SIN`, `COS`, `TAN`, `ASIN`, `ACOS`, `ATAN`, `ATAN2`, `RADIANS`, `DEGREES`, `PV`, `FV`, `NPV`, `PMT`, `AND`, `OR`, `NOT`, `LEN`, `CHOOSE`, `MATCH`, `EXACT`, `FIND`, `SEARCH`, `CODE`, `N`, `VALUE`, `DATEVALUE`, `TIMEVALUE`, `ISNUMBER`, `ISTEXT`, `ISBLANK`, `ISLOGICAL`, `ISERROR`, `COUNT`, `COUNTA`, `COUNTBLANK`, `DATE`, `YEAR`, `MONTH`, `DAY`, `DAYS`, `TIME`, `HOUR`, `MINUTE`, `SECOND`, `EDATE`, `EOMONTH`, `WEEKDAY`, `WEEKNUM`, `ISOWEEKNUM`.
+- Implemented function evaluator starter set: `SUM`, `SUMSQ`, `PRODUCT`, `MIN`, `MAX`, `MEDIAN`, `SMALL`, `LARGE`, `GEOMEAN`, `HARMEAN`, `VARP`, `VAR`/`VARS`, `STDEVP`, `STDEV`/`STDEVS`, `IF`, `IFERROR`, `AVERAGE`/`AVG`, `ABS`, `INT`, `FACT`, `FACTDOUBLE`, `COMBIN`, `PERMUT`, `GCD`, `LCM`, `QUOTIENT`, `MOD`, `ROUND`, `ROUNDUP`, `ROUNDDOWN`, `TRUNC`, `MROUND`, `POWER`, `SQRT`, `SIGN`, `EVEN`, `ODD`, `ISEVEN`, `ISODD`, `CEILING`, `FLOOR`, `PI`, `EXP`, `LN`, `LOG`, `LOG10`, `SIN`, `COS`, `TAN`, `SINH`, `COSH`, `TANH`, `ASINH`, `ACOSH`, `ATANH`, `ASIN`, `ACOS`, `ATAN`, `ATAN2`, `RADIANS`, `DEGREES`, `PV`, `FV`, `NPV`, `PMT`, `BITAND`, `BITOR`, `BITXOR`, `BITLSHIFT`, `BITRSHIFT`, `AND`, `OR`, `NOT`, `LEN`, `CHOOSE`, `MATCH`, `EXACT`, `FIND`, `SEARCH`, `CODE`, `N`, `VALUE`, `DATEVALUE`, `TIMEVALUE`, `ISNUMBER`, `ISTEXT`, `ISBLANK`, `ISLOGICAL`, `ISERROR`, `COUNT`, `COUNTA`, `COUNTBLANK`, `DATE`, `YEAR`, `MONTH`, `DAY`, `DAYS`, `TIME`, `HOUR`, `MINUTE`, `SECOND`, `EDATE`, `EOMONTH`, `WEEKDAY`, `WEEKNUM`, `ISOWEEKNUM`.
 - Implemented incremental scheduler/perf optimization via reverse-dependency index reuse for impacted-formula selection and DAG degree/adjacency derivation.
 - Implemented workbook part-graph artifacts in `open` reports and graph-aware preserve/normalize save flags in `save`/`tx-save` outputs.
 - Implemented CI workflow publication for corpus validator artifacts (`.github/workflows/corpus-part-graph.yml`).
@@ -71,3 +71,8 @@ Each run emits JSONL lines for:
 
 ## Exit Criteria
 - CI pipeline can run nightly corpus in headless mode with reproducibility and bounded-parallel batch checks.
+
+## Near-Term Guidance (March 2026)
+- Keep CLI command behavior stable while function-parity expansion continues in `rootcellar-core`.
+- Preserve deterministic artifact shape and schema-contract compatibility in nightly CI as primary guardrails.
+- Add a minimal UI smoke path (shell startup + one engine command round-trip) so desktop initialization work has CI coverage early.

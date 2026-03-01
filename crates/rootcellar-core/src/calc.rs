@@ -2095,6 +2095,42 @@ fn eval_function(
                     }
                     ensure_finite_result(values[0].tan())
                 }
+                "SINH" => {
+                    if values.len() != 1 {
+                        return Err(EvalError::Parse);
+                    }
+                    ensure_finite_result(values[0].sinh())
+                }
+                "COSH" => {
+                    if values.len() != 1 {
+                        return Err(EvalError::Parse);
+                    }
+                    ensure_finite_result(values[0].cosh())
+                }
+                "TANH" => {
+                    if values.len() != 1 {
+                        return Err(EvalError::Parse);
+                    }
+                    ensure_finite_result(values[0].tanh())
+                }
+                "ASINH" => {
+                    if values.len() != 1 {
+                        return Err(EvalError::Parse);
+                    }
+                    ensure_finite_result(values[0].asinh())
+                }
+                "ACOSH" => {
+                    if values.len() != 1 || values[0] < 1.0 {
+                        return Err(EvalError::Parse);
+                    }
+                    ensure_finite_result(values[0].acosh())
+                }
+                "ATANH" => {
+                    if values.len() != 1 || values[0] <= -1.0 || values[0] >= 1.0 {
+                        return Err(EvalError::Parse);
+                    }
+                    ensure_finite_result(values[0].atanh())
+                }
                 "ASIN" => {
                     if values.len() != 1 || values[0] < -1.0 || values[0] > 1.0 {
                         return Err(EvalError::Parse);
@@ -2239,6 +2275,48 @@ fn eval_function(
                         total += *value / discount;
                     }
                     ensure_finite_result(total)
+                }
+                "BITAND" => {
+                    if values.len() != 2 {
+                        return Err(EvalError::Parse);
+                    }
+                    let lhs = parse_bit_operand(values[0])?;
+                    let rhs = parse_bit_operand(values[1])?;
+                    Ok((lhs & rhs) as f64)
+                }
+                "BITOR" => {
+                    if values.len() != 2 {
+                        return Err(EvalError::Parse);
+                    }
+                    let lhs = parse_bit_operand(values[0])?;
+                    let rhs = parse_bit_operand(values[1])?;
+                    Ok((lhs | rhs) as f64)
+                }
+                "BITXOR" => {
+                    if values.len() != 2 {
+                        return Err(EvalError::Parse);
+                    }
+                    let lhs = parse_bit_operand(values[0])?;
+                    let rhs = parse_bit_operand(values[1])?;
+                    Ok((lhs ^ rhs) as f64)
+                }
+                "BITLSHIFT" => {
+                    if values.len() != 2 {
+                        return Err(EvalError::Parse);
+                    }
+                    let operand = parse_bit_operand(values[0])?;
+                    let shift = parse_shift_amount(values[1])?;
+                    let result = apply_shift(operand, shift, true)?;
+                    Ok(result as f64)
+                }
+                "BITRSHIFT" => {
+                    if values.len() != 2 {
+                        return Err(EvalError::Parse);
+                    }
+                    let operand = parse_bit_operand(values[0])?;
+                    let shift = parse_shift_amount(values[1])?;
+                    let result = apply_shift(operand, shift, false)?;
+                    Ok(result as f64)
                 }
                 "GCD" => {
                     if values.is_empty() {
@@ -3027,6 +3105,44 @@ fn parse_non_negative_i64(value: f64) -> Result<i64, EvalError> {
         return Err(EvalError::Parse);
     }
     Ok(parsed)
+}
+
+const MAX_BIT_OPERAND: u64 = (1u64 << 48) - 1;
+
+fn parse_bit_operand(value: f64) -> Result<u64, EvalError> {
+    let parsed = parse_non_negative_i64(value)? as u64;
+    if parsed > MAX_BIT_OPERAND {
+        return Err(EvalError::Parse);
+    }
+    Ok(parsed)
+}
+
+fn parse_shift_amount(value: f64) -> Result<i64, EvalError> {
+    let parsed = trunc_f64_to_i64(value)?;
+    if !(-63..=63).contains(&parsed) {
+        return Err(EvalError::Parse);
+    }
+    Ok(parsed)
+}
+
+fn apply_shift(operand: u64, shift: i64, left_if_positive: bool) -> Result<u64, EvalError> {
+    let mut effective = shift;
+    if !left_if_positive {
+        effective = -effective;
+    }
+    let shifted = if effective >= 0 {
+        operand
+            .checked_shl(effective as u32)
+            .ok_or(EvalError::Parse)?
+    } else {
+        operand
+            .checked_shr((-effective) as u32)
+            .ok_or(EvalError::Parse)?
+    };
+    if shifted > MAX_BIT_OPERAND {
+        return Err(EvalError::Parse);
+    }
+    Ok(shifted)
 }
 
 fn combin_i128(n: i64, k: i64) -> Result<i128, EvalError> {
@@ -5723,6 +5839,153 @@ mod tests {
     }
 
     #[test]
+    fn evaluates_bitwise_extension_functions() {
+        let mut wb = Workbook::new();
+        let mut sink = NoopEventSink;
+        let trace = TraceContext::root();
+
+        let mut txn = wb.begin_txn(&mut sink, &trace).expect("begin");
+        txn.apply(Mutation::SetCellValue {
+            sheet: "Sheet1".to_string(),
+            row: 1,
+            col: 1,
+            value: CellValue::Number(6.0),
+        });
+        txn.apply(Mutation::SetCellValue {
+            sheet: "Sheet1".to_string(),
+            row: 1,
+            col: 2,
+            value: CellValue::Number(3.0),
+        });
+        txn.apply(Mutation::SetCellFormula {
+            sheet: "Sheet1".to_string(),
+            row: 2,
+            col: 1,
+            formula: "=BITAND(A1,B1)".to_string(),
+            cached_value: CellValue::Empty,
+        });
+        txn.apply(Mutation::SetCellFormula {
+            sheet: "Sheet1".to_string(),
+            row: 2,
+            col: 2,
+            formula: "=BITOR(A1,B1)".to_string(),
+            cached_value: CellValue::Empty,
+        });
+        txn.apply(Mutation::SetCellFormula {
+            sheet: "Sheet1".to_string(),
+            row: 2,
+            col: 3,
+            formula: "=BITXOR(A1,B1)".to_string(),
+            cached_value: CellValue::Empty,
+        });
+        txn.apply(Mutation::SetCellFormula {
+            sheet: "Sheet1".to_string(),
+            row: 2,
+            col: 4,
+            formula: "=BITLSHIFT(A1,1)".to_string(),
+            cached_value: CellValue::Empty,
+        });
+        txn.apply(Mutation::SetCellFormula {
+            sheet: "Sheet1".to_string(),
+            row: 2,
+            col: 5,
+            formula: "=BITRSHIFT(A1,1)".to_string(),
+            cached_value: CellValue::Empty,
+        });
+        txn.apply(Mutation::SetCellFormula {
+            sheet: "Sheet1".to_string(),
+            row: 2,
+            col: 6,
+            formula: "=BITLSHIFT(A1,-1)".to_string(),
+            cached_value: CellValue::Empty,
+        });
+        txn.apply(Mutation::SetCellFormula {
+            sheet: "Sheet1".to_string(),
+            row: 2,
+            col: 7,
+            formula: "=BITRSHIFT(A1,-1)".to_string(),
+            cached_value: CellValue::Empty,
+        });
+        txn.apply(Mutation::SetCellFormula {
+            sheet: "Sheet1".to_string(),
+            row: 2,
+            col: 8,
+            formula: "=BITLSHIFT(1,48)".to_string(),
+            cached_value: CellValue::Empty,
+        });
+        txn.apply(Mutation::SetCellFormula {
+            sheet: "Sheet1".to_string(),
+            row: 2,
+            col: 9,
+            formula: "=BITAND(-1,1)".to_string(),
+            cached_value: CellValue::Empty,
+        });
+        txn.apply(Mutation::SetCellFormula {
+            sheet: "Sheet1".to_string(),
+            row: 2,
+            col: 10,
+            formula: "=BITOR(A1)".to_string(),
+            cached_value: CellValue::Empty,
+        });
+        txn.apply(Mutation::SetCellFormula {
+            sheet: "Sheet1".to_string(),
+            row: 2,
+            col: 11,
+            formula: "=BITRSHIFT(8,1000)".to_string(),
+            cached_value: CellValue::Empty,
+        });
+        txn.apply(Mutation::SetCellFormula {
+            sheet: "Sheet1".to_string(),
+            row: 2,
+            col: 12,
+            formula: "=BITXOR(281474976710655,1)".to_string(),
+            cached_value: CellValue::Empty,
+        });
+        txn.apply(Mutation::SetCellFormula {
+            sheet: "Sheet1".to_string(),
+            row: 2,
+            col: 13,
+            formula: "=BITLSHIFT(281474976710655,1)".to_string(),
+            cached_value: CellValue::Empty,
+        });
+        txn.apply(Mutation::SetCellFormula {
+            sheet: "Sheet1".to_string(),
+            row: 2,
+            col: 14,
+            formula: "=BITRSHIFT(1,1)".to_string(),
+            cached_value: CellValue::Empty,
+        });
+        txn.commit(&mut wb, &mut sink, &trace).expect("commit");
+
+        let report = recalc_sheet(&mut wb, "Sheet1", &mut sink, &trace).expect("recalc");
+        assert_eq!(report.parse_error_count, 5);
+
+        let value_at = |col: u32| -> CellValue {
+            wb.sheets
+                .get("Sheet1")
+                .and_then(|s| s.cells.get(&CellRef { row: 2, col }))
+                .expect("cell")
+                .value
+                .clone()
+        };
+
+        assert_eq!(value_at(1), CellValue::Number(2.0));
+        assert_eq!(value_at(2), CellValue::Number(7.0));
+        assert_eq!(value_at(3), CellValue::Number(5.0));
+        assert_eq!(value_at(4), CellValue::Number(12.0));
+        assert_eq!(value_at(5), CellValue::Number(3.0));
+        assert_eq!(value_at(6), CellValue::Number(3.0));
+        assert_eq!(value_at(7), CellValue::Number(12.0));
+        assert_eq!(value_at(8), CellValue::Error("#PARSE!".to_string()));
+        assert_eq!(value_at(9), CellValue::Error("#PARSE!".to_string()));
+        assert_eq!(value_at(10), CellValue::Error("#PARSE!".to_string()));
+        assert_eq!(value_at(11), CellValue::Error("#PARSE!".to_string()));
+        assert_eq!(value_at(12), CellValue::Number(281474976710654.0));
+        assert_eq!(value_at(13), CellValue::Error("#PARSE!".to_string()));
+        assert_eq!(value_at(14), CellValue::Number(0.0));
+    }
+
+    #[test]
     fn evaluates_advanced_rounding_and_parity_functions() {
         let mut wb = Workbook::new();
         let mut sink = NoopEventSink;
@@ -6296,10 +6559,80 @@ mod tests {
             formula: "=SIN(PI()/2)".to_string(),
             cached_value: CellValue::Empty,
         });
+        txn.apply(Mutation::SetCellFormula {
+            sheet: "Sheet1".to_string(),
+            row: 2,
+            col: 25,
+            formula: "=SINH(1)".to_string(),
+            cached_value: CellValue::Empty,
+        });
+        txn.apply(Mutation::SetCellFormula {
+            sheet: "Sheet1".to_string(),
+            row: 2,
+            col: 26,
+            formula: "=COSH(1)".to_string(),
+            cached_value: CellValue::Empty,
+        });
+        txn.apply(Mutation::SetCellFormula {
+            sheet: "Sheet1".to_string(),
+            row: 2,
+            col: 27,
+            formula: "=TANH(1)".to_string(),
+            cached_value: CellValue::Empty,
+        });
+        txn.apply(Mutation::SetCellFormula {
+            sheet: "Sheet1".to_string(),
+            row: 2,
+            col: 28,
+            formula: "=ASINH(1)".to_string(),
+            cached_value: CellValue::Empty,
+        });
+        txn.apply(Mutation::SetCellFormula {
+            sheet: "Sheet1".to_string(),
+            row: 2,
+            col: 29,
+            formula: "=ACOSH(1)".to_string(),
+            cached_value: CellValue::Empty,
+        });
+        txn.apply(Mutation::SetCellFormula {
+            sheet: "Sheet1".to_string(),
+            row: 2,
+            col: 30,
+            formula: "=ATANH(0.5)".to_string(),
+            cached_value: CellValue::Empty,
+        });
+        txn.apply(Mutation::SetCellFormula {
+            sheet: "Sheet1".to_string(),
+            row: 2,
+            col: 31,
+            formula: "=ACOSH(0.5)".to_string(),
+            cached_value: CellValue::Empty,
+        });
+        txn.apply(Mutation::SetCellFormula {
+            sheet: "Sheet1".to_string(),
+            row: 2,
+            col: 32,
+            formula: "=ATANH(1)".to_string(),
+            cached_value: CellValue::Empty,
+        });
+        txn.apply(Mutation::SetCellFormula {
+            sheet: "Sheet1".to_string(),
+            row: 2,
+            col: 33,
+            formula: "=SINH(1,2)".to_string(),
+            cached_value: CellValue::Empty,
+        });
+        txn.apply(Mutation::SetCellFormula {
+            sheet: "Sheet1".to_string(),
+            row: 2,
+            col: 34,
+            formula: "=ATANH(-1)".to_string(),
+            cached_value: CellValue::Empty,
+        });
         txn.commit(&mut wb, &mut sink, &trace).expect("commit");
 
         let report = recalc_sheet(&mut wb, "Sheet1", &mut sink, &trace).expect("recalc");
-        assert_eq!(report.parse_error_count, 8);
+        assert_eq!(report.parse_error_count, 12);
 
         let value_at = |col: u32| -> CellValue {
             wb.sheets
@@ -6343,6 +6676,16 @@ mod tests {
         assert_eq!(value_at(22), CellValue::Error("#PARSE!".to_string()));
         assert_eq!(value_at(23), CellValue::Error("#PARSE!".to_string()));
         assert_close(value_at(24), 1.0, "X2");
+        assert_close(value_at(25), 1.0_f64.sinh(), "Y2");
+        assert_close(value_at(26), 1.0_f64.cosh(), "Z2");
+        assert_close(value_at(27), 1.0_f64.tanh(), "AA2");
+        assert_close(value_at(28), 1.0_f64.asinh(), "AB2");
+        assert_close(value_at(29), 0.0, "AC2");
+        assert_close(value_at(30), 0.5_f64.atanh(), "AD2");
+        assert_eq!(value_at(31), CellValue::Error("#PARSE!".to_string()));
+        assert_eq!(value_at(32), CellValue::Error("#PARSE!".to_string()));
+        assert_eq!(value_at(33), CellValue::Error("#PARSE!".to_string()));
+        assert_eq!(value_at(34), CellValue::Error("#PARSE!".to_string()));
     }
 
     #[test]

@@ -7,11 +7,11 @@ Parent: [[RootCellar Master Plan]]
 - Phase B Replacement Credibility: June 22, 2026 to October 11, 2026.
 - Phase C Enterprise Platform: October 12, 2026 to February 14, 2027.
 
-## Current Milestone Status (February 28, 2026)
+## Current Milestone Status (March 1, 2026)
 - M0 Foundation Ready: In progress.
   Linkage: [[Execution Plan Board]], [[Execution Status]]
-  Completed inside M0 scope: engine/CLI/telemetry baseline.
-  Remaining inside M0 scope: UI shell startup and CI artifact upload implementation.
+  Completed inside M0 scope: engine/CLI/telemetry baseline plus CI test/artifact publication paths.
+  Remaining inside M0 scope: UI shell startup, desktop->engine trace bridge, and a minimal UI smoke path in CI.
 - M1 and beyond: Not started.
   Linkage: [[Execution Plan Board]]
 

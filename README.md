@@ -67,7 +67,7 @@ python python/validate_batch_migration_policy_dry_run.py
 - Nightly gate now enforces both throughput snapshot status and alert-policy status for route-delivery/forensic policy checks.
 - Minimal calculation engine supports A1 references, arithmetic formulas, and cycle detection.
 - Formula parser scaffold now supports precedence and parentheses for arithmetic recalc.
-- Built-in function baseline now supports `SUM`, `SUMSQ`, `PRODUCT`, `MIN`, `MAX`, `MEDIAN`, `SMALL`, `LARGE`, `GEOMEAN`, `HARMEAN`, `VARP`, `VAR`/`VARS`, `STDEVP`, `STDEV`/`STDEVS`, `IF`, `IFERROR`, `AVERAGE`/`AVG`, `ABS`, `INT`, `FACT`, `FACTDOUBLE`, `COMBIN`, `PERMUT`, `GCD`, `LCM`, `QUOTIENT`, `MOD`, `ROUND`, `ROUNDUP`, `ROUNDDOWN`, `TRUNC`, `MROUND`, `POWER`, `SQRT`, `SIGN`, `EVEN`, `ODD`, `ISEVEN`, `ISODD`, `CEILING`, `FLOOR`, `PI`, `EXP`, `LN`, `LOG`, `LOG10`, `SIN`, `COS`, `TAN`, `ASIN`, `ACOS`, `ATAN`, `ATAN2`, `RADIANS`, `DEGREES`, `PV`, `FV`, `NPV`, `PMT`, `AND`, `OR`, `NOT`, `LEN`, `CHOOSE`, `MATCH`, `EXACT`, `FIND`, `SEARCH`, `CODE`, `N`, `VALUE`, `DATEVALUE`, `TIMEVALUE`, `ISNUMBER`, `ISTEXT`, `ISBLANK`, `ISLOGICAL`, `ISERROR`, `COUNT`, `COUNTA`, `COUNTBLANK`, `DATE`, `YEAR`, `MONTH`, `DAY`, `DAYS`, `TIME`, `HOUR`, `MINUTE`, `SECOND`, `EDATE`, `EOMONTH`, `WEEKDAY`, `WEEKNUM`, and `ISOWEEKNUM`.
+- Built-in function baseline now supports `SUM`, `SUMSQ`, `PRODUCT`, `MIN`, `MAX`, `MEDIAN`, `SMALL`, `LARGE`, `GEOMEAN`, `HARMEAN`, `VARP`, `VAR`/`VARS`, `STDEVP`, `STDEV`/`STDEVS`, `IF`, `IFERROR`, `AVERAGE`/`AVG`, `ABS`, `INT`, `FACT`, `FACTDOUBLE`, `COMBIN`, `PERMUT`, `GCD`, `LCM`, `QUOTIENT`, `MOD`, `ROUND`, `ROUNDUP`, `ROUNDDOWN`, `TRUNC`, `MROUND`, `POWER`, `SQRT`, `SIGN`, `EVEN`, `ODD`, `ISEVEN`, `ISODD`, `CEILING`, `FLOOR`, `PI`, `EXP`, `LN`, `LOG`, `LOG10`, `SIN`, `COS`, `TAN`, `SINH`, `COSH`, `TANH`, `ASINH`, `ACOSH`, `ATANH`, `ASIN`, `ACOS`, `ATAN`, `ATAN2`, `RADIANS`, `DEGREES`, `PV`, `FV`, `NPV`, `PMT`, `BITAND`, `BITOR`, `BITXOR`, `BITLSHIFT`, `BITRSHIFT`, `AND`, `OR`, `NOT`, `LEN`, `CHOOSE`, `MATCH`, `EXACT`, `FIND`, `SEARCH`, `CODE`, `N`, `VALUE`, `DATEVALUE`, `TIMEVALUE`, `ISNUMBER`, `ISTEXT`, `ISBLANK`, `ISLOGICAL`, `ISERROR`, `COUNT`, `COUNTA`, `COUNTBLANK`, `DATE`, `YEAR`, `MONTH`, `DAY`, `DAYS`, `TIME`, `HOUR`, `MINUTE`, `SECOND`, `EDATE`, `EOMONTH`, `WEEKDAY`, `WEEKNUM`, and `ISOWEEKNUM`.
 - AST interning scaffold now exposes deduplicated formula-node IDs for parser introspection.
 - Incremental recalc from changed roots is available in core and used by `tx-save` post-mutation workflows.
 - Incremental recalc now reuses cached reverse-dependency indexes during impacted-cell discovery and DAG degree analysis to reduce repeated graph traversal overhead on larger formula sets.
@@ -87,6 +87,7 @@ python python/validate_batch_migration_policy_dry_run.py
 - DAG timing observability includes `critical_path`, `max_fan_in`, `max_fan_out`, and slow-node threshold diagnostics.
 
 ## Next Build Slice
-- Continue function parity expansion beyond current starter set.
-- Continue parser/evaluator and scheduler optimization work on top of the AST interning scaffold.
+- Continue function parity expansion in higher-impact text/lookup families (`LEFT`, `RIGHT`, `MID`, `LOWER`, `UPPER`, `TRIM`, `SUBSTITUTE`, `REPLACE`, `CONCAT`, `TEXTJOIN`) with compatibility-focused test coverage.
+- Continue parser/evaluator and scheduler optimization work on top of the AST interning scaffold with benchmark-backed validation.
 - Start desktop shell initialization and bridge UI->engine trace context propagation.
+- Add a minimal UI smoke check in CI (startup + one engine command round-trip) to guard M0 readiness.
