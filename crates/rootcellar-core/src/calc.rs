@@ -1702,6 +1702,39 @@ fn eval_function(
                     }
                     Ok(values.into_iter().product())
                 }
+                "FACT" => {
+                    if values.len() != 1 {
+                        return Err(EvalError::Parse);
+                    }
+                    let n = parse_non_negative_i64(values[0])?;
+                    let mut result = 1.0_f64;
+                    for value in 2..=n {
+                        result *= value as f64;
+                        if !result.is_finite() {
+                            return Err(EvalError::Parse);
+                        }
+                    }
+                    Ok(result)
+                }
+                "FACTDOUBLE" => {
+                    if values.len() != 1 {
+                        return Err(EvalError::Parse);
+                    }
+                    let n = parse_non_negative_i64(values[0])?;
+                    if n <= 1 {
+                        return Ok(1.0);
+                    }
+                    let mut result = 1.0_f64;
+                    let mut current = n;
+                    while current > 1 {
+                        result *= current as f64;
+                        if !result.is_finite() {
+                            return Err(EvalError::Parse);
+                        }
+                        current -= 2;
+                    }
+                    Ok(result)
+                }
                 "AVERAGE" | "AVG" => {
                     if values.is_empty() {
                         return Err(EvalError::Parse);
@@ -1753,6 +1786,33 @@ fn eval_function(
                     let mut candidates = values[..values.len() - 1].to_vec();
                     candidates.sort_by(f64::total_cmp);
                     Ok(candidates[candidates.len() - 1 - rank])
+                }
+                "COMBIN" => {
+                    if values.len() != 2 {
+                        return Err(EvalError::Parse);
+                    }
+                    let n = parse_non_negative_i64(values[0])?;
+                    let k = parse_non_negative_i64(values[1])?;
+                    let result = combin_i128(n, k)?;
+                    ensure_finite_result(result as f64)
+                }
+                "PERMUT" => {
+                    if values.len() != 2 {
+                        return Err(EvalError::Parse);
+                    }
+                    let n = parse_non_negative_i64(values[0])?;
+                    let k = parse_non_negative_i64(values[1])?;
+                    if k > n {
+                        return Err(EvalError::Parse);
+                    }
+                    let mut result = 1.0_f64;
+                    for value in (n - k + 1)..=n {
+                        result *= value as f64;
+                        if !result.is_finite() {
+                            return Err(EvalError::Parse);
+                        }
+                    }
+                    Ok(result)
                 }
                 "GEOMEAN" => {
                     if values.is_empty() || values.iter().any(|value| *value <= 0.0) {
@@ -2179,6 +2239,37 @@ fn eval_function(
                         total += *value / discount;
                     }
                     ensure_finite_result(total)
+                }
+                "GCD" => {
+                    if values.is_empty() {
+                        return Err(EvalError::Parse);
+                    }
+                    let mut result = 0i64;
+                    for value in values {
+                        let parsed = parse_non_negative_i64(value)?;
+                        result = gcd_i64(result, parsed);
+                    }
+                    Ok(result as f64)
+                }
+                "LCM" => {
+                    if values.is_empty() {
+                        return Err(EvalError::Parse);
+                    }
+                    let mut result = 1i64;
+                    let mut saw_zero = false;
+                    for value in values {
+                        let parsed = parse_non_negative_i64(value)?;
+                        if parsed == 0 {
+                            saw_zero = true;
+                            break;
+                        }
+                        result = lcm_i64(result, parsed)?;
+                    }
+                    if saw_zero {
+                        Ok(0.0)
+                    } else {
+                        Ok(result as f64)
+                    }
                 }
                 "AND" => {
                     if values.is_empty() {
@@ -2928,6 +3019,57 @@ fn parse_payment_type(value: Option<f64>) -> Result<f64, EvalError> {
         1 => Ok(1.0),
         _ => Err(EvalError::Parse),
     }
+}
+
+fn parse_non_negative_i64(value: f64) -> Result<i64, EvalError> {
+    let parsed = trunc_f64_to_i64(value)?;
+    if parsed < 0 {
+        return Err(EvalError::Parse);
+    }
+    Ok(parsed)
+}
+
+fn combin_i128(n: i64, k: i64) -> Result<i128, EvalError> {
+    if n < 0 || k < 0 || k > n {
+        return Err(EvalError::Parse);
+    }
+    let k = k.min(n - k);
+    let mut result = 1i128;
+    for i in 1..=k {
+        let factor = (n - k + i) as i128;
+        result = result.checked_mul(factor).ok_or(EvalError::Parse)?;
+        result /= i as i128;
+    }
+    Ok(result)
+}
+
+fn gcd_i64(lhs: i64, rhs: i64) -> i64 {
+    let mut a = lhs.abs();
+    let mut b = rhs.abs();
+    while b != 0 {
+        let r = a % b;
+        a = b;
+        b = r;
+    }
+    a
+}
+
+fn lcm_i64(lhs: i64, rhs: i64) -> Result<i64, EvalError> {
+    if lhs == 0 || rhs == 0 {
+        return Ok(0);
+    }
+    let gcd = gcd_i64(lhs, rhs);
+    if gcd == 0 {
+        return Err(EvalError::Parse);
+    }
+    let scaled = lhs / gcd;
+    let product = (scaled as i128)
+        .checked_mul(rhs as i128)
+        .ok_or(EvalError::Parse)?;
+    if product < i64::MIN as i128 || product > i64::MAX as i128 {
+        return Err(EvalError::Parse);
+    }
+    Ok(product as i64)
 }
 
 fn trunc_f64_to_i64(value: f64) -> Result<i64, EvalError> {
@@ -5341,6 +5483,243 @@ mod tests {
         assert_eq!(value_at(13), CellValue::Error("#PARSE!".to_string()));
         assert_eq!(value_at(14), CellValue::Error("#PARSE!".to_string()));
         assert_eq!(value_at(15), CellValue::Error("#PARSE!".to_string()));
+    }
+
+    #[test]
+    fn evaluates_combinatorics_and_number_theory_functions() {
+        let mut wb = Workbook::new();
+        let mut sink = NoopEventSink;
+        let trace = TraceContext::root();
+
+        let mut txn = wb.begin_txn(&mut sink, &trace).expect("begin");
+        txn.apply(Mutation::SetCellValue {
+            sheet: "Sheet1".to_string(),
+            row: 1,
+            col: 1,
+            value: CellValue::Number(5.0),
+        });
+        txn.apply(Mutation::SetCellValue {
+            sheet: "Sheet1".to_string(),
+            row: 1,
+            col: 2,
+            value: CellValue::Number(6.0),
+        });
+        txn.apply(Mutation::SetCellValue {
+            sheet: "Sheet1".to_string(),
+            row: 1,
+            col: 3,
+            value: CellValue::Number(10.0),
+        });
+        txn.apply(Mutation::SetCellValue {
+            sheet: "Sheet1".to_string(),
+            row: 1,
+            col: 4,
+            value: CellValue::Number(3.0),
+        });
+        txn.apply(Mutation::SetCellValue {
+            sheet: "Sheet1".to_string(),
+            row: 1,
+            col: 5,
+            value: CellValue::Number(24.0),
+        });
+        txn.apply(Mutation::SetCellValue {
+            sheet: "Sheet1".to_string(),
+            row: 1,
+            col: 6,
+            value: CellValue::Number(36.0),
+        });
+        txn.apply(Mutation::SetCellValue {
+            sheet: "Sheet1".to_string(),
+            row: 1,
+            col: 7,
+            value: CellValue::Number(60.0),
+        });
+        txn.apply(Mutation::SetCellValue {
+            sheet: "Sheet1".to_string(),
+            row: 1,
+            col: 8,
+            value: CellValue::Number(4.0),
+        });
+        txn.apply(Mutation::SetCellValue {
+            sheet: "Sheet1".to_string(),
+            row: 1,
+            col: 9,
+            value: CellValue::Number(8.0),
+        });
+        txn.apply(Mutation::SetCellFormula {
+            sheet: "Sheet1".to_string(),
+            row: 2,
+            col: 1,
+            formula: "=FACT(A1)".to_string(),
+            cached_value: CellValue::Empty,
+        });
+        txn.apply(Mutation::SetCellFormula {
+            sheet: "Sheet1".to_string(),
+            row: 2,
+            col: 2,
+            formula: "=FACTDOUBLE(B1)".to_string(),
+            cached_value: CellValue::Empty,
+        });
+        txn.apply(Mutation::SetCellFormula {
+            sheet: "Sheet1".to_string(),
+            row: 2,
+            col: 3,
+            formula: "=COMBIN(C1,D1)".to_string(),
+            cached_value: CellValue::Empty,
+        });
+        txn.apply(Mutation::SetCellFormula {
+            sheet: "Sheet1".to_string(),
+            row: 2,
+            col: 4,
+            formula: "=PERMUT(C1,D1)".to_string(),
+            cached_value: CellValue::Empty,
+        });
+        txn.apply(Mutation::SetCellFormula {
+            sheet: "Sheet1".to_string(),
+            row: 2,
+            col: 5,
+            formula: "=GCD(E1,F1,G1)".to_string(),
+            cached_value: CellValue::Empty,
+        });
+        txn.apply(Mutation::SetCellFormula {
+            sheet: "Sheet1".to_string(),
+            row: 2,
+            col: 6,
+            formula: "=LCM(H1,F1,I1)".to_string(),
+            cached_value: CellValue::Empty,
+        });
+        txn.apply(Mutation::SetCellFormula {
+            sheet: "Sheet1".to_string(),
+            row: 2,
+            col: 7,
+            formula: "=LCM(0,5)".to_string(),
+            cached_value: CellValue::Empty,
+        });
+        txn.apply(Mutation::SetCellFormula {
+            sheet: "Sheet1".to_string(),
+            row: 2,
+            col: 8,
+            formula: "=FACT(-1)".to_string(),
+            cached_value: CellValue::Empty,
+        });
+        txn.apply(Mutation::SetCellFormula {
+            sheet: "Sheet1".to_string(),
+            row: 2,
+            col: 9,
+            formula: "=COMBIN(5,7)".to_string(),
+            cached_value: CellValue::Empty,
+        });
+        txn.apply(Mutation::SetCellFormula {
+            sheet: "Sheet1".to_string(),
+            row: 2,
+            col: 10,
+            formula: "=PERMUT(5,7)".to_string(),
+            cached_value: CellValue::Empty,
+        });
+        txn.apply(Mutation::SetCellFormula {
+            sheet: "Sheet1".to_string(),
+            row: 2,
+            col: 11,
+            formula: "=GCD(-1,5)".to_string(),
+            cached_value: CellValue::Empty,
+        });
+        txn.apply(Mutation::SetCellFormula {
+            sheet: "Sheet1".to_string(),
+            row: 2,
+            col: 12,
+            formula: "=LCM(4,-2)".to_string(),
+            cached_value: CellValue::Empty,
+        });
+        txn.apply(Mutation::SetCellFormula {
+            sheet: "Sheet1".to_string(),
+            row: 2,
+            col: 13,
+            formula: "=SUM(FACT(3),COMBIN(6,2),PERMUT(6,2))".to_string(),
+            cached_value: CellValue::Empty,
+        });
+        txn.apply(Mutation::SetCellFormula {
+            sheet: "Sheet1".to_string(),
+            row: 2,
+            col: 14,
+            formula: "=GCD(0,0)".to_string(),
+            cached_value: CellValue::Empty,
+        });
+        txn.apply(Mutation::SetCellFormula {
+            sheet: "Sheet1".to_string(),
+            row: 2,
+            col: 15,
+            formula: "=FACTDOUBLE(7)".to_string(),
+            cached_value: CellValue::Empty,
+        });
+        txn.apply(Mutation::SetCellFormula {
+            sheet: "Sheet1".to_string(),
+            row: 2,
+            col: 16,
+            formula: "=COMBIN(52,5)".to_string(),
+            cached_value: CellValue::Empty,
+        });
+        txn.apply(Mutation::SetCellFormula {
+            sheet: "Sheet1".to_string(),
+            row: 2,
+            col: 17,
+            formula: "=PERMUT(10,0)".to_string(),
+            cached_value: CellValue::Empty,
+        });
+        txn.apply(Mutation::SetCellFormula {
+            sheet: "Sheet1".to_string(),
+            row: 2,
+            col: 18,
+            formula: "=LCM(1,1,1)".to_string(),
+            cached_value: CellValue::Empty,
+        });
+        txn.apply(Mutation::SetCellFormula {
+            sheet: "Sheet1".to_string(),
+            row: 2,
+            col: 19,
+            formula: "=FACT()".to_string(),
+            cached_value: CellValue::Empty,
+        });
+        txn.apply(Mutation::SetCellFormula {
+            sheet: "Sheet1".to_string(),
+            row: 2,
+            col: 20,
+            formula: "=GCD()".to_string(),
+            cached_value: CellValue::Empty,
+        });
+        txn.commit(&mut wb, &mut sink, &trace).expect("commit");
+
+        let report = recalc_sheet(&mut wb, "Sheet1", &mut sink, &trace).expect("recalc");
+        assert_eq!(report.parse_error_count, 7);
+
+        let value_at = |col: u32| -> CellValue {
+            wb.sheets
+                .get("Sheet1")
+                .and_then(|s| s.cells.get(&CellRef { row: 2, col }))
+                .expect("cell")
+                .value
+                .clone()
+        };
+
+        assert_eq!(value_at(1), CellValue::Number(120.0));
+        assert_eq!(value_at(2), CellValue::Number(48.0));
+        assert_eq!(value_at(3), CellValue::Number(120.0));
+        assert_eq!(value_at(4), CellValue::Number(720.0));
+        assert_eq!(value_at(5), CellValue::Number(12.0));
+        assert_eq!(value_at(6), CellValue::Number(72.0));
+        assert_eq!(value_at(7), CellValue::Number(0.0));
+        assert_eq!(value_at(8), CellValue::Error("#PARSE!".to_string()));
+        assert_eq!(value_at(9), CellValue::Error("#PARSE!".to_string()));
+        assert_eq!(value_at(10), CellValue::Error("#PARSE!".to_string()));
+        assert_eq!(value_at(11), CellValue::Error("#PARSE!".to_string()));
+        assert_eq!(value_at(12), CellValue::Error("#PARSE!".to_string()));
+        assert_eq!(value_at(13), CellValue::Number(51.0));
+        assert_eq!(value_at(14), CellValue::Number(0.0));
+        assert_eq!(value_at(15), CellValue::Number(105.0));
+        assert_eq!(value_at(16), CellValue::Number(2598960.0));
+        assert_eq!(value_at(17), CellValue::Number(1.0));
+        assert_eq!(value_at(18), CellValue::Number(1.0));
+        assert_eq!(value_at(19), CellValue::Error("#PARSE!".to_string()));
+        assert_eq!(value_at(20), CellValue::Error("#PARSE!".to_string()));
     }
 
     #[test]
