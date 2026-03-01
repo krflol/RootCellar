@@ -1,0 +1,105 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://rootcellar.dev/schemas/artifacts/v1/batch-throughput-snapshot.schema.json",
+  "title": "RootCellar Batch Throughput Snapshot Artifact v1",
+  "type": "object",
+  "required": [
+    "artifact_contract",
+    "snapshot_version",
+    "generated_at",
+    "status",
+    "source_report",
+    "workflow",
+    "thresholds",
+    "metrics",
+    "breaches"
+  ],
+  "properties": {
+    "artifact_contract": {
+      "type": "object",
+      "required": ["schema_id", "schema_version", "compatibility"],
+      "properties": {
+        "schema_id": { "type": "string", "const": "https://rootcellar.dev/schemas/artifacts/v1/batch-throughput-snapshot.schema.json" },
+        "schema_version": { "type": "string", "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$" },
+        "compatibility": { "type": "string", "enum": ["backward-additive"] }
+      },
+      "additionalProperties": true
+    },
+    "snapshot_version": { "type": "integer", "const": 1 },
+    "generated_at": { "type": "string", "minLength": 1 },
+    "status": { "type": "string", "enum": ["pass", "breach"] },
+    "source_report": { "type": "string", "minLength": 1 },
+    "workflow": {
+      "type": "object",
+      "required": ["name", "repository", "ref", "sha", "run_id", "run_attempt"],
+      "properties": {
+        "name": { "type": ["string", "null"] },
+        "repository": { "type": ["string", "null"] },
+        "ref": { "type": ["string", "null"] },
+        "sha": { "type": ["string", "null"] },
+        "run_id": { "type": ["string", "null"] },
+        "run_attempt": { "type": ["string", "null"] }
+      },
+      "additionalProperties": true
+    },
+    "thresholds": {
+      "type": "object",
+      "required": [
+        "min_processed_files",
+        "min_throughput_files_per_sec",
+        "max_failure_count"
+      ],
+      "properties": {
+        "min_processed_files": { "type": "integer", "minimum": 0 },
+        "min_throughput_files_per_sec": { "type": "number", "minimum": 0 },
+        "max_failure_count": { "type": "integer", "minimum": 0 }
+      },
+      "additionalProperties": true
+    },
+    "metrics": {
+      "type": "object",
+      "required": [
+        "processed_files",
+        "failure_count",
+        "throughput_files_per_sec",
+        "effective_threads",
+        "wall_clock_duration_ms",
+        "aggregate_file_time_ratio"
+      ],
+      "properties": {
+        "processed_files": { "type": "integer", "minimum": 0 },
+        "failure_count": { "type": "integer", "minimum": 0 },
+        "throughput_files_per_sec": { "type": "number", "minimum": 0 },
+        "effective_threads": { "type": "integer", "minimum": 0 },
+        "wall_clock_duration_ms": { "type": "integer", "minimum": 0 },
+        "aggregate_file_time_ratio": { "type": "number", "minimum": 0 }
+      },
+      "additionalProperties": true
+    },
+    "breaches": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/breach" }
+    }
+  },
+  "$defs": {
+    "breach": {
+      "type": "object",
+      "required": ["metric", "actual", "threshold", "operator", "reason"],
+      "properties": {
+        "metric": { "type": "string", "minLength": 1 },
+        "actual": {},
+        "threshold": {},
+        "operator": { "type": "string", "minLength": 1 },
+        "reason": { "type": "string", "minLength": 1 }
+      },
+      "additionalProperties": true
+    }
+  },
+  "additionalProperties": true,
+  "x-rootcellar-contract": {
+    "schema_version": "1.0.0",
+    "payload_version_field": "snapshot_version",
+    "payload_version": 1,
+    "compatibility_mode": "backward-additive"
+  }
+}

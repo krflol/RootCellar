@@ -1,0 +1,81 @@
+{
+  "artifact_contract": {
+    "schema_id": "https://rootcellar.dev/schemas/artifacts/v1/batch-alert-dispatch.schema.json",
+    "schema_version": "1.0.0",
+    "compatibility": "backward-additive"
+  },
+  "dispatch_version": 1,
+  "generated_at": "2026-03-01T01:28:31.496294+00:00",
+  "status": "no_routes",
+  "alert_status": "pass",
+  "alert_file": "ci-batch-alert-hook.json",
+  "snapshot_file": "ci-batch-throughput-snapshot.json",
+  "route_count": 2,
+  "configured_route_count": 0,
+  "delivered_route_count": 0,
+  "failed_route_count": 0,
+  "ack_required_route_count": 0,
+  "ack_received_route_count": 0,
+  "ack_missing_route_count": 0,
+  "correlation_required_route_count": 0,
+  "correlation_matched_route_count": 0,
+  "correlation_mismatch_route_count": 0,
+  "dispatch_policy": {
+    "timeout_sec": 10.0,
+    "max_attempts": 3,
+    "initial_backoff_sec": 0.5,
+    "backoff_multiplier": 2.0,
+    "max_backoff_sec": 5.0,
+    "retry_status_codes": [
+      408,
+      425,
+      429,
+      500,
+      502,
+      503,
+      504
+    ],
+    "ack_field": "ack_id",
+    "require_ack_on_incident": false,
+    "require_ack_on_dashboard": false,
+    "correlation_field": "correlation_id",
+    "correlation_header": "X-Correlation-Id",
+    "require_correlation_on_incident": false,
+    "require_correlation_on_dashboard": false,
+    "idempotency_header": "Idempotency-Key",
+    "idempotency_key_prefix": "rootcellar-batch-alert",
+    "replay_timestamp_header": "X-RootCellar-Timestamp",
+    "replay_nonce_header": "X-RootCellar-Nonce",
+    "replay_window_header": "X-RootCellar-Replay-Window-Sec",
+    "replay_window_sec": 300,
+    "auth_scheme": "Bearer",
+    "incident_auth_configured": false,
+    "dashboard_auth_configured": false,
+    "signing_enabled": false,
+    "signature_header": null
+  },
+  "routes": [
+    {
+      "identifiers": {
+        "correlation_id": "rc-batch-9ca5bf2ed68caaa662ac",
+        "idempotency_key": "rootcellar-batch-alert-incident-9ca5bf2ed68caaa662acbfca",
+        "digest_sha256": "9ca5bf2ed68caaa662acbfca62fec1f6a3cc4b417b6d02ace915fabd419a7627"
+      },
+      "route": "incident",
+      "status": "skipped",
+      "reason": "endpoint not configured",
+      "configured": false
+    },
+    {
+      "identifiers": {
+        "correlation_id": "rc-batch-74669af0415d483d3115",
+        "idempotency_key": "rootcellar-batch-alert-dashboard-74669af0415d483d31156872",
+        "digest_sha256": "74669af0415d483d31156872f8b114965821f48184520d6f09d83fa8f5420dd1"
+      },
+      "route": "dashboard",
+      "status": "skipped",
+      "reason": "endpoint not configured",
+      "configured": false
+    }
+  ]
+}

@@ -15,7 +15,7 @@ Parent: [[Observability Charter]]
   - Policy source: `ci-batch-alert-policy.json` (normalized check set with severity ranking and breach counts).
   - Escalation metadata source: `ci-batch-policy-escalation.json` (policy-check owner mappings, escalation targets, and SLA metadata).
   - Dashboard adapter export source: `ci-batch-dashboard-adapter-exports.json` (downstream incident/dashboard ingestion payload contracts).
-  - Contract schemas: `schemas/artifacts/v1/batch-policy-escalation.schema.json` and `schemas/artifacts/v1/batch-dashboard-adapter-exports.schema.json` (CI validation + compatibility contracts).
+  - Contract schemas: full artifact-family contracts in `schemas/artifacts/v1/*` (`batch-throughput-snapshot`, `batch-alert-dispatch`, `batch-ack-retention-index`, `batch-dashboard-pack`, `batch-alert-policy`, `batch-policy-escalation`, `batch-dashboard-adapter-exports`) validated in CI via `python/validate_batch_adapter_contracts.py --full-family`.
   - Route dispatch drill-down: retry attempt counts, auth/signing configuration flags, idempotency/correlation IDs, replay timestamp/nonce/window metadata, and ack/correlation-required vs received/matched counters.
 
 ## Initial SLOs

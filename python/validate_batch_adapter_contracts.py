@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Validate adapter artifacts against schema and compatibility contracts."""
+"""Validate nightly batch artifacts against schema and compatibility contracts."""
 
 from __future__ import annotations
 
@@ -17,9 +17,39 @@ SEMVER_RE = re.compile(r"^(\d+)\.(\d+)\.(\d+)$")
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description=(
-            "Validate nightly adapter export artifacts against JSON schema files "
-            "and compatibility-version contracts."
+            "Validate nightly batch artifacts against JSON schema files and "
+            "compatibility-version contracts."
         )
+    )
+    parser.add_argument(
+        "--full-family",
+        action="store_true",
+        help="Validate snapshot/dispatch/ack-index/dashboard-pack/policy artifacts in addition to adapter exports.",
+    )
+    parser.add_argument(
+        "--snapshot",
+        default="./ci-batch-throughput-snapshot.json",
+        help="Path to throughput snapshot artifact JSON.",
+    )
+    parser.add_argument(
+        "--dispatch",
+        default="./ci-batch-alert-dispatch.json",
+        help="Path to dispatch report artifact JSON.",
+    )
+    parser.add_argument(
+        "--ack-retention",
+        default="./ci-batch-ack-retention-index.json",
+        help="Path to acknowledgement retention index artifact JSON.",
+    )
+    parser.add_argument(
+        "--dashboard-pack",
+        default="./ci-batch-dashboard-pack.json",
+        help="Path to dashboard-pack artifact JSON.",
+    )
+    parser.add_argument(
+        "--policy",
+        default="./ci-batch-alert-policy.json",
+        help="Path to alert-policy artifact JSON.",
     )
     parser.add_argument(
         "--escalation",
@@ -30,6 +60,31 @@ def parse_args() -> argparse.Namespace:
         "--adapter-exports",
         default="./ci-batch-dashboard-adapter-exports.json",
         help="Path to adapter exports artifact JSON.",
+    )
+    parser.add_argument(
+        "--schema-snapshot",
+        default="./schemas/artifacts/v1/batch-throughput-snapshot.schema.json",
+        help="Path to throughput snapshot schema JSON.",
+    )
+    parser.add_argument(
+        "--schema-dispatch",
+        default="./schemas/artifacts/v1/batch-alert-dispatch.schema.json",
+        help="Path to dispatch report schema JSON.",
+    )
+    parser.add_argument(
+        "--schema-ack-retention",
+        default="./schemas/artifacts/v1/batch-ack-retention-index.schema.json",
+        help="Path to acknowledgement retention index schema JSON.",
+    )
+    parser.add_argument(
+        "--schema-dashboard-pack",
+        default="./schemas/artifacts/v1/batch-dashboard-pack.schema.json",
+        help="Path to dashboard-pack schema JSON.",
+    )
+    parser.add_argument(
+        "--schema-policy",
+        default="./schemas/artifacts/v1/batch-alert-policy.schema.json",
+        help="Path to alert-policy schema JSON.",
     )
     parser.add_argument(
         "--schema-escalation",
@@ -233,8 +288,7 @@ def _validate_artifact(
     return errors
 
 
-def main() -> int:
-    args = parse_args()
+def _artifact_pairs(args: argparse.Namespace) -> list[tuple[pathlib.Path, pathlib.Path, str]]:
     pairs = [
         (
             pathlib.Path(args.escalation),
@@ -247,6 +301,42 @@ def main() -> int:
             "adapter_exports",
         ),
     ]
+    if not args.full_family:
+        return pairs
+
+    extended_pairs = [
+        (
+            pathlib.Path(args.snapshot),
+            pathlib.Path(args.schema_snapshot),
+            "throughput_snapshot",
+        ),
+        (
+            pathlib.Path(args.dispatch),
+            pathlib.Path(args.schema_dispatch),
+            "alert_dispatch",
+        ),
+        (
+            pathlib.Path(args.ack_retention),
+            pathlib.Path(args.schema_ack_retention),
+            "ack_retention_index",
+        ),
+        (
+            pathlib.Path(args.dashboard_pack),
+            pathlib.Path(args.schema_dashboard_pack),
+            "dashboard_pack",
+        ),
+        (
+            pathlib.Path(args.policy),
+            pathlib.Path(args.schema_policy),
+            "alert_policy",
+        ),
+    ]
+    return extended_pairs + pairs
+
+
+def main() -> int:
+    args = parse_args()
+    pairs = _artifact_pairs(args)
 
     all_errors: list[str] = []
     for payload_path, schema_path, label in pairs:
@@ -266,12 +356,15 @@ def main() -> int:
             )
 
     if all_errors:
-        print("Adapter contract validation failed with errors:")
+        print("Batch artifact contract validation failed with errors:")
         for err in all_errors:
             print(f" - {err}")
         return 1
 
-    print("Adapter contract validation passed")
+    if args.full_family:
+        print("Batch artifact contract validation passed (full family)")
+    else:
+        print("Batch artifact contract validation passed (adapter mode)")
     return 0
 
 

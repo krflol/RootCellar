@@ -1,0 +1,145 @@
+{
+  "artifact_contract": {
+    "schema_id": "https://rootcellar.dev/schemas/artifacts/v1/batch-ack-retention-index.schema.json",
+    "schema_version": "1.0.0",
+    "compatibility": "backward-additive"
+  },
+  "index_version": 1,
+  "generated_at": "2026-03-01T01:28:31.705047+00:00",
+  "status": "no_routes",
+  "source_dispatch_report": "ci-batch-alert-dispatch.json",
+  "retention_policy": {
+    "retention_days": 30,
+    "anchor": "dispatch_generated_at",
+    "anchor_timestamp": "2026-03-01T01:28:31.496294+00:00"
+  },
+  "dispatch_summary": {
+    "dispatch_status": "no_routes",
+    "route_count": 2,
+    "configured_route_count": 0,
+    "delivered_route_count": 0,
+    "failed_route_count": 0,
+    "ack_required_route_count": 0,
+    "ack_received_route_count": 0,
+    "ack_missing_route_count": 0,
+    "correlation_required_route_count": 0,
+    "correlation_matched_route_count": 0,
+    "correlation_mismatch_route_count": 0
+  },
+  "record_count": 2,
+  "lookup_count": {
+    "ack_id": 0,
+    "ack_id_sha256": 0,
+    "idempotency_key": 2,
+    "correlation_id": 2
+  },
+  "records": [
+    {
+      "route": "incident",
+      "route_status": "skipped",
+      "configured": false,
+      "endpoint": null,
+      "dispatch_generated_at": "2026-03-01T01:28:31.496294+00:00",
+      "retention_expires_at": "2026-03-31T01:28:31.496294+00:00",
+      "ack": {
+        "field": null,
+        "required": false,
+        "received": false,
+        "ack_id": null,
+        "ack_id_sha256": null,
+        "parse_error": null
+      },
+      "identifiers": {
+        "idempotency_key": "rootcellar-batch-alert-incident-9ca5bf2ed68caaa662acbfca",
+        "correlation_id": "rc-batch-9ca5bf2ed68caaa662ac",
+        "digest_sha256": "9ca5bf2ed68caaa662acbfca62fec1f6a3cc4b417b6d02ace915fabd419a7627"
+      },
+      "correlation": {
+        "field": null,
+        "required": false,
+        "received": false,
+        "matches": false,
+        "expected": null,
+        "actual": null
+      },
+      "delivery": {
+        "attempt_count": 0,
+        "final_http_status": null,
+        "final_duration_ms": null,
+        "final_replay_timestamp": null,
+        "final_replay_nonce": null,
+        "final_replay_window_sec": null
+      }
+    },
+    {
+      "route": "dashboard",
+      "route_status": "skipped",
+      "configured": false,
+      "endpoint": null,
+      "dispatch_generated_at": "2026-03-01T01:28:31.496294+00:00",
+      "retention_expires_at": "2026-03-31T01:28:31.496294+00:00",
+      "ack": {
+        "field": null,
+        "required": false,
+        "received": false,
+        "ack_id": null,
+        "ack_id_sha256": null,
+        "parse_error": null
+      },
+      "identifiers": {
+        "idempotency_key": "rootcellar-batch-alert-dashboard-74669af0415d483d31156872",
+        "correlation_id": "rc-batch-74669af0415d483d3115",
+        "digest_sha256": "74669af0415d483d31156872f8b114965821f48184520d6f09d83fa8f5420dd1"
+      },
+      "correlation": {
+        "field": null,
+        "required": false,
+        "received": false,
+        "matches": false,
+        "expected": null,
+        "actual": null
+      },
+      "delivery": {
+        "attempt_count": 0,
+        "final_http_status": null,
+        "final_duration_ms": null,
+        "final_replay_timestamp": null,
+        "final_replay_nonce": null,
+        "final_replay_window_sec": null
+      }
+    }
+  ],
+  "lookups": {
+    "by_ack_id": [],
+    "by_ack_id_sha256": [],
+    "by_idempotency_key": [
+      {
+        "value": "rootcellar-batch-alert-incident-9ca5bf2ed68caaa662acbfca",
+        "record_id": 0,
+        "route": "incident",
+        "route_status": "skipped"
+      },
+      {
+        "value": "rootcellar-batch-alert-dashboard-74669af0415d483d31156872",
+        "record_id": 1,
+        "route": "dashboard",
+        "route_status": "skipped"
+      }
+    ],
+    "by_correlation_id": [
+      {
+        "value": "rc-batch-9ca5bf2ed68caaa662ac",
+        "record_id": 0,
+        "route": "incident",
+        "route_status": "skipped"
+      },
+      {
+        "value": "rc-batch-74669af0415d483d3115",
+        "record_id": 1,
+        "route": "dashboard",
+        "route_status": "skipped"
+      }
+    ]
+  },
+  "issues": []
+}

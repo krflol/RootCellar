@@ -1,0 +1,135 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://rootcellar.dev/schemas/artifacts/v1/batch-alert-policy.schema.json",
+  "title": "RootCellar Batch Alert Policy Artifact v1",
+  "type": "object",
+  "required": [
+    "artifact_contract",
+    "policy_version",
+    "generated_at",
+    "status",
+    "highest_severity",
+    "breach_count",
+    "check_count",
+    "policy_config",
+    "source_status",
+    "checks",
+    "replay_route_details",
+    "issues"
+  ],
+  "properties": {
+    "artifact_contract": {
+      "type": "object",
+      "required": ["schema_id", "schema_version", "compatibility"],
+      "properties": {
+        "schema_id": { "type": "string", "const": "https://rootcellar.dev/schemas/artifacts/v1/batch-alert-policy.schema.json" },
+        "schema_version": { "type": "string", "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$" },
+        "compatibility": { "type": "string", "enum": ["backward-additive"] }
+      },
+      "additionalProperties": true
+    },
+    "policy_version": { "type": "integer", "const": 1 },
+    "generated_at": { "type": "string", "minLength": 1 },
+    "status": { "type": "string", "enum": ["pass", "breach"] },
+    "highest_severity": { "type": "string", "enum": ["info", "p3", "p2", "p1"] },
+    "breach_count": { "type": "integer", "minimum": 0 },
+    "check_count": { "type": "integer", "minimum": 0 },
+    "policy_config": {
+      "type": "object",
+      "required": [
+        "max_dispatch_failed_routes",
+        "max_ack_missing_routes",
+        "max_correlation_mismatch_routes",
+        "require_replay_metadata",
+        "require_ack_retention_coverage"
+      ],
+      "properties": {
+        "max_dispatch_failed_routes": { "type": "integer", "minimum": 0 },
+        "max_ack_missing_routes": { "type": "integer", "minimum": 0 },
+        "max_correlation_mismatch_routes": { "type": "integer", "minimum": 0 },
+        "require_replay_metadata": { "type": "boolean" },
+        "require_ack_retention_coverage": { "type": "boolean" }
+      },
+      "additionalProperties": true
+    },
+    "source_status": {
+      "type": "object",
+      "required": ["snapshot_status", "dispatch_status", "ack_retention_index_status"],
+      "properties": {
+        "snapshot_status": { "type": "string", "minLength": 1 },
+        "dispatch_status": { "type": "string", "minLength": 1 },
+        "ack_retention_index_status": { "type": "string", "minLength": 1 }
+      },
+      "additionalProperties": true
+    },
+    "checks": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/check" }
+    },
+    "replay_route_details": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/replay_route_detail" }
+    },
+    "issues": {
+      "type": "array",
+      "items": { "type": "object" }
+    }
+  },
+  "$defs": {
+    "check": {
+      "type": "object",
+      "required": [
+        "id",
+        "title",
+        "severity",
+        "status",
+        "observed",
+        "expected",
+        "source",
+        "message"
+      ],
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "title": { "type": "string", "minLength": 1 },
+        "severity": { "type": "string", "enum": ["info", "p3", "p2", "p1"] },
+        "status": { "type": "string", "enum": ["pass", "breach"] },
+        "observed": {},
+        "expected": {},
+        "source": { "type": "string", "minLength": 1 },
+        "message": { "type": "string", "minLength": 1 }
+      },
+      "additionalProperties": true
+    },
+    "replay_route_detail": {
+      "type": "object",
+      "required": [
+        "route",
+        "status",
+        "final_http_status",
+        "attempt_count",
+        "replay_timestamp",
+        "replay_nonce",
+        "replay_window_sec",
+        "replay_missing"
+      ],
+      "properties": {
+        "route": { "type": ["string", "null"] },
+        "status": { "type": ["string", "null"] },
+        "final_http_status": {},
+        "attempt_count": {},
+        "replay_timestamp": {},
+        "replay_nonce": {},
+        "replay_window_sec": {},
+        "replay_missing": { "type": "boolean" }
+      },
+      "additionalProperties": true
+    }
+  },
+  "additionalProperties": true,
+  "x-rootcellar-contract": {
+    "schema_version": "1.0.0",
+    "payload_version_field": "policy_version",
+    "payload_version": 1,
+    "compatibility_mode": "backward-additive"
+  }
+}

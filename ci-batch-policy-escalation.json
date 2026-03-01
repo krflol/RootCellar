@@ -5,7 +5,7 @@
     "compatibility": "backward-additive"
   },
   "escalation_version": 1,
-  "generated_at": "2026-03-01T01:06:29.760013+00:00",
+  "generated_at": "2026-03-01T01:28:32.189391+00:00",
   "policy_status": "pass",
   "highest_severity": "info",
   "routing_key": "rootcellar.batch.throughput.policy",
@@ -151,8 +151,8 @@
       "source": "ack_retention_index",
       "message": "Retention lookup count should cover all acknowledged routes.",
       "observed": {
-        "ack_received_route_count": 2,
-        "ack_lookup_count": 2
+        "ack_received_route_count": 0,
+        "ack_lookup_count": 0
       },
       "expected": "ack_lookup_count >= ack_received_route_count",
       "owner": {
@@ -173,7 +173,7 @@
       "severity": "p2",
       "source": "ack_retention_index",
       "message": "Ack retention index should not report degraded dispatch availability when dispatch ran.",
-      "observed": "ok",
+      "observed": "no_routes",
       "expected": "ok|no_ack_records|no_routes",
       "owner": {
         "team": "rootcellar-observability",
@@ -189,8 +189,8 @@
   ],
   "breach_assignments": [],
   "artifact_refs": {
-    "policy": "ci-batch-alert-policy-pass-v1.json",
-    "dashboard_pack": "ci-batch-dashboard-pack-pass-v1.json"
+    "policy": "ci-batch-alert-policy.json",
+    "dashboard_pack": "ci-batch-dashboard-pack.json"
   },
   "issues": []
 }

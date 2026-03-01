@@ -31,7 +31,7 @@ cargo run -p rootcellar-cli -- tx-save ./example.xlsx ./edited.xlsx --sheet Shee
 python python/build_batch_ack_retention_index.py --dispatch-report ./ci-batch-alert-dispatch.json --index ./ci-batch-ack-retention-index.json --retention-days 30
 python python/build_batch_dashboard_pack.py --snapshot ./ci-batch-throughput-snapshot.json --dispatch-report ./ci-batch-alert-dispatch.json --ack-retention-index ./ci-batch-ack-retention-index.json --dashboard-pack ./ci-batch-dashboard-pack.json --policy ./ci-batch-alert-policy.json --require-replay-metadata --require-ack-retention-coverage
 python python/build_batch_policy_adapters.py --policy ./ci-batch-alert-policy.json --dashboard-pack ./ci-batch-dashboard-pack.json --escalation ./ci-batch-policy-escalation.json --adapter-exports ./ci-batch-dashboard-adapter-exports.json
-python python/validate_batch_adapter_contracts.py --escalation ./ci-batch-policy-escalation.json --adapter-exports ./ci-batch-dashboard-adapter-exports.json --schema-escalation ./schemas/artifacts/v1/batch-policy-escalation.schema.json --schema-adapter-exports ./schemas/artifacts/v1/batch-dashboard-adapter-exports.schema.json
+python python/validate_batch_adapter_contracts.py --full-family
 ```
 
 ## Current Status
@@ -57,7 +57,7 @@ python python/validate_batch_adapter_contracts.py --escalation ./ci-batch-policy
 - Nightly workflow publishes `ci-batch-ack-retention-index.json` for ack-id/idempotency/correlation forensic lookups with retention-expiry metadata.
 - Nightly dashboard/policy utility (`python/build_batch_dashboard_pack.py`) publishes `ci-batch-dashboard-pack.json` and `ci-batch-alert-policy.json` from snapshot/dispatch/forensic artifacts.
 - Nightly escalation/adapter utility (`python/build_batch_policy_adapters.py`) publishes `ci-batch-policy-escalation.json` and `ci-batch-dashboard-adapter-exports.json` for downstream incident/dashboard ingestion integration.
-- Nightly adapter schema validator (`python/validate_batch_adapter_contracts.py`) enforces schema shape + compatibility version contracts before adapter artifact publication.
+- Nightly batch artifact schema validator (`python/validate_batch_adapter_contracts.py --full-family`) enforces schema shape + compatibility version contracts before artifact publication.
 - Nightly gate now enforces both throughput snapshot status and alert-policy status for route-delivery/forensic policy checks.
 - Minimal calculation engine supports A1 references, arithmetic formulas, and cycle detection.
 - Formula parser scaffold now supports precedence and parentheses for arithmetic recalc.
@@ -82,5 +82,5 @@ python python/validate_batch_adapter_contracts.py --escalation ./ci-batch-policy
 ## Next Build Slice
 - Continue function parity expansion beyond current starter set.
 - Add parser/evaluator and scheduler optimization work on top of the AST interning scaffold.
-- Extend schema-contract validation to snapshot/dispatch/ack-retention/dashboard-pack/policy artifacts for full artifact-family compatibility gates.
+- Add schema-drift canary fixtures and compatibility migration playbook for artifact-family major-version changes.
 - Start desktop shell initialization and bridge UI->engine trace context propagation.

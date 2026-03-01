@@ -11,6 +11,13 @@ import sys
 from datetime import datetime, timezone
 
 
+SNAPSHOT_SCHEMA_ID = (
+    "https://rootcellar.dev/schemas/artifacts/v1/batch-throughput-snapshot.schema.json"
+)
+ARTIFACT_SCHEMA_VERSION = "1.0.0"
+ARTIFACT_COMPATIBILITY_MODE = "backward-additive"
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description=(
@@ -122,6 +129,11 @@ def build_snapshot(report: dict, args: argparse.Namespace) -> dict:
     now = datetime.now(timezone.utc).isoformat()
 
     return {
+        "artifact_contract": {
+            "schema_id": SNAPSHOT_SCHEMA_ID,
+            "schema_version": ARTIFACT_SCHEMA_VERSION,
+            "compatibility": ARTIFACT_COMPATIBILITY_MODE,
+        },
         "snapshot_version": 1,
         "generated_at": now,
         "status": status,
@@ -161,6 +173,11 @@ def build_missing_report_snapshot(args: argparse.Namespace) -> dict:
         "reason": "batch recalc report missing; nightly batch run did not produce expected artifact",
     }
     return {
+        "artifact_contract": {
+            "schema_id": SNAPSHOT_SCHEMA_ID,
+            "schema_version": ARTIFACT_SCHEMA_VERSION,
+            "compatibility": ARTIFACT_COMPATIBILITY_MODE,
+        },
         "snapshot_version": 1,
         "generated_at": now,
         "status": "breach",

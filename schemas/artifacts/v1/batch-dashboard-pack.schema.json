@@ -1,0 +1,136 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://rootcellar.dev/schemas/artifacts/v1/batch-dashboard-pack.schema.json",
+  "title": "RootCellar Batch Dashboard Pack Artifact v1",
+  "type": "object",
+  "required": [
+    "artifact_contract",
+    "dashboard_pack_version",
+    "generated_at",
+    "status",
+    "highest_severity",
+    "source_files",
+    "headline_metrics",
+    "panels",
+    "drilldowns"
+  ],
+  "properties": {
+    "artifact_contract": {
+      "type": "object",
+      "required": ["schema_id", "schema_version", "compatibility"],
+      "properties": {
+        "schema_id": { "type": "string", "const": "https://rootcellar.dev/schemas/artifacts/v1/batch-dashboard-pack.schema.json" },
+        "schema_version": { "type": "string", "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$" },
+        "compatibility": { "type": "string", "enum": ["backward-additive"] }
+      },
+      "additionalProperties": true
+    },
+    "dashboard_pack_version": { "type": "integer", "const": 1 },
+    "generated_at": { "type": "string", "minLength": 1 },
+    "status": { "type": "string", "enum": ["pass", "breach", "missing"] },
+    "highest_severity": { "type": "string", "enum": ["info", "p3", "p2", "p1"] },
+    "source_files": {
+      "type": "object",
+      "required": ["snapshot", "dispatch_report", "ack_retention_index", "policy"],
+      "properties": {
+        "snapshot": { "type": "string", "minLength": 1 },
+        "dispatch_report": { "type": "string", "minLength": 1 },
+        "ack_retention_index": { "type": "string", "minLength": 1 },
+        "policy": { "type": "string", "minLength": 1 }
+      },
+      "additionalProperties": true
+    },
+    "headline_metrics": {
+      "type": "object",
+      "required": [
+        "processed_files",
+        "failure_count",
+        "throughput_files_per_sec",
+        "dispatch_delivered_route_count",
+        "dispatch_failed_route_count",
+        "ack_lookup_count",
+        "correlation_lookup_count",
+        "policy_breach_count"
+      ],
+      "properties": {
+        "processed_files": { "type": "integer", "minimum": 0 },
+        "failure_count": { "type": "integer", "minimum": 0 },
+        "throughput_files_per_sec": { "type": "number", "minimum": 0 },
+        "dispatch_delivered_route_count": { "type": "integer", "minimum": 0 },
+        "dispatch_failed_route_count": { "type": "integer", "minimum": 0 },
+        "ack_lookup_count": { "type": "integer", "minimum": 0 },
+        "correlation_lookup_count": { "type": "integer", "minimum": 0 },
+        "policy_breach_count": { "type": "integer", "minimum": 0 }
+      },
+      "additionalProperties": true
+    },
+    "panels": {
+      "type": "object",
+      "required": ["throughput", "route_delivery", "forensics", "policy"],
+      "properties": {
+        "throughput": {
+          "type": "object",
+          "required": ["snapshot_status", "thresholds", "metrics", "breaches"],
+          "properties": {
+            "snapshot_status": { "type": "string", "minLength": 1 },
+            "thresholds": { "type": "object" },
+            "metrics": { "type": "object" },
+            "breaches": { "type": "array" }
+          },
+          "additionalProperties": true
+        },
+        "route_delivery": {
+          "type": "object",
+          "required": ["dispatch_status", "dispatch_counts", "routes", "failed_routes"],
+          "properties": {
+            "dispatch_status": { "type": "string", "minLength": 1 },
+            "dispatch_counts": { "type": "object" },
+            "routes": { "type": "array" },
+            "failed_routes": { "type": "array" }
+          },
+          "additionalProperties": true
+        },
+        "forensics": {
+          "type": "object",
+          "required": ["ack_index_status", "retention_policy", "lookup_count", "record_count"],
+          "properties": {
+            "ack_index_status": { "type": "string", "minLength": 1 },
+            "retention_policy": { "type": "object" },
+            "lookup_count": { "type": "object" },
+            "record_count": { "type": "integer", "minimum": 0 }
+          },
+          "additionalProperties": true
+        },
+        "policy": {
+          "type": "object",
+          "required": ["status", "highest_severity", "breach_count", "checks"],
+          "properties": {
+            "status": { "type": "string", "minLength": 1 },
+            "highest_severity": { "type": "string", "enum": ["info", "p3", "p2", "p1"] },
+            "breach_count": { "type": "integer", "minimum": 0 },
+            "checks": { "type": "array" }
+          },
+          "additionalProperties": true
+        }
+      },
+      "additionalProperties": true
+    },
+    "drilldowns": {
+      "type": "object",
+      "required": ["dispatch_policy", "replay_route_details", "policy_config"],
+      "properties": {
+        "dispatch_policy": { "type": "object" },
+        "replay_route_details": { "type": "array" },
+        "policy_config": { "type": "object" }
+      },
+      "additionalProperties": true
+    }
+  },
+  "additionalProperties": true,
+  "x-rootcellar-contract": {
+    "schema_version": "1.0.0",
+    "payload_version_field": "dashboard_pack_version",
+    "payload_version": 1,
+    "compatibility_mode": "backward-additive"
+  }
+}

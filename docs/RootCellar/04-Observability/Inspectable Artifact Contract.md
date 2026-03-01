@@ -34,4 +34,11 @@ Every critical run (desktop save, macro run, CLI batch task) can emit a bundle w
 - Bundle validator checks required files/fields.
 - Checksum verifier ensures artifact integrity.
 - Schema validator ensures compatibility across versions.
-- Adapter contract validator (`python/validate_batch_adapter_contracts.py`) enforces `schemas/artifacts/v1/batch-policy-escalation.schema.json` and `schemas/artifacts/v1/batch-dashboard-adapter-exports.schema.json` in nightly CI.
+- Batch artifact contract validator (`python/validate_batch_adapter_contracts.py --full-family`) enforces the nightly artifact-family schemas in `schemas/artifacts/v1/`:
+  - `batch-throughput-snapshot.schema.json`
+  - `batch-alert-dispatch.schema.json`
+  - `batch-ack-retention-index.schema.json`
+  - `batch-dashboard-pack.schema.json`
+  - `batch-alert-policy.schema.json`
+  - `batch-policy-escalation.schema.json`
+  - `batch-dashboard-adapter-exports.schema.json`

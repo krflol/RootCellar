@@ -52,6 +52,11 @@ env:
   ALERT_POLICY_ESCALATION_SLA_MINUTES_P3: "240"
   ALERT_POLICY_ESCALATION_SLA_MINUTES_INFO: "1440"
   ALERT_POLICY_SCHEMA_VALIDATION_ENABLED: "true"
+  ALERT_POLICY_SCHEMA_SNAPSHOT_PATH: "./schemas/artifacts/v1/batch-throughput-snapshot.schema.json"
+  ALERT_POLICY_SCHEMA_DISPATCH_PATH: "./schemas/artifacts/v1/batch-alert-dispatch.schema.json"
+  ALERT_POLICY_SCHEMA_ACK_RETENTION_PATH: "./schemas/artifacts/v1/batch-ack-retention-index.schema.json"
+  ALERT_POLICY_SCHEMA_DASHBOARD_PACK_PATH: "./schemas/artifacts/v1/batch-dashboard-pack.schema.json"
+  ALERT_POLICY_SCHEMA_POLICY_PATH: "./schemas/artifacts/v1/batch-alert-policy.schema.json"
   ALERT_POLICY_SCHEMA_ESCALATION_PATH: "./schemas/artifacts/v1/batch-policy-escalation.schema.json"
   ALERT_POLICY_SCHEMA_ADAPTER_EXPORTS_PATH: "./schemas/artifacts/v1/batch-dashboard-adapter-exports.schema.json"
 
@@ -223,16 +228,27 @@ jobs:
             --escalation-sla-minutes-info "${ALERT_POLICY_ESCALATION_SLA_MINUTES_INFO}" \
             --allow-missing-inputs
 
-      - name: Validate adapter export schemas and version contracts
+      - name: Validate batch artifact schemas and version contracts
         if: always()
         run: |
           if [ "${ALERT_POLICY_SCHEMA_VALIDATION_ENABLED}" != "true" ]; then
-            echo "adapter schema validation disabled by policy knob"
+            echo "batch artifact schema validation disabled by policy knob"
             exit 0
           fi
           python python/validate_batch_adapter_contracts.py \
+            --full-family \
+            --snapshot ./ci-batch-throughput-snapshot.json \
+            --dispatch ./ci-batch-alert-dispatch.json \
+            --ack-retention ./ci-batch-ack-retention-index.json \
+            --dashboard-pack ./ci-batch-dashboard-pack.json \
+            --policy ./ci-batch-alert-policy.json \
             --escalation ./ci-batch-policy-escalation.json \
             --adapter-exports ./ci-batch-dashboard-adapter-exports.json \
+            --schema-snapshot "${ALERT_POLICY_SCHEMA_SNAPSHOT_PATH}" \
+            --schema-dispatch "${ALERT_POLICY_SCHEMA_DISPATCH_PATH}" \
+            --schema-ack-retention "${ALERT_POLICY_SCHEMA_ACK_RETENTION_PATH}" \
+            --schema-dashboard-pack "${ALERT_POLICY_SCHEMA_DASHBOARD_PACK_PATH}" \
+            --schema-policy "${ALERT_POLICY_SCHEMA_POLICY_PATH}" \
             --schema-escalation "${ALERT_POLICY_SCHEMA_ESCALATION_PATH}" \
             --schema-adapter-exports "${ALERT_POLICY_SCHEMA_ADAPTER_EXPORTS_PATH}"
 
@@ -363,6 +379,11 @@ jobs:
             "alert_policy_escalation_sla_minutes_p3": ${ALERT_POLICY_ESCALATION_SLA_MINUTES_P3},
             "alert_policy_escalation_sla_minutes_info": ${ALERT_POLICY_ESCALATION_SLA_MINUTES_INFO},
             "alert_policy_schema_validation_enabled": ${ALERT_POLICY_SCHEMA_VALIDATION_ENABLED},
+            "alert_policy_schema_snapshot_path": "${ALERT_POLICY_SCHEMA_SNAPSHOT_PATH}",
+            "alert_policy_schema_dispatch_path": "${ALERT_POLICY_SCHEMA_DISPATCH_PATH}",
+            "alert_policy_schema_ack_retention_path": "${ALERT_POLICY_SCHEMA_ACK_RETENTION_PATH}",
+            "alert_policy_schema_dashboard_pack_path": "${ALERT_POLICY_SCHEMA_DASHBOARD_PACK_PATH}",
+            "alert_policy_schema_policy_path": "${ALERT_POLICY_SCHEMA_POLICY_PATH}",
             "alert_policy_schema_escalation_path": "${ALERT_POLICY_SCHEMA_ESCALATION_PATH}",
             "alert_policy_schema_adapter_exports_path": "${ALERT_POLICY_SCHEMA_ADAPTER_EXPORTS_PATH}",
             "dashboard_pack_generated": ${dashboard_pack_generated},

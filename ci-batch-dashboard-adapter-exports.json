@@ -5,7 +5,7 @@
     "compatibility": "backward-additive"
   },
   "adapter_exports_version": 1,
-  "generated_at": "2026-03-01T01:06:29.760013+00:00",
+  "generated_at": "2026-03-01T01:28:32.189391+00:00",
   "status": "pass",
   "highest_severity": "info",
   "incident_adapter": {
@@ -20,8 +20,8 @@
     "breaches": [],
     "escalations": [],
     "artifact_refs": {
-      "policy": "ci-batch-alert-policy-pass-v1.json",
-      "dashboard_pack": "ci-batch-dashboard-pack-pass-v1.json",
+      "policy": "ci-batch-alert-policy.json",
+      "dashboard_pack": "ci-batch-dashboard-pack.json",
       "escalation": "ci-batch-policy-escalation.json"
     }
   },
@@ -33,9 +33,9 @@
       "processed_files": 32,
       "failure_count": 0,
       "throughput_files_per_sec": 320.0,
-      "dispatch_delivered_route_count": 2,
+      "dispatch_delivered_route_count": 0,
       "dispatch_failed_route_count": 0,
-      "ack_lookup_count": 2,
+      "ack_lookup_count": 0,
       "correlation_lookup_count": 2,
       "policy_breach_count": 0
     },
@@ -104,8 +104,8 @@
         "severity": "p2",
         "status": "pass",
         "observed": {
-          "ack_received_route_count": 2,
-          "ack_lookup_count": 2
+          "ack_received_route_count": 0,
+          "ack_lookup_count": 0
         },
         "expected": "ack_lookup_count >= ack_received_route_count",
         "source": "ack_retention_index",
@@ -116,7 +116,7 @@
         "title": "Ack retention index status valid",
         "severity": "p2",
         "status": "pass",
-        "observed": "ok",
+        "observed": "no_routes",
         "expected": "ok|no_ack_records|no_routes",
         "source": "ack_retention_index",
         "message": "Ack retention index should not report degraded dispatch availability when dispatch ran."
@@ -149,8 +149,8 @@
       "owner_team_default": "rootcellar-core"
     },
     "artifact_refs": {
-      "dashboard_pack": "ci-batch-dashboard-pack-pass-v1.json",
-      "policy": "ci-batch-alert-policy-pass-v1.json"
+      "dashboard_pack": "ci-batch-dashboard-pack.json",
+      "policy": "ci-batch-alert-policy.json"
     }
   },
   "issues": []

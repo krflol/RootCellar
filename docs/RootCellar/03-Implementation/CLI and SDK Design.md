@@ -40,7 +40,7 @@ Related epic: [[docs/RootCellar/01-Epics/Epic 05 - Headless CLI and SDK]]
 - Implemented dispatch replay-protection policy controls (timestamp/nonce/window headers + per-attempt replay metadata) and nightly ack-retention index generation (`python/build_batch_ack_retention_index.py`).
 - Implemented nightly dashboard-pack/policy artifact builder (`python/build_batch_dashboard_pack.py`) and policy-gated CI wiring over snapshot + dispatch + ack-retention artifacts.
 - Implemented policy-owner escalation and adapter export builder (`python/build_batch_policy_adapters.py`) for downstream incident/dashboard ingestion payloads.
-- Implemented adapter schema + compatibility contract validation (`schemas/artifacts/v1/*`, `python/validate_batch_adapter_contracts.py`) and nightly CI enforcement.
+- Implemented full artifact-family schema + compatibility contract validation (`schemas/artifacts/v1/*`, `python/validate_batch_adapter_contracts.py --full-family`) and nightly CI enforcement.
 - Implemented aligned CI artifact policy (name pattern + retention + manifest metadata) across corpus and repro workflows.
 - Tracking links: [[docs/RootCellar/00-Program/Execution Plan Board]], [[docs/RootCellar/00-Program/Execution Status]]
 

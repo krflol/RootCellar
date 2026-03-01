@@ -11,6 +11,13 @@ import sys
 from datetime import datetime, timedelta, timezone
 
 
+ACK_RETENTION_SCHEMA_ID = (
+    "https://rootcellar.dev/schemas/artifacts/v1/batch-ack-retention-index.schema.json"
+)
+ARTIFACT_SCHEMA_VERSION = "1.0.0"
+ARTIFACT_COMPATIBILITY_MODE = "backward-additive"
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description=(
@@ -77,6 +84,11 @@ def _retention_timestamp(anchor: datetime, retention_days: int) -> str:
 def _build_missing_report_index(args: argparse.Namespace) -> dict:
     now = datetime.now(timezone.utc)
     return {
+        "artifact_contract": {
+            "schema_id": ACK_RETENTION_SCHEMA_ID,
+            "schema_version": ARTIFACT_SCHEMA_VERSION,
+            "compatibility": ARTIFACT_COMPATIBILITY_MODE,
+        },
         "index_version": 1,
         "generated_at": now.isoformat(),
         "status": "missing_dispatch_report",
@@ -254,6 +266,11 @@ def build_index(dispatch_report: dict, args: argparse.Namespace) -> dict:
         status = "no_ack_records"
 
     return {
+        "artifact_contract": {
+            "schema_id": ACK_RETENTION_SCHEMA_ID,
+            "schema_version": ARTIFACT_SCHEMA_VERSION,
+            "compatibility": ARTIFACT_COMPATIBILITY_MODE,
+        },
         "index_version": 1,
         "generated_at": generated_at.isoformat(),
         "status": status,

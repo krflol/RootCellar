@@ -17,6 +17,13 @@ SEVERITY_ORDER = {
     "p1": 3,
 }
 
+POLICY_SCHEMA_ID = "https://rootcellar.dev/schemas/artifacts/v1/batch-alert-policy.schema.json"
+DASHBOARD_PACK_SCHEMA_ID = (
+    "https://rootcellar.dev/schemas/artifacts/v1/batch-dashboard-pack.schema.json"
+)
+ARTIFACT_SCHEMA_VERSION = "1.0.0"
+ARTIFACT_COMPATIBILITY_MODE = "backward-additive"
+
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
@@ -417,6 +424,11 @@ def _build_policy(  # noqa: PLR0913
     status = "breach" if breach_count > 0 else "pass"
 
     return {
+        "artifact_contract": {
+            "schema_id": POLICY_SCHEMA_ID,
+            "schema_version": ARTIFACT_SCHEMA_VERSION,
+            "compatibility": ARTIFACT_COMPATIBILITY_MODE,
+        },
         "policy_version": 1,
         "generated_at": datetime.now(timezone.utc).isoformat(),
         "status": status,
@@ -465,6 +477,11 @@ def _build_dashboard_pack(
     failed_routes = [row for row in route_rows if row.get("status") == "failed"]
 
     return {
+        "artifact_contract": {
+            "schema_id": DASHBOARD_PACK_SCHEMA_ID,
+            "schema_version": ARTIFACT_SCHEMA_VERSION,
+            "compatibility": ARTIFACT_COMPATIBILITY_MODE,
+        },
         "dashboard_pack_version": 1,
         "generated_at": datetime.now(timezone.utc).isoformat(),
         "status": policy.get("status"),

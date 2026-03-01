@@ -62,7 +62,10 @@ Parent: [[Environment Matrix]]
     - `ALERT_POLICY_OWNER_CONTACT_CHANNEL`
     - `ALERT_POLICY_ESCALATION_TARGET_P1`, `ALERT_POLICY_ESCALATION_TARGET_P2`, `ALERT_POLICY_ESCALATION_TARGET_P3`, `ALERT_POLICY_ESCALATION_TARGET_INFO`
     - `ALERT_POLICY_ESCALATION_SLA_MINUTES_P1`, `ALERT_POLICY_ESCALATION_SLA_MINUTES_P2`, `ALERT_POLICY_ESCALATION_SLA_MINUTES_P3`, `ALERT_POLICY_ESCALATION_SLA_MINUTES_INFO`
-    - `ALERT_POLICY_SCHEMA_VALIDATION_ENABLED`, `ALERT_POLICY_SCHEMA_ESCALATION_PATH`, `ALERT_POLICY_SCHEMA_ADAPTER_EXPORTS_PATH`
+    - `ALERT_POLICY_SCHEMA_VALIDATION_ENABLED`
+    - `ALERT_POLICY_SCHEMA_SNAPSHOT_PATH`, `ALERT_POLICY_SCHEMA_DISPATCH_PATH`, `ALERT_POLICY_SCHEMA_ACK_RETENTION_PATH`
+    - `ALERT_POLICY_SCHEMA_DASHBOARD_PACK_PATH`, `ALERT_POLICY_SCHEMA_POLICY_PATH`
+    - `ALERT_POLICY_SCHEMA_ESCALATION_PATH`, `ALERT_POLICY_SCHEMA_ADAPTER_EXPORTS_PATH`
   - Steps:
     1. Assemble deterministic nightly compatibility corpus slice (`python/build_batch_nightly_corpus.py`) using generated fixtures + curated workbook samples.
     2. Run workspace tests.
@@ -72,7 +75,7 @@ Parent: [[Environment Matrix]]
     6. Build acknowledgement-retention lookup index (`python/build_batch_ack_retention_index.py`) from dispatch output for incident forensics.
     7. Build dashboard-pack and alert-policy artifacts (`python/build_batch_dashboard_pack.py`) from snapshot + dispatch + ack-retention outputs.
     8. Build policy-owner escalation metadata + downstream adapter exports (`python/build_batch_policy_adapters.py`) from alert-policy and dashboard-pack artifacts.
-    9. Validate adapter artifacts against versioned schemas and compatibility contracts (`python/validate_batch_adapter_contracts.py`).
+    9. Validate full nightly artifact family against versioned schemas and compatibility contracts (`python/validate_batch_adapter_contracts.py --full-family`).
     10. Enforce nightly gate from snapshot + policy status after dispatch routing.
     11. Assemble standardized artifact bundle directory + manifest prior to upload.
     12. Upload batch report + JSONL + trend snapshot + alert payload + dispatch report + ack-retention index + dashboard-pack + alert-policy + policy-escalation + adapter-exports + assembled corpus manifest/files as run artifacts.
@@ -81,5 +84,5 @@ Parent: [[Environment Matrix]]
 - Auto-create incident ticket for failing nightly gates with regression labels.
 - Nightly batch gate now fails on either throughput snapshot breach or alert-policy breach status.
 - Incident/dash adapters consume `ci-batch-policy-escalation.json` + `ci-batch-dashboard-adapter-exports.json` for owner-targeted escalation and dashboard sync.
-- Adapter artifact publication is blocked when schema/compatibility validation fails for escalation or adapter-export payloads.
+- Nightly artifact publication is blocked when schema/compatibility validation fails for snapshot/dispatch/ack-retention/dashboard-pack/policy/escalation/adapter payloads.
 - Block release branch merge on unresolved P1/P2 alerts.

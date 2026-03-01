@@ -1,0 +1,155 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://rootcellar.dev/schemas/artifacts/v1/batch-alert-dispatch.schema.json",
+  "title": "RootCellar Batch Alert Dispatch Artifact v1",
+  "type": "object",
+  "required": [
+    "artifact_contract",
+    "dispatch_version",
+    "generated_at",
+    "status",
+    "alert_status",
+    "alert_file",
+    "snapshot_file",
+    "route_count",
+    "configured_route_count",
+    "delivered_route_count",
+    "failed_route_count",
+    "ack_required_route_count",
+    "ack_received_route_count",
+    "ack_missing_route_count",
+    "correlation_required_route_count",
+    "correlation_matched_route_count",
+    "correlation_mismatch_route_count",
+    "dispatch_policy",
+    "routes"
+  ],
+  "properties": {
+    "artifact_contract": {
+      "type": "object",
+      "required": ["schema_id", "schema_version", "compatibility"],
+      "properties": {
+        "schema_id": { "type": "string", "const": "https://rootcellar.dev/schemas/artifacts/v1/batch-alert-dispatch.schema.json" },
+        "schema_version": { "type": "string", "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$" },
+        "compatibility": { "type": "string", "enum": ["backward-additive"] }
+      },
+      "additionalProperties": true
+    },
+    "dispatch_version": { "type": "integer", "const": 1 },
+    "generated_at": { "type": "string", "minLength": 1 },
+    "status": { "type": "string", "enum": ["delivered", "partial_failure", "no_routes"] },
+    "alert_status": { "type": "string", "minLength": 1 },
+    "alert_file": { "type": "string", "minLength": 1 },
+    "snapshot_file": { "type": ["string", "null"] },
+    "route_count": { "type": "integer", "minimum": 0 },
+    "configured_route_count": { "type": "integer", "minimum": 0 },
+    "delivered_route_count": { "type": "integer", "minimum": 0 },
+    "failed_route_count": { "type": "integer", "minimum": 0 },
+    "ack_required_route_count": { "type": "integer", "minimum": 0 },
+    "ack_received_route_count": { "type": "integer", "minimum": 0 },
+    "ack_missing_route_count": { "type": "integer", "minimum": 0 },
+    "correlation_required_route_count": { "type": "integer", "minimum": 0 },
+    "correlation_matched_route_count": { "type": "integer", "minimum": 0 },
+    "correlation_mismatch_route_count": { "type": "integer", "minimum": 0 },
+    "dispatch_policy": {
+      "type": "object",
+      "required": [
+        "timeout_sec",
+        "max_attempts",
+        "initial_backoff_sec",
+        "backoff_multiplier",
+        "max_backoff_sec",
+        "retry_status_codes",
+        "ack_field",
+        "require_ack_on_incident",
+        "require_ack_on_dashboard",
+        "correlation_field",
+        "correlation_header",
+        "require_correlation_on_incident",
+        "require_correlation_on_dashboard",
+        "idempotency_header",
+        "idempotency_key_prefix",
+        "replay_timestamp_header",
+        "replay_nonce_header",
+        "replay_window_header",
+        "replay_window_sec",
+        "auth_scheme",
+        "incident_auth_configured",
+        "dashboard_auth_configured",
+        "signing_enabled",
+        "signature_header"
+      ],
+      "properties": {
+        "timeout_sec": { "type": "number", "minimum": 0 },
+        "max_attempts": { "type": "integer", "minimum": 1 },
+        "initial_backoff_sec": { "type": "number", "minimum": 0 },
+        "backoff_multiplier": { "type": "number", "minimum": 1 },
+        "max_backoff_sec": { "type": "number", "minimum": 0 },
+        "retry_status_codes": {
+          "type": "array",
+          "items": { "type": "integer" }
+        },
+        "ack_field": { "type": "string", "minLength": 1 },
+        "require_ack_on_incident": { "type": "boolean" },
+        "require_ack_on_dashboard": { "type": "boolean" },
+        "correlation_field": { "type": "string", "minLength": 1 },
+        "correlation_header": { "type": "string", "minLength": 1 },
+        "require_correlation_on_incident": { "type": "boolean" },
+        "require_correlation_on_dashboard": { "type": "boolean" },
+        "idempotency_header": { "type": "string", "minLength": 1 },
+        "idempotency_key_prefix": { "type": "string", "minLength": 1 },
+        "replay_timestamp_header": { "type": "string", "minLength": 1 },
+        "replay_nonce_header": { "type": "string", "minLength": 1 },
+        "replay_window_header": { "type": "string", "minLength": 1 },
+        "replay_window_sec": { "type": "integer", "minimum": 1 },
+        "auth_scheme": { "type": "string", "minLength": 1 },
+        "incident_auth_configured": { "type": "boolean" },
+        "dashboard_auth_configured": { "type": "boolean" },
+        "signing_enabled": { "type": "boolean" },
+        "signature_header": { "type": ["string", "null"] }
+      },
+      "additionalProperties": true
+    },
+    "routes": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/route" }
+    }
+  },
+  "$defs": {
+    "route": {
+      "type": "object",
+      "required": ["route", "status"],
+      "properties": {
+        "identifiers": {
+          "type": "object",
+          "required": ["correlation_id", "idempotency_key", "digest_sha256"],
+          "properties": {
+            "correlation_id": { "type": "string", "minLength": 1 },
+            "idempotency_key": { "type": "string", "minLength": 1 },
+            "digest_sha256": { "type": "string", "minLength": 1 }
+          },
+          "additionalProperties": true
+        },
+        "route": { "type": "string", "minLength": 1 },
+        "status": { "type": "string", "enum": ["skipped", "delivered", "failed"] },
+        "reason": { "type": "string" },
+        "configured": { "type": "boolean" },
+        "endpoint": { "type": "string" },
+        "auth": { "type": "object" },
+        "retry_policy": { "type": "object" },
+        "replay_policy": { "type": "object" },
+        "delivery": { "type": "object" },
+        "ack": { "type": "object" },
+        "correlation": { "type": "object" }
+      },
+      "additionalProperties": true
+    }
+  },
+  "additionalProperties": true,
+  "x-rootcellar-contract": {
+    "schema_version": "1.0.0",
+    "payload_version_field": "dispatch_version",
+    "payload_version": 1,
+    "compatibility_mode": "backward-additive"
+  }
+}

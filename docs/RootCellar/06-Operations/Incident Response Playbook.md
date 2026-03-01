@@ -35,7 +35,7 @@ Related: [[docs/RootCellar/04-Observability/Dashboards SLOs and Alerts]]
   6. Use ack-retention index lookups (`ack_id`, `ack_id_sha256`, `idempotency_key`, `correlation_id`) to pivot across incident-system ingestion logs.
   7. Review alert-policy breaches (`ci-batch-alert-policy.json`) to prioritize severity and owner escalation path.
   8. Use policy-escalation metadata (`ci-batch-policy-escalation.json`) to route to owner queues/channels and confirm adapter-export payloads match incident-system expectations.
-  9. Confirm adapter artifacts passed schema/compatibility validation (`python/validate_batch_adapter_contracts.py`) against `schemas/artifacts/v1/*`.
+  9. Confirm nightly artifacts passed full-family schema/compatibility validation (`python/validate_batch_adapter_contracts.py --full-family`) against `schemas/artifacts/v1/*`.
 
 ## Communication Cadence
 - Sev 1 updates every 30 minutes.

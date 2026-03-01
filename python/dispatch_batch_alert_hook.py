@@ -20,6 +20,11 @@ from datetime import datetime, timezone
 from typing import Callable
 
 
+DISPATCH_SCHEMA_ID = "https://rootcellar.dev/schemas/artifacts/v1/batch-alert-dispatch.schema.json"
+ARTIFACT_SCHEMA_VERSION = "1.0.0"
+ARTIFACT_COMPATIBILITY_MODE = "backward-additive"
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description=(
@@ -725,6 +730,11 @@ def main() -> int:
         overall_status = "no_routes"
 
     report = {
+        "artifact_contract": {
+            "schema_id": DISPATCH_SCHEMA_ID,
+            "schema_version": ARTIFACT_SCHEMA_VERSION,
+            "compatibility": ARTIFACT_COMPATIBILITY_MODE,
+        },
         "dispatch_version": 1,
         "generated_at": datetime.now(timezone.utc).isoformat(),
         "status": overall_status,

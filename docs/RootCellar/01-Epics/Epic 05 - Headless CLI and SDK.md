@@ -26,6 +26,7 @@ Make RootCellar first-class in automation pipelines through CLI and SDK surfaces
 14. Nightly dashboard-pack and alert-policy artifact generation integrated with CI gate enforcement.
 15. Policy-to-owner escalation metadata and downstream dashboard/incident adapter export artifacts integrated into nightly workflow.
 16. Adapter export schema/compatibility validation integrated into nightly workflow for contract enforcement before publication.
+17. Full artifact-family schema/compatibility validation integrated into nightly workflow for snapshot/dispatch/ack-retention/dashboard-pack/policy plus adapter/escalation contracts.
 - Remaining:
 1. SDK public API stabilization and Python bindings plan implementation.
 

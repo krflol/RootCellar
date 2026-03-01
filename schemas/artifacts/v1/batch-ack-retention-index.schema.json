@@ -1,0 +1,172 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://rootcellar.dev/schemas/artifacts/v1/batch-ack-retention-index.schema.json",
+  "title": "RootCellar Batch Ack Retention Index Artifact v1",
+  "type": "object",
+  "required": [
+    "artifact_contract",
+    "index_version",
+    "generated_at",
+    "status",
+    "source_dispatch_report",
+    "retention_policy",
+    "dispatch_summary",
+    "record_count",
+    "lookup_count",
+    "records",
+    "lookups",
+    "issues"
+  ],
+  "properties": {
+    "artifact_contract": {
+      "type": "object",
+      "required": ["schema_id", "schema_version", "compatibility"],
+      "properties": {
+        "schema_id": { "type": "string", "const": "https://rootcellar.dev/schemas/artifacts/v1/batch-ack-retention-index.schema.json" },
+        "schema_version": { "type": "string", "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$" },
+        "compatibility": { "type": "string", "enum": ["backward-additive"] }
+      },
+      "additionalProperties": true
+    },
+    "index_version": { "type": "integer", "const": 1 },
+    "generated_at": { "type": "string", "minLength": 1 },
+    "status": {
+      "type": "string",
+      "enum": ["ok", "no_routes", "no_ack_records", "missing_dispatch_report"]
+    },
+    "source_dispatch_report": { "type": "string", "minLength": 1 },
+    "retention_policy": {
+      "type": "object",
+      "required": ["retention_days", "anchor"],
+      "properties": {
+        "retention_days": { "type": "integer", "minimum": 1 },
+        "anchor": { "type": "string", "minLength": 1 },
+        "anchor_timestamp": { "type": "string", "minLength": 1 }
+      },
+      "additionalProperties": true
+    },
+    "dispatch_summary": {
+      "type": "object",
+      "required": [
+        "dispatch_status",
+        "route_count",
+        "configured_route_count",
+        "delivered_route_count",
+        "failed_route_count",
+        "ack_required_route_count",
+        "ack_received_route_count",
+        "ack_missing_route_count"
+      ],
+      "properties": {
+        "dispatch_status": { "type": "string", "minLength": 1 },
+        "route_count": { "type": "integer", "minimum": 0 },
+        "configured_route_count": { "type": "integer", "minimum": 0 },
+        "delivered_route_count": { "type": "integer", "minimum": 0 },
+        "failed_route_count": { "type": "integer", "minimum": 0 },
+        "ack_required_route_count": { "type": "integer", "minimum": 0 },
+        "ack_received_route_count": { "type": "integer", "minimum": 0 },
+        "ack_missing_route_count": { "type": "integer", "minimum": 0 },
+        "correlation_required_route_count": { "type": "integer", "minimum": 0 },
+        "correlation_matched_route_count": { "type": "integer", "minimum": 0 },
+        "correlation_mismatch_route_count": { "type": "integer", "minimum": 0 }
+      },
+      "additionalProperties": true
+    },
+    "record_count": { "type": "integer", "minimum": 0 },
+    "lookup_count": {
+      "type": "object",
+      "required": ["ack_id", "ack_id_sha256", "idempotency_key", "correlation_id"],
+      "properties": {
+        "ack_id": { "type": "integer", "minimum": 0 },
+        "ack_id_sha256": { "type": "integer", "minimum": 0 },
+        "idempotency_key": { "type": "integer", "minimum": 0 },
+        "correlation_id": { "type": "integer", "minimum": 0 }
+      },
+      "additionalProperties": true
+    },
+    "records": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/record" }
+    },
+    "lookups": {
+      "type": "object",
+      "required": [
+        "by_ack_id",
+        "by_ack_id_sha256",
+        "by_idempotency_key",
+        "by_correlation_id"
+      ],
+      "properties": {
+        "by_ack_id": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/lookup_entry" }
+        },
+        "by_ack_id_sha256": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/lookup_entry" }
+        },
+        "by_idempotency_key": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/lookup_entry" }
+        },
+        "by_correlation_id": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/lookup_entry" }
+        }
+      },
+      "additionalProperties": true
+    },
+    "issues": {
+      "type": "array",
+      "items": { "type": "object" }
+    }
+  },
+  "$defs": {
+    "lookup_entry": {
+      "type": "object",
+      "required": ["value", "record_id", "route", "route_status"],
+      "properties": {
+        "value": { "type": "string", "minLength": 1 },
+        "record_id": { "type": "integer", "minimum": 0 },
+        "route": { "type": ["string", "null"] },
+        "route_status": { "type": ["string", "null"] }
+      },
+      "additionalProperties": true
+    },
+    "record": {
+      "type": "object",
+      "required": [
+        "route",
+        "route_status",
+        "configured",
+        "endpoint",
+        "dispatch_generated_at",
+        "retention_expires_at",
+        "ack",
+        "identifiers",
+        "correlation",
+        "delivery"
+      ],
+      "properties": {
+        "route": { "type": ["string", "null"] },
+        "route_status": { "type": ["string", "null"] },
+        "configured": { "type": "boolean" },
+        "endpoint": { "type": ["string", "null"] },
+        "dispatch_generated_at": { "type": "string", "minLength": 1 },
+        "retention_expires_at": { "type": "string", "minLength": 1 },
+        "ack": { "type": "object" },
+        "identifiers": { "type": "object" },
+        "correlation": { "type": "object" },
+        "delivery": { "type": "object" }
+      },
+      "additionalProperties": true
+    }
+  },
+  "additionalProperties": true,
+  "x-rootcellar-contract": {
+    "schema_version": "1.0.0",
+    "payload_version_field": "index_version",
+    "payload_version": 1,
+    "compatibility_mode": "backward-additive"
+  }
+}

@@ -12,3 +12,4 @@ normalized.xlsx
 preserve-source.xlsx
 tx-*.xlsx
 repro-bundle/
+*.pyc

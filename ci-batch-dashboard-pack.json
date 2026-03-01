@@ -1,0 +1,235 @@
+{
+  "artifact_contract": {
+    "schema_id": "https://rootcellar.dev/schemas/artifacts/v1/batch-dashboard-pack.schema.json",
+    "schema_version": "1.0.0",
+    "compatibility": "backward-additive"
+  },
+  "dashboard_pack_version": 1,
+  "generated_at": "2026-03-01T01:28:31.961604+00:00",
+  "status": "pass",
+  "highest_severity": "info",
+  "source_files": {
+    "snapshot": "ci-batch-throughput-snapshot.json",
+    "dispatch_report": "ci-batch-alert-dispatch.json",
+    "ack_retention_index": "ci-batch-ack-retention-index.json",
+    "policy": "ci-batch-alert-policy.json"
+  },
+  "headline_metrics": {
+    "processed_files": 32,
+    "failure_count": 0,
+    "throughput_files_per_sec": 320.0,
+    "dispatch_delivered_route_count": 0,
+    "dispatch_failed_route_count": 0,
+    "ack_lookup_count": 0,
+    "correlation_lookup_count": 2,
+    "policy_breach_count": 0
+  },
+  "panels": {
+    "throughput": {
+      "snapshot_status": "pass",
+      "thresholds": {
+        "min_processed_files": 24,
+        "min_throughput_files_per_sec": 5.0,
+        "max_failure_count": 0
+      },
+      "metrics": {
+        "processed_files": 32,
+        "failure_count": 0,
+        "throughput_files_per_sec": 320.0,
+        "effective_threads": 4,
+        "wall_clock_duration_ms": 100,
+        "aggregate_file_time_ratio": 3.55
+      },
+      "breaches": []
+    },
+    "route_delivery": {
+      "dispatch_status": "no_routes",
+      "dispatch_counts": {
+        "route_count": 2,
+        "configured_route_count": 0,
+        "delivered_route_count": 0,
+        "failed_route_count": 0,
+        "ack_missing_route_count": 0,
+        "correlation_mismatch_route_count": 0
+      },
+      "routes": [
+        {
+          "route": "incident",
+          "status": "skipped",
+          "endpoint": null,
+          "attempt_count": 0,
+          "final_http_status": null,
+          "ack_received": false,
+          "correlation_matches": false,
+          "idempotency_key": "rootcellar-batch-alert-incident-9ca5bf2ed68caaa662acbfca",
+          "correlation_id": "rc-batch-9ca5bf2ed68caaa662ac",
+          "replay_timestamp": null,
+          "replay_nonce": null,
+          "replay_window_sec": null
+        },
+        {
+          "route": "dashboard",
+          "status": "skipped",
+          "endpoint": null,
+          "attempt_count": 0,
+          "final_http_status": null,
+          "ack_received": false,
+          "correlation_matches": false,
+          "idempotency_key": "rootcellar-batch-alert-dashboard-74669af0415d483d31156872",
+          "correlation_id": "rc-batch-74669af0415d483d3115",
+          "replay_timestamp": null,
+          "replay_nonce": null,
+          "replay_window_sec": null
+        }
+      ],
+      "failed_routes": []
+    },
+    "forensics": {
+      "ack_index_status": "no_routes",
+      "retention_policy": {
+        "retention_days": 30,
+        "anchor": "dispatch_generated_at",
+        "anchor_timestamp": "2026-03-01T01:28:31.496294+00:00"
+      },
+      "lookup_count": {
+        "ack_id": 0,
+        "ack_id_sha256": 0,
+        "idempotency_key": 2,
+        "correlation_id": 2
+      },
+      "record_count": 2
+    },
+    "policy": {
+      "status": "pass",
+      "highest_severity": "info",
+      "breach_count": 0,
+      "checks": [
+        {
+          "id": "snapshot.status.pass",
+          "title": "Snapshot status is pass",
+          "severity": "p3",
+          "status": "pass",
+          "observed": "pass",
+          "expected": "pass",
+          "source": "snapshot",
+          "message": "Throughput snapshot must remain within thresholds."
+        },
+        {
+          "id": "dispatch.failed_routes.max",
+          "title": "Dispatch failed routes within threshold",
+          "severity": "p2",
+          "status": "pass",
+          "observed": 0,
+          "expected": {
+            "max": 0
+          },
+          "source": "dispatch",
+          "message": "Failed dispatch routes indicate downstream delivery reliability risk."
+        },
+        {
+          "id": "dispatch.ack_missing.max",
+          "title": "Ack-missing routes within threshold",
+          "severity": "p2",
+          "status": "pass",
+          "observed": 0,
+          "expected": {
+            "max": 0
+          },
+          "source": "dispatch",
+          "message": "Missing required acknowledgements reduce delivery traceability confidence."
+        },
+        {
+          "id": "dispatch.correlation_mismatch.max",
+          "title": "Correlation mismatch routes within threshold",
+          "severity": "p2",
+          "status": "pass",
+          "observed": 0,
+          "expected": {
+            "max": 0
+          },
+          "source": "dispatch",
+          "message": "Correlation mismatches prevent deterministic cross-system trace joins."
+        },
+        {
+          "id": "dispatch.replay_metadata.required",
+          "title": "Replay metadata present on delivered routes",
+          "severity": "p2",
+          "status": "pass",
+          "observed": 0,
+          "expected": {
+            "missing_allowed": 0
+          },
+          "source": "dispatch",
+          "message": "Replay timestamp/nonce/window fields must be present for delivered routes."
+        },
+        {
+          "id": "ack_retention.lookup_coverage.required",
+          "title": "Ack retention lookup covers acknowledged routes",
+          "severity": "p2",
+          "status": "pass",
+          "observed": {
+            "ack_received_route_count": 0,
+            "ack_lookup_count": 0
+          },
+          "expected": "ack_lookup_count >= ack_received_route_count",
+          "source": "ack_retention_index",
+          "message": "Retention lookup count should cover all acknowledged routes."
+        },
+        {
+          "id": "ack_retention.status.valid",
+          "title": "Ack retention index status valid",
+          "severity": "p2",
+          "status": "pass",
+          "observed": "no_routes",
+          "expected": "ok|no_ack_records|no_routes",
+          "source": "ack_retention_index",
+          "message": "Ack retention index should not report degraded dispatch availability when dispatch ran."
+        }
+      ]
+    }
+  },
+  "drilldowns": {
+    "dispatch_policy": {
+      "timeout_sec": 10.0,
+      "max_attempts": 3,
+      "initial_backoff_sec": 0.5,
+      "backoff_multiplier": 2.0,
+      "max_backoff_sec": 5.0,
+      "retry_status_codes": [
+        408,
+        425,
+        429,
+        500,
+        502,
+        503,
+        504
+      ],
+      "ack_field": "ack_id",
+      "require_ack_on_incident": false,
+      "require_ack_on_dashboard": false,
+      "correlation_field": "correlation_id",
+      "correlation_header": "X-Correlation-Id",
+      "require_correlation_on_incident": false,
+      "require_correlation_on_dashboard": false,
+      "idempotency_header": "Idempotency-Key",
+      "idempotency_key_prefix": "rootcellar-batch-alert",
+      "replay_timestamp_header": "X-RootCellar-Timestamp",
+      "replay_nonce_header": "X-RootCellar-Nonce",
+      "replay_window_header": "X-RootCellar-Replay-Window-Sec",
+      "replay_window_sec": 300,
+      "auth_scheme": "Bearer",
+      "incident_auth_configured": false,
+      "dashboard_auth_configured": false,
+      "signing_enabled": false,
+      "signature_header": null
+    },
+    "replay_route_details": [],
+    "policy_config": {
+      "max_dispatch_failed_routes": 0,
+      "max_ack_missing_routes": 0,
+      "max_correlation_mismatch_routes": 0,
+      "require_replay_metadata": true,
+      "require_ack_retention_coverage": true
+    }
+  }
+}

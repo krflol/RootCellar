@@ -83,6 +83,9 @@ Last updated: March 1, 2026
 - [x] Adapter export schema validation and compatibility-version contracts enforced in CI (`schemas/artifacts/v1/*`, `python/validate_batch_adapter_contracts.py`, nightly workflow validation gate).
   Plan links: [[docs/RootCellar/06-Operations/CI-CD Blueprint]], [[docs/RootCellar/04-Observability/Inspectable Artifact Contract]], [[docs/RootCellar/04-Observability/Dashboards SLOs and Alerts]], [[docs/RootCellar/01-Epics/Epic 07 - Radical Observability and Introspection]], [[docs/RootCellar/03-Implementation/CLI and SDK Design]], [[docs/RootCellar/02-Sprints/Sprint 06 - CLI Batch and Repro Mode]]
   Evidence: [[Execution Status#Completed In Code]], [[Execution Status#Verification]]
+- [x] Full artifact-family schema validation and compatibility-version contracts enforced in CI for snapshot/dispatch/ack-retention/dashboard-pack/policy plus escalation/adapter outputs.
+  Plan links: [[docs/RootCellar/06-Operations/CI-CD Blueprint]], [[docs/RootCellar/04-Observability/Inspectable Artifact Contract]], [[docs/RootCellar/04-Observability/Dashboards SLOs and Alerts]], [[docs/RootCellar/01-Epics/Epic 07 - Radical Observability and Introspection]], [[docs/RootCellar/03-Implementation/CLI and SDK Design]], [[docs/RootCellar/02-Sprints/Sprint 06 - CLI Batch and Repro Mode]]
+  Evidence: [[Execution Status#Completed In Code]], [[Execution Status#Verification]]
 
 ## In Progress Items
 - [ ] Sprint 02 parser/dependency-graph core is in progress.
@@ -96,4 +99,4 @@ Last updated: March 1, 2026
 ## Next Planned Items
 1. Continue function parity expansion (lookup/text/date families) and optimize parser/intern scheduler hot paths.
 2. Start Tauri shell initialization and bridge trace context into UI->engine command paths.
-3. Extend schema-contract validation to snapshot/dispatch/ack-retention/dashboard-pack/policy artifacts for full artifact-family compatibility gates.
+3. Add schema-drift canary fixtures and compatibility migration playbook for artifact-family major-version changes.
