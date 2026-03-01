@@ -1262,6 +1262,81 @@ fn eval_function(
             )?;
             Ok(text.chars().count() as f64)
         }
+        "CODE" => {
+            if args.len() != 1 {
+                return Err(EvalError::Parse);
+            }
+            let text = eval_expr_as_text(
+                workbook,
+                sheet_name,
+                &args[0],
+                parsed_formulas,
+                stack,
+                cache,
+            )?;
+            let ch = text.chars().next().ok_or(EvalError::Parse)?;
+            Ok(ch as u32 as f64)
+        }
+        "EXACT" => {
+            if args.len() != 2 {
+                return Err(EvalError::Parse);
+            }
+            let left = eval_expr_as_text(
+                workbook,
+                sheet_name,
+                &args[0],
+                parsed_formulas,
+                stack,
+                cache,
+            )?;
+            let right = eval_expr_as_text(
+                workbook,
+                sheet_name,
+                &args[1],
+                parsed_formulas,
+                stack,
+                cache,
+            )?;
+            Ok(if left == right { 1.0 } else { 0.0 })
+        }
+        "FIND" | "SEARCH" => {
+            if args.len() < 2 || args.len() > 3 {
+                return Err(EvalError::Parse);
+            }
+            let needle = eval_expr_as_text(
+                workbook,
+                sheet_name,
+                &args[0],
+                parsed_formulas,
+                stack,
+                cache,
+            )?;
+            let haystack = eval_expr_as_text(
+                workbook,
+                sheet_name,
+                &args[1],
+                parsed_formulas,
+                stack,
+                cache,
+            )?;
+            let start_pos = if args.len() == 3 {
+                let raw_start = eval_expr(
+                    workbook,
+                    sheet_name,
+                    &args[2],
+                    parsed_formulas,
+                    stack,
+                    cache,
+                )?;
+                parse_text_start_position(raw_start)?
+            } else {
+                1
+            };
+            let is_case_insensitive = name == "SEARCH";
+            let found = find_text_position(&needle, &haystack, start_pos, is_case_insensitive)
+                .ok_or(EvalError::Parse)?;
+            Ok(found as f64)
+        }
         _ => {
             let mut values = Vec::<f64>::with_capacity(args.len());
             for arg in args {
@@ -1368,6 +1443,99 @@ fn eval_function(
                     }
                     let (_, _, day) = excel_serial_to_ymd(values[0])?;
                     Ok(day as f64)
+                }
+                "DAYS" => {
+                    if values.len() != 2 {
+                        return Err(EvalError::Parse);
+                    }
+                    let end_serial = validated_excel_serial_day(values[0])?;
+                    let start_serial = validated_excel_serial_day(values[1])?;
+                    Ok((end_serial - start_serial) as f64)
+                }
+                "EDATE" => {
+                    if values.len() != 2 {
+                        return Err(EvalError::Parse);
+                    }
+                    let start_serial = validated_excel_serial_day(values[0])?;
+                    let start_date = excel_serial_to_naive_date(start_serial)?;
+                    let month_offset = trunc_f64_to_i64(values[1])?;
+                    let (target_year, target_month) =
+                        shift_year_month(start_date.year(), start_date.month(), month_offset)?;
+                    let target_day = start_date
+                        .day()
+                        .min(last_day_of_month(target_year, target_month)?);
+                    let target_date =
+                        NaiveDate::from_ymd_opt(target_year, target_month, target_day)
+                            .ok_or(EvalError::Parse)?;
+                    Ok(excel_naive_date_to_serial(target_date)? as f64)
+                }
+                "EOMONTH" => {
+                    if values.len() != 2 {
+                        return Err(EvalError::Parse);
+                    }
+                    let start_serial = validated_excel_serial_day(values[0])?;
+                    let start_date = excel_serial_to_naive_date(start_serial)?;
+                    let month_offset = trunc_f64_to_i64(values[1])?;
+                    let (target_year, target_month) =
+                        shift_year_month(start_date.year(), start_date.month(), month_offset)?;
+                    let target_day = last_day_of_month(target_year, target_month)?;
+                    let target_date =
+                        NaiveDate::from_ymd_opt(target_year, target_month, target_day)
+                            .ok_or(EvalError::Parse)?;
+                    Ok(excel_naive_date_to_serial(target_date)? as f64)
+                }
+                "WEEKDAY" => {
+                    if values.is_empty() || values.len() > 2 {
+                        return Err(EvalError::Parse);
+                    }
+                    let serial = validated_excel_serial_day(values[0])?;
+                    let weekday_serial = if serial >= 60 { serial - 1 } else { serial };
+                    let return_type = if values.len() == 2 {
+                        trunc_f64_to_i64(values[1])?
+                    } else {
+                        1
+                    };
+                    match return_type {
+                        1 => Ok((weekday_serial.rem_euclid(7) + 1) as f64),
+                        2 => Ok(((weekday_serial + 6).rem_euclid(7) + 1) as f64),
+                        3 => Ok(((weekday_serial + 6).rem_euclid(7)) as f64),
+                        _ => Err(EvalError::Parse),
+                    }
+                }
+                "WEEKNUM" => {
+                    if values.is_empty() || values.len() > 2 {
+                        return Err(EvalError::Parse);
+                    }
+                    let serial = validated_excel_serial_day(values[0])?;
+                    let date = excel_serial_to_naive_date(serial)?;
+                    let return_type = if values.len() == 2 {
+                        trunc_f64_to_i64(values[1])?
+                    } else {
+                        1
+                    };
+                    let jan1 =
+                        NaiveDate::from_ymd_opt(date.year(), 1, 1).ok_or(EvalError::Parse)?;
+                    let ordinal = date.ordinal() as i64;
+                    let week = match return_type {
+                        1 => {
+                            let jan1_weekday = jan1.weekday().num_days_from_sunday() as i64 + 1;
+                            ((ordinal + jan1_weekday - 2) / 7) + 1
+                        }
+                        2 => {
+                            let jan1_weekday = jan1.weekday().num_days_from_monday() as i64 + 1;
+                            ((ordinal + jan1_weekday - 2) / 7) + 1
+                        }
+                        _ => return Err(EvalError::Parse),
+                    };
+                    Ok(week as f64)
+                }
+                "ISOWEEKNUM" => {
+                    if values.len() != 1 {
+                        return Err(EvalError::Parse);
+                    }
+                    let serial = validated_excel_serial_day(values[0])?;
+                    let date = excel_serial_to_naive_date(serial)?;
+                    Ok(date.iso_week().week() as f64)
                 }
                 _ => Err(EvalError::Parse),
             }
@@ -1737,6 +1905,117 @@ fn trunc_f64_to_i64(value: f64) -> Result<i64, EvalError> {
         return Err(EvalError::Parse);
     }
     Ok(truncated as i64)
+}
+
+fn parse_text_start_position(value: f64) -> Result<usize, EvalError> {
+    let start = trunc_f64_to_i64(value)?;
+    if start < 1 || start > usize::MAX as i64 {
+        return Err(EvalError::Parse);
+    }
+    Ok(start as usize)
+}
+
+fn find_text_position(
+    needle: &str,
+    haystack: &str,
+    start_pos: usize,
+    case_insensitive: bool,
+) -> Option<usize> {
+    if start_pos == 0 {
+        return None;
+    }
+
+    let (needle_norm, haystack_norm) = if case_insensitive {
+        (needle.to_lowercase(), haystack.to_lowercase())
+    } else {
+        (needle.to_string(), haystack.to_string())
+    };
+    let needle_chars = needle_norm.chars().collect::<Vec<_>>();
+    let haystack_chars = haystack_norm.chars().collect::<Vec<_>>();
+
+    if start_pos > haystack_chars.len() + 1 {
+        return None;
+    }
+    if needle_chars.is_empty() {
+        return Some(start_pos);
+    }
+    if start_pos > haystack_chars.len() {
+        return None;
+    }
+    if needle_chars.len() > haystack_chars.len() {
+        return None;
+    }
+
+    let start_index = start_pos - 1;
+    let max_start = haystack_chars.len() - needle_chars.len();
+    for index in start_index..=max_start {
+        if haystack_chars[index..index + needle_chars.len()] == needle_chars[..] {
+            return Some(index + 1);
+        }
+    }
+    None
+}
+
+fn validated_excel_serial_day(value: f64) -> Result<i64, EvalError> {
+    let serial = trunc_f64_to_i64(value)?;
+    if serial <= 0 {
+        return Err(EvalError::Parse);
+    }
+    let _ = excel_serial_to_ymd(serial as f64)?;
+    Ok(serial)
+}
+
+fn excel_serial_to_naive_date(serial: i64) -> Result<NaiveDate, EvalError> {
+    if serial <= 0 {
+        return Err(EvalError::Parse);
+    }
+    let adjusted = if serial > 60 { serial - 1 } else { serial };
+    let epoch = NaiveDate::from_ymd_opt(1899, 12, 31).ok_or(EvalError::Parse)?;
+    epoch
+        .checked_add_signed(Duration::days(adjusted))
+        .ok_or(EvalError::Parse)
+}
+
+fn excel_naive_date_to_serial(date: NaiveDate) -> Result<i64, EvalError> {
+    let epoch = NaiveDate::from_ymd_opt(1899, 12, 31).ok_or(EvalError::Parse)?;
+    let mut serial = date.signed_duration_since(epoch).num_days();
+    if serial >= 60 {
+        serial += 1;
+    }
+    if serial <= 0 {
+        return Err(EvalError::Parse);
+    }
+    Ok(serial)
+}
+
+fn shift_year_month(year: i32, month: u32, month_offset: i64) -> Result<(i32, u32), EvalError> {
+    if !(1..=12).contains(&month) {
+        return Err(EvalError::Parse);
+    }
+    let month_index = month as i64 - 1 + month_offset;
+    let shifted_year = year as i64 + month_index.div_euclid(12);
+    if shifted_year < 0 || shifted_year > i32::MAX as i64 {
+        return Err(EvalError::Parse);
+    }
+    let shifted_month = month_index.rem_euclid(12) as u32 + 1;
+    Ok((shifted_year as i32, shifted_month))
+}
+
+fn last_day_of_month(year: i32, month: u32) -> Result<u32, EvalError> {
+    let first_day = NaiveDate::from_ymd_opt(year, month, 1).ok_or(EvalError::Parse)?;
+    let (next_year, next_month) = if month == 12 {
+        (year.saturating_add(1), 1)
+    } else {
+        (year, month + 1)
+    };
+    let next_first = NaiveDate::from_ymd_opt(next_year, next_month, 1).ok_or(EvalError::Parse)?;
+    let last_day = next_first
+        .checked_sub_signed(Duration::days(1))
+        .ok_or(EvalError::Parse)?;
+    if last_day < first_day {
+        return Err(EvalError::Parse);
+    }
+    Ok(last_day.day())
 }
 
 fn excel_serial_to_ymd(serial_value: f64) -> Result<(i32, u32, u32), EvalError> {
@@ -2303,6 +2582,318 @@ mod tests {
             .value
             .clone();
         assert_eq!(a1, CellValue::Error("#PARSE!".to_string()));
+    }
+
+    #[test]
+    fn evaluates_text_and_date_extension_functions() {
+        let mut wb = Workbook::new();
+        let mut sink = NoopEventSink;
+        let trace = TraceContext::root();
+
+        let mut txn = wb.begin_txn(&mut sink, &trace).expect("begin");
+        txn.apply(Mutation::SetCellValue {
+            sheet: "Sheet1".to_string(),
+            row: 1,
+            col: 1,
+            value: CellValue::Text("Cellar".to_string()),
+        });
+        txn.apply(Mutation::SetCellValue {
+            sheet: "Sheet1".to_string(),
+            row: 1,
+            col: 2,
+            value: CellValue::Text("RootCellar".to_string()),
+        });
+        txn.apply(Mutation::SetCellValue {
+            sheet: "Sheet1".to_string(),
+            row: 1,
+            col: 3,
+            value: CellValue::Text("root".to_string()),
+        });
+        txn.apply(Mutation::SetCellFormula {
+            sheet: "Sheet1".to_string(),
+            row: 2,
+            col: 1,
+            formula: "=EXACT(A1,A1)".to_string(),
+            cached_value: CellValue::Empty,
+        });
+        txn.apply(Mutation::SetCellFormula {
+            sheet: "Sheet1".to_string(),
+            row: 2,
+            col: 2,
+            formula: "=EXACT(A1,B1)".to_string(),
+            cached_value: CellValue::Empty,
+        });
+        txn.apply(Mutation::SetCellFormula {
+            sheet: "Sheet1".to_string(),
+            row: 2,
+            col: 3,
+            formula: "=FIND(A1,B1)".to_string(),
+            cached_value: CellValue::Empty,
+        });
+        txn.apply(Mutation::SetCellFormula {
+            sheet: "Sheet1".to_string(),
+            row: 2,
+            col: 4,
+            formula: "=SEARCH(C1,B1)".to_string(),
+            cached_value: CellValue::Empty,
+        });
+        txn.apply(Mutation::SetCellFormula {
+            sheet: "Sheet1".to_string(),
+            row: 2,
+            col: 5,
+            formula: "=DAYS(DATE(2026,3,1),DATE(2026,2,27))".to_string(),
+            cached_value: CellValue::Empty,
+        });
+        txn.apply(Mutation::SetCellFormula {
+            sheet: "Sheet1".to_string(),
+            row: 2,
+            col: 6,
+            formula: "=WEEKDAY(DATE(2026,3,1))".to_string(),
+            cached_value: CellValue::Empty,
+        });
+        txn.apply(Mutation::SetCellFormula {
+            sheet: "Sheet1".to_string(),
+            row: 2,
+            col: 7,
+            formula: "=WEEKDAY(DATE(2026,3,1),2)".to_string(),
+            cached_value: CellValue::Empty,
+        });
+        txn.apply(Mutation::SetCellFormula {
+            sheet: "Sheet1".to_string(),
+            row: 2,
+            col: 8,
+            formula: "=WEEKDAY(DATE(2026,3,1),3)".to_string(),
+            cached_value: CellValue::Empty,
+        });
+        txn.apply(Mutation::SetCellFormula {
+            sheet: "Sheet1".to_string(),
+            row: 2,
+            col: 9,
+            formula: "=EDATE(DATE(2026,3,1),1)".to_string(),
+            cached_value: CellValue::Empty,
+        });
+        txn.apply(Mutation::SetCellFormula {
+            sheet: "Sheet1".to_string(),
+            row: 2,
+            col: 10,
+            formula: "=EOMONTH(DATE(2026,3,1),0)".to_string(),
+            cached_value: CellValue::Empty,
+        });
+        txn.apply(Mutation::SetCellFormula {
+            sheet: "Sheet1".to_string(),
+            row: 2,
+            col: 11,
+            formula: "=WEEKNUM(DATE(2026,3,1))".to_string(),
+            cached_value: CellValue::Empty,
+        });
+        txn.apply(Mutation::SetCellFormula {
+            sheet: "Sheet1".to_string(),
+            row: 2,
+            col: 12,
+            formula: "=WEEKNUM(DATE(2026,3,1),2)".to_string(),
+            cached_value: CellValue::Empty,
+        });
+        txn.apply(Mutation::SetCellFormula {
+            sheet: "Sheet1".to_string(),
+            row: 2,
+            col: 13,
+            formula: "=ISOWEEKNUM(DATE(2026,3,1))".to_string(),
+            cached_value: CellValue::Empty,
+        });
+        txn.apply(Mutation::SetCellFormula {
+            sheet: "Sheet1".to_string(),
+            row: 2,
+            col: 14,
+            formula: "=CODE(A1)".to_string(),
+            cached_value: CellValue::Empty,
+        });
+        txn.commit(&mut wb, &mut sink, &trace).expect("commit");
+
+        recalc_sheet(&mut wb, "Sheet1", &mut sink, &trace).expect("recalc");
+        let a2 = wb
+            .sheets
+            .get("Sheet1")
+            .and_then(|s| s.cells.get(&CellRef { row: 2, col: 1 }))
+            .expect("a2")
+            .value
+            .clone();
+        let b2 = wb
+            .sheets
+            .get("Sheet1")
+            .and_then(|s| s.cells.get(&CellRef { row: 2, col: 2 }))
+            .expect("b2")
+            .value
+            .clone();
+        let c2 = wb
+            .sheets
+            .get("Sheet1")
+            .and_then(|s| s.cells.get(&CellRef { row: 2, col: 3 }))
+            .expect("c2")
+            .value
+            .clone();
+        let d2 = wb
+            .sheets
+            .get("Sheet1")
+            .and_then(|s| s.cells.get(&CellRef { row: 2, col: 4 }))
+            .expect("d2")
+            .value
+            .clone();
+        let e2 = wb
+            .sheets
+            .get("Sheet1")
+            .and_then(|s| s.cells.get(&CellRef { row: 2, col: 5 }))
+            .expect("e2")
+            .value
+            .clone();
+        let f2 = wb
+            .sheets
+            .get("Sheet1")
+            .and_then(|s| s.cells.get(&CellRef { row: 2, col: 6 }))
+            .expect("f2")
+            .value
+            .clone();
+        let g2 = wb
+            .sheets
+            .get("Sheet1")
+            .and_then(|s| s.cells.get(&CellRef { row: 2, col: 7 }))
+            .expect("g2")
+            .value
+            .clone();
+        let h2 = wb
+            .sheets
+            .get("Sheet1")
+            .and_then(|s| s.cells.get(&CellRef { row: 2, col: 8 }))
+            .expect("h2")
+            .value
+            .clone();
+        let i2 = wb
+            .sheets
+            .get("Sheet1")
+            .and_then(|s| s.cells.get(&CellRef { row: 2, col: 9 }))
+            .expect("i2")
+            .value
+            .clone();
+        let j2 = wb
+            .sheets
+            .get("Sheet1")
+            .and_then(|s| s.cells.get(&CellRef { row: 2, col: 10 }))
+            .expect("j2")
+            .value
+            .clone();
+        let k2 = wb
+            .sheets
+            .get("Sheet1")
+            .and_then(|s| s.cells.get(&CellRef { row: 2, col: 11 }))
+            .expect("k2")
+            .value
+            .clone();
+        let l2 = wb
+            .sheets
+            .get("Sheet1")
+            .and_then(|s| s.cells.get(&CellRef { row: 2, col: 12 }))
+            .expect("l2")
+            .value
+            .clone();
+        let m2 = wb
+            .sheets
+            .get("Sheet1")
+            .and_then(|s| s.cells.get(&CellRef { row: 2, col: 13 }))
+            .expect("m2")
+            .value
+            .clone();
+        let n2 = wb
+            .sheets
+            .get("Sheet1")
+            .and_then(|s| s.cells.get(&CellRef { row: 2, col: 14 }))
+            .expect("n2")
+            .value
+            .clone();
+
+        assert_eq!(a2, CellValue::Number(1.0));
+        assert_eq!(b2, CellValue::Number(0.0));
+        assert_eq!(c2, CellValue::Number(5.0));
+        assert_eq!(d2, CellValue::Number(1.0));
+        assert_eq!(e2, CellValue::Number(2.0));
+        assert_eq!(f2, CellValue::Number(1.0));
+        assert_eq!(g2, CellValue::Number(7.0));
+        assert_eq!(h2, CellValue::Number(6.0));
+        assert_eq!(i2, CellValue::Number(46113.0));
+        assert_eq!(j2, CellValue::Number(46112.0));
+        assert_eq!(k2, CellValue::Number(10.0));
+        assert_eq!(l2, CellValue::Number(9.0));
+        assert_eq!(m2, CellValue::Number(9.0));
+        assert_eq!(n2, CellValue::Number(67.0));
+    }
+
+    #[test]
+    fn find_and_weekday_invalid_inputs_yield_parse_error() {
+        let mut wb = Workbook::new();
+        let mut sink = NoopEventSink;
+        let trace = TraceContext::root();
+
+        let mut txn = wb.begin_txn(&mut sink, &trace).expect("begin");
+        txn.apply(Mutation::SetCellValue {
+            sheet: "Sheet1".to_string(),
+            row: 1,
+            col: 1,
+            value: CellValue::Text("missing".to_string()),
+        });
+        txn.apply(Mutation::SetCellValue {
+            sheet: "Sheet1".to_string(),
+            row: 1,
+            col: 2,
+            value: CellValue::Text("RootCellar".to_string()),
+        });
+        txn.apply(Mutation::SetCellFormula {
+            sheet: "Sheet1".to_string(),
+            row: 2,
+            col: 1,
+            formula: "=FIND(A1,B1)".to_string(),
+            cached_value: CellValue::Empty,
+        });
+        txn.apply(Mutation::SetCellFormula {
+            sheet: "Sheet1".to_string(),
+            row: 2,
+            col: 2,
+            formula: "=WEEKDAY(1,4)".to_string(),
+            cached_value: CellValue::Empty,
+        });
+        txn.apply(Mutation::SetCellFormula {
+            sheet: "Sheet1".to_string(),
+            row: 2,
+            col: 3,
+            formula: "=WEEKNUM(1,3)".to_string(),
+            cached_value: CellValue::Empty,
+        });
+        txn.commit(&mut wb, &mut sink, &trace).expect("commit");
+
+        let report = recalc_sheet(&mut wb, "Sheet1", &mut sink, &trace).expect("recalc");
+        assert_eq!(report.parse_error_count, 3);
+
+        let a2 = wb
+            .sheets
+            .get("Sheet1")
+            .and_then(|s| s.cells.get(&CellRef { row: 2, col: 1 }))
+            .expect("a2")
+            .value
+            .clone();
+        let b2 = wb
+            .sheets
+            .get("Sheet1")
+            .and_then(|s| s.cells.get(&CellRef { row: 2, col: 2 }))
+            .expect("b2")
+            .value
+            .clone();
+        let c2 = wb
+            .sheets
+            .get("Sheet1")
+            .and_then(|s| s.cells.get(&CellRef { row: 2, col: 3 }))
+            .expect("c2")
+            .value
+            .clone();
+        assert_eq!(a2, CellValue::Error("#PARSE!".to_string()));
+        assert_eq!(b2, CellValue::Error("#PARSE!".to_string()));
+        assert_eq!(c2, CellValue::Error("#PARSE!".to_string()));
     }
 
     #[test]

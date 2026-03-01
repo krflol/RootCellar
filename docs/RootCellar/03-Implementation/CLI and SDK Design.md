@@ -26,7 +26,7 @@ Related epic: [[docs/RootCellar/01-Epics/Epic 05 - Headless CLI and SDK]]
 - Implemented incremental post-mutation recalc in `tx-save` using changed-root invalidation.
 - Implemented parser introspection metrics in dependency artifacts (`function_call_count`, `ast_node_count`, `ast_unique_node_count`, `formula_ast_ids`).
 - Implemented DAG analysis metrics in timing artifacts (`critical_path`, `max_fan_in`, `max_fan_out`, slow-node threshold).
-- Implemented function evaluator starter set: `SUM`, `MIN`, `MAX`, `IF`, `AVERAGE`/`AVG`, `ABS`, `AND`, `OR`, `NOT`, `LEN`, `CHOOSE`, `MATCH`, `DATE`, `YEAR`, `MONTH`, `DAY`.
+- Implemented function evaluator starter set: `SUM`, `MIN`, `MAX`, `IF`, `AVERAGE`/`AVG`, `ABS`, `AND`, `OR`, `NOT`, `LEN`, `CHOOSE`, `MATCH`, `EXACT`, `FIND`, `SEARCH`, `CODE`, `DATE`, `YEAR`, `MONTH`, `DAY`, `DAYS`, `EDATE`, `EOMONTH`, `WEEKDAY`, `WEEKNUM`, `ISOWEEKNUM`.
 - Implemented incremental scheduler/perf optimization via reverse-dependency index reuse for impacted-formula selection and DAG degree/adjacency derivation.
 - Implemented workbook part-graph artifacts in `open` reports and graph-aware preserve/normalize save flags in `save`/`tx-save` outputs.
 - Implemented CI workflow publication for corpus validator artifacts (`.github/workflows/corpus-part-graph.yml`).

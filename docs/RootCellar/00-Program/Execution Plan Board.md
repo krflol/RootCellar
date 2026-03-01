@@ -108,7 +108,7 @@ Last updated: March 1, 2026
 ## In Progress Items
 - [ ] Sprint 02 parser/dependency-graph core is in progress.
   Plan links: [[docs/RootCellar/02-Sprints/Sprint 02 - Calc Baseline and Dependency Graph]], [[docs/RootCellar/01-Epics/Epic 02 - Calculation Engine and Determinism]]
-  Current state: parser, dependency graph, incremental invalidation, DAG timing + analysis artifacts, expanded starter function set (including initial lookup/text/date increment: `LEN`, `CHOOSE`, `MATCH`, `DATE`, `YEAR`, `MONTH`, `DAY`), reverse-dependency index reuse for incremental scheduler/perf hardening, AST interning scaffold, and configurable slow-node thresholds are implemented; deeper function parity expansion and further scheduler/perf hardening are pending.
+  Current state: parser, dependency graph, incremental invalidation, DAG timing + analysis artifacts, expanded starter function set (including initial lookup/text/date increment: `LEN`, `CHOOSE`, `MATCH`, `EXACT`, `FIND`, `SEARCH`, `CODE`, `DATE`, `YEAR`, `MONTH`, `DAY`, `DAYS`, `EDATE`, `EOMONTH`, `WEEKDAY`, `WEEKNUM`, `ISOWEEKNUM`), reverse-dependency index reuse for incremental scheduler/perf hardening, AST interning scaffold, and configurable slow-node thresholds are implemented; deeper function parity expansion and further scheduler/perf hardening are pending.
   Evidence: [[Execution Status#Current Execution Slice]], [[Execution Status#Next Execution Slice]]
 - [ ] Milestone M0 remains in progress pending UI shell startup and desktop->engine trace bridge completion.
   Plan links: [[docs/RootCellar/00-Program/Milestone Roadmap#Milestone M0 Foundation Ready (March 15, 2026)]]

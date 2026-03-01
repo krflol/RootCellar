@@ -67,7 +67,7 @@ python python/validate_batch_migration_policy_dry_run.py
 - Nightly gate now enforces both throughput snapshot status and alert-policy status for route-delivery/forensic policy checks.
 - Minimal calculation engine supports A1 references, arithmetic formulas, and cycle detection.
 - Formula parser scaffold now supports precedence and parentheses for arithmetic recalc.
-- Built-in function baseline now supports `SUM`, `MIN`, `MAX`, `IF`, `AVERAGE`/`AVG`, `ABS`, `AND`, `OR`, `NOT`, `LEN`, `CHOOSE`, `MATCH`, `DATE`, `YEAR`, `MONTH`, and `DAY`.
+- Built-in function baseline now supports `SUM`, `MIN`, `MAX`, `IF`, `AVERAGE`/`AVG`, `ABS`, `AND`, `OR`, `NOT`, `LEN`, `CHOOSE`, `MATCH`, `EXACT`, `FIND`, `SEARCH`, `CODE`, `DATE`, `YEAR`, `MONTH`, `DAY`, `DAYS`, `EDATE`, `EOMONTH`, `WEEKDAY`, `WEEKNUM`, and `ISOWEEKNUM`.
 - AST interning scaffold now exposes deduplicated formula-node IDs for parser introspection.
 - Incremental recalc from changed roots is available in core and used by `tx-save` post-mutation workflows.
 - Incremental recalc now reuses cached reverse-dependency indexes during impacted-cell discovery and DAG degree analysis to reduce repeated graph traversal overhead on larger formula sets.
