@@ -34,6 +34,7 @@ python python/build_batch_policy_adapters.py --policy ./ci-batch-alert-policy.js
 python python/validate_batch_adapter_contracts.py --full-family
 python python/validate_batch_schema_canaries.py
 python python/validate_batch_dual_read_migration.py
+python python/validate_batch_migration_policy_dry_run.py
 ```
 
 ## Current Status
@@ -62,6 +63,7 @@ python python/validate_batch_dual_read_migration.py
 - Nightly batch artifact schema validator (`python/validate_batch_adapter_contracts.py --full-family`) enforces schema shape + compatibility version contracts before artifact publication.
 - Nightly schema-drift canary utility (`python/validate_batch_schema_canaries.py`) asserts expected validator failures for representative compatibility-regression scenarios.
 - Nightly dual-read migration drill utility (`python/validate_batch_dual_read_migration.py`) verifies producer/consumer overlap and rollback behavior across snapshot/dispatch/ack-retention/dashboard-pack/policy/escalation/adapter artifacts, with optional subset targeting via `--artifacts`, staged rollout waves via `--wave-spec`, per-phase diagnostics via `--report`, and fault-injection scenarios via `--fault-injection --fault-scenarios`.
+- Nightly migration-policy dry-run harness (`python/validate_batch_migration_policy_dry_run.py`) asserts invalid staged-wave specs and unsupported fault-scenario keys fail fast in CI policy validation.
 - Nightly gate now enforces both throughput snapshot status and alert-policy status for route-delivery/forensic policy checks.
 - Minimal calculation engine supports A1 references, arithmetic formulas, and cycle detection.
 - Formula parser scaffold now supports precedence and parentheses for arithmetic recalc.
@@ -86,5 +88,4 @@ python python/validate_batch_dual_read_migration.py
 ## Next Build Slice
 - Continue function parity expansion beyond current starter set.
 - Add parser/evaluator and scheduler optimization work on top of the AST interning scaffold.
-- Add migration-drill negative-policy checks for invalid wave specs and unsupported fault-scenario keys in CI dry-run harness.
 - Start desktop shell initialization and bridge UI->engine trace context propagation.

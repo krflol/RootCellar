@@ -6,7 +6,7 @@ Dates: May 25, 2026 to June 7, 2026
 ## Sprint Goal
 Enable reliable headless automation workflows with reproducibility records.
 
-## Execution Status (February 28, 2026)
+## Execution Status (March 1, 2026)
 - Batch baseline delivered:
   - `batch recalc` command with bounded Rayon parallelism, deterministic ordering, fail-on-error gating, and detail-level artifact output.
   - Nightly CI execution/publishing flow: `.github/workflows/batch-recalc-nightly.yml`.
@@ -23,6 +23,7 @@ Enable reliable headless automation workflows with reproducibility records.
   - Full artifact-family schema/compatibility validation delivered: `python/validate_batch_adapter_contracts.py --full-family` now gates snapshot/dispatch/ack-retention/dashboard-pack/policy plus escalation/adapter artifacts in nightly CI.
   - Schema-drift canary fixture validation delivered: `python/validate_batch_schema_canaries.py` now asserts expected contract failures for representative drift scenarios in nightly CI.
   - Dual-read migration drills delivered: `python/validate_batch_dual_read_migration.py` now verifies producer/consumer overlap and rollback behavior for schema major-version transitions across snapshot/dispatch/ack-retention/dashboard-pack/policy/escalation/adapter artifacts, with workflow subset control via `ALERT_POLICY_SCHEMA_MIGRATION_DRILL_ARTIFACTS`, staged-wave control via `ALERT_POLICY_SCHEMA_MIGRATION_DRILL_WAVE_SPEC`, fault-injection control via `ALERT_POLICY_SCHEMA_MIGRATION_DRILL_FAULT_INJECTION_ENABLED`/`ALERT_POLICY_SCHEMA_MIGRATION_DRILL_FAULT_SCENARIOS`, and diagnostics artifact output (`ci-batch-schema-migration-drill.json`).
+  - Migration policy dry-run checks delivered: `python/validate_batch_migration_policy_dry_run.py` now asserts invalid staged-wave specs and unsupported fault-scenario policy values fail as expected in nightly CI (`ALERT_POLICY_SCHEMA_MIGRATION_DRY_RUN_POLICY_VALIDATION_ENABLED`).
 - Repro baseline delivered:
   - `repro record`, `repro check`, and `repro diff` command paths.
   - CI execution/publishing flow: `.github/workflows/repro-bundle.yml`.

@@ -54,6 +54,7 @@ env:
   ALERT_POLICY_SCHEMA_VALIDATION_ENABLED: "true"
   ALERT_POLICY_SCHEMA_CANARY_VALIDATION_ENABLED: "true"
   ALERT_POLICY_SCHEMA_MIGRATION_DRILL_VALIDATION_ENABLED: "true"
+  ALERT_POLICY_SCHEMA_MIGRATION_DRY_RUN_POLICY_VALIDATION_ENABLED: "true"
   ALERT_POLICY_SCHEMA_MIGRATION_DRILL_ARTIFACTS: "snapshot,dispatch,ack_retention,dashboard_pack,policy,escalation,adapter_exports"
   ALERT_POLICY_SCHEMA_MIGRATION_DRILL_WAVE_SPEC: ""
   ALERT_POLICY_SCHEMA_MIGRATION_DRILL_FAULT_INJECTION_ENABLED: "true"
@@ -336,6 +337,18 @@ jobs:
           fi
           "${args[@]}"
 
+      - name: Run migration-drill policy dry-run checks
+        if: always()
+        run: |
+          if [ "${ALERT_POLICY_SCHEMA_VALIDATION_ENABLED}" != "true" ] || [ "${ALERT_POLICY_SCHEMA_MIGRATION_DRILL_VALIDATION_ENABLED}" != "true" ] || [ "${ALERT_POLICY_SCHEMA_MIGRATION_DRY_RUN_POLICY_VALIDATION_ENABLED}" != "true" ]; then
+            echo "migration-drill policy dry-run validation disabled by policy knob"
+            exit 0
+          fi
+          python python/validate_batch_migration_policy_dry_run.py \
+            --migration-script ./python/validate_batch_dual_read_migration.py \
+            --artifacts "${ALERT_POLICY_SCHEMA_MIGRATION_DRILL_ARTIFACTS}" \
+            --fault-scenarios "${ALERT_POLICY_SCHEMA_MIGRATION_DRILL_FAULT_SCENARIOS}"
+
       - name: Enforce nightly batch gate
         if: always()
         run: |
@@ -469,6 +482,7 @@ jobs:
             "alert_policy_schema_validation_enabled": ${ALERT_POLICY_SCHEMA_VALIDATION_ENABLED},
             "alert_policy_schema_canary_validation_enabled": ${ALERT_POLICY_SCHEMA_CANARY_VALIDATION_ENABLED},
             "alert_policy_schema_migration_drill_validation_enabled": ${ALERT_POLICY_SCHEMA_MIGRATION_DRILL_VALIDATION_ENABLED},
+            "alert_policy_schema_migration_dry_run_policy_validation_enabled": ${ALERT_POLICY_SCHEMA_MIGRATION_DRY_RUN_POLICY_VALIDATION_ENABLED},
             "alert_policy_schema_migration_drill_artifacts": "${ALERT_POLICY_SCHEMA_MIGRATION_DRILL_ARTIFACTS}",
             "alert_policy_schema_migration_drill_wave_spec": "${ALERT_POLICY_SCHEMA_MIGRATION_DRILL_WAVE_SPEC}",
             "alert_policy_schema_migration_drill_fault_injection_enabled": ${ALERT_POLICY_SCHEMA_MIGRATION_DRILL_FAULT_INJECTION_ENABLED},

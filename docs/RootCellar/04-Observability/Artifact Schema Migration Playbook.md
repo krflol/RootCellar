@@ -59,11 +59,14 @@ Define how RootCellar evolves artifact schemas without breaking humans, AI agent
 - Drill execution supports artifact-family matrix selection with `--artifacts` (`snapshot,dispatch,ack_retention,dashboard_pack,policy,escalation,adapter_exports`) for staged rollout waves.
 - Drill execution supports explicit staged waves with `--wave-spec` and structured per-phase diagnostics output with `--report`.
 - Drill execution supports fault-injection scenarios via `--fault-injection --fault-scenarios malformed_fallback_schema,partial_wave_rollback`.
+- Dry-run policy harness (`python/validate_batch_migration_policy_dry_run.py`) asserts invalid staged-wave specs and unsupported fault-scenario keys fail as expected.
 - Current drill suite location: `python/validate_batch_dual_read_migration.py`.
 - Nightly gate location: `.github/workflows/batch-recalc-nightly.yml` (`Run dual-read migration drills`).
+- Nightly dry-run policy gate location: `.github/workflows/batch-recalc-nightly.yml` (`Run migration-drill policy dry-run checks`).
 - Nightly artifact-subset policy knob: `ALERT_POLICY_SCHEMA_MIGRATION_DRILL_ARTIFACTS` (manifest field: `alert_policy_schema_migration_drill_artifacts`).
 - Nightly staged-wave policy knob: `ALERT_POLICY_SCHEMA_MIGRATION_DRILL_WAVE_SPEC` (manifest field: `alert_policy_schema_migration_drill_wave_spec`).
 - Nightly fault-injection policy knobs: `ALERT_POLICY_SCHEMA_MIGRATION_DRILL_FAULT_INJECTION_ENABLED`, `ALERT_POLICY_SCHEMA_MIGRATION_DRILL_FAULT_SCENARIOS` (manifest fields: `alert_policy_schema_migration_drill_fault_injection_enabled`, `alert_policy_schema_migration_drill_fault_scenarios`).
+- Nightly dry-run policy knob: `ALERT_POLICY_SCHEMA_MIGRATION_DRY_RUN_POLICY_VALIDATION_ENABLED` (manifest field: `alert_policy_schema_migration_dry_run_policy_validation_enabled`).
 - Nightly diagnostics artifact: `ci-batch-schema-migration-drill.json` (manifest field: `schema_migration_drill_report_generated`).
 
 ## Rollback Policy
@@ -82,6 +85,7 @@ Current implementation status (March 1, 2026):
 - [x] Full-family validator passes locally.
 - [x] Schema-drift canaries pass locally.
 - [x] Dual-read migration drills pass locally.
+- [x] Migration policy dry-run checks pass locally.
 - [x] Nightly workflow knobs/manifest fields updated.
 - [x] Execution board/status evidence links updated.
 - [x] Incident playbook references reviewed.
