@@ -35,6 +35,7 @@ Make every critical product path inspectable by humans and AI through structured
 23. Policy-to-owner escalation metadata + adapter exports delivered (`ci-batch-policy-escalation.json`, `ci-batch-dashboard-adapter-exports.json`) for downstream incident/dashboard ingestion systems.
 24. Adapter export schema validation + compatibility contracts delivered in CI (`schemas/artifacts/v1/*`, `python/validate_batch_adapter_contracts.py`) to reject incompatible artifact versions.
 25. Full artifact-family schema validation + compatibility contracts delivered in CI (`python/validate_batch_adapter_contracts.py --full-family`) covering snapshot/dispatch/ack-retention/dashboard-pack/policy plus escalation/adapter artifacts.
+26. Schema-drift canary fixture gate + migration playbook delivered (`python/validate_batch_schema_canaries.py`, `Artifact Schema Migration Playbook`) for compatibility-regression detection and major-version rollout discipline.
 - Remaining:
 1. Cross-surface UI->engine->script trace bridge completion.
 2. AI introspection query surfaces over stored artifacts.

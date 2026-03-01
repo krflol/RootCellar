@@ -21,6 +21,7 @@ Enable reliable headless automation workflows with reproducibility records.
   - Policy-owner escalation and adapter exports delivered: `python/build_batch_policy_adapters.py` producing `ci-batch-policy-escalation.json` and `ci-batch-dashboard-adapter-exports.json`.
   - Adapter schema/compatibility validation delivered: `python/validate_batch_adapter_contracts.py` with versioned schemas (`schemas/artifacts/v1/*`) and nightly CI contract enforcement.
   - Full artifact-family schema/compatibility validation delivered: `python/validate_batch_adapter_contracts.py --full-family` now gates snapshot/dispatch/ack-retention/dashboard-pack/policy plus escalation/adapter artifacts in nightly CI.
+  - Schema-drift canary fixture validation delivered: `python/validate_batch_schema_canaries.py` now asserts expected contract failures for representative drift scenarios in nightly CI.
 - Repro baseline delivered:
   - `repro record`, `repro check`, and `repro diff` command paths.
   - CI execution/publishing flow: `.github/workflows/repro-bundle.yml`.

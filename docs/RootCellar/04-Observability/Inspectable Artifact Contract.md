@@ -42,3 +42,5 @@ Every critical run (desktop save, macro run, CLI batch task) can emit a bundle w
   - `batch-alert-policy.schema.json`
   - `batch-policy-escalation.schema.json`
   - `batch-dashboard-adapter-exports.schema.json`
+- Schema-drift canary harness (`python/validate_batch_schema_canaries.py`) mutates canonical artifacts to assert expected validator failures for compatibility regressions.
+- Migration process and semver/compatibility policy are tracked in [[Artifact Schema Migration Playbook]].

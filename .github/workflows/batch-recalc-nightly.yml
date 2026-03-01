@@ -52,6 +52,7 @@ env:
   ALERT_POLICY_ESCALATION_SLA_MINUTES_P3: "240"
   ALERT_POLICY_ESCALATION_SLA_MINUTES_INFO: "1440"
   ALERT_POLICY_SCHEMA_VALIDATION_ENABLED: "true"
+  ALERT_POLICY_SCHEMA_CANARY_VALIDATION_ENABLED: "true"
   ALERT_POLICY_SCHEMA_SNAPSHOT_PATH: "./schemas/artifacts/v1/batch-throughput-snapshot.schema.json"
   ALERT_POLICY_SCHEMA_DISPATCH_PATH: "./schemas/artifacts/v1/batch-alert-dispatch.schema.json"
   ALERT_POLICY_SCHEMA_ACK_RETENTION_PATH: "./schemas/artifacts/v1/batch-ack-retention-index.schema.json"
@@ -252,6 +253,30 @@ jobs:
             --schema-escalation "${ALERT_POLICY_SCHEMA_ESCALATION_PATH}" \
             --schema-adapter-exports "${ALERT_POLICY_SCHEMA_ADAPTER_EXPORTS_PATH}"
 
+      - name: Run schema drift canary checks
+        if: always()
+        run: |
+          if [ "${ALERT_POLICY_SCHEMA_VALIDATION_ENABLED}" != "true" ] || [ "${ALERT_POLICY_SCHEMA_CANARY_VALIDATION_ENABLED}" != "true" ]; then
+            echo "schema drift canary validation disabled by policy knob"
+            exit 0
+          fi
+          python python/validate_batch_schema_canaries.py \
+            --validator-script ./python/validate_batch_adapter_contracts.py \
+            --snapshot ./ci-batch-throughput-snapshot.json \
+            --dispatch ./ci-batch-alert-dispatch.json \
+            --ack-retention ./ci-batch-ack-retention-index.json \
+            --dashboard-pack ./ci-batch-dashboard-pack.json \
+            --policy ./ci-batch-alert-policy.json \
+            --escalation ./ci-batch-policy-escalation.json \
+            --adapter-exports ./ci-batch-dashboard-adapter-exports.json \
+            --schema-snapshot "${ALERT_POLICY_SCHEMA_SNAPSHOT_PATH}" \
+            --schema-dispatch "${ALERT_POLICY_SCHEMA_DISPATCH_PATH}" \
+            --schema-ack-retention "${ALERT_POLICY_SCHEMA_ACK_RETENTION_PATH}" \
+            --schema-dashboard-pack "${ALERT_POLICY_SCHEMA_DASHBOARD_PACK_PATH}" \
+            --schema-policy "${ALERT_POLICY_SCHEMA_POLICY_PATH}" \
+            --schema-escalation "${ALERT_POLICY_SCHEMA_ESCALATION_PATH}" \
+            --schema-adapter-exports "${ALERT_POLICY_SCHEMA_ADAPTER_EXPORTS_PATH}"
+
       - name: Enforce nightly batch gate
         if: always()
         run: |
@@ -379,6 +404,7 @@ jobs:
             "alert_policy_escalation_sla_minutes_p3": ${ALERT_POLICY_ESCALATION_SLA_MINUTES_P3},
             "alert_policy_escalation_sla_minutes_info": ${ALERT_POLICY_ESCALATION_SLA_MINUTES_INFO},
             "alert_policy_schema_validation_enabled": ${ALERT_POLICY_SCHEMA_VALIDATION_ENABLED},
+            "alert_policy_schema_canary_validation_enabled": ${ALERT_POLICY_SCHEMA_CANARY_VALIDATION_ENABLED},
             "alert_policy_schema_snapshot_path": "${ALERT_POLICY_SCHEMA_SNAPSHOT_PATH}",
             "alert_policy_schema_dispatch_path": "${ALERT_POLICY_SCHEMA_DISPATCH_PATH}",
             "alert_policy_schema_ack_retention_path": "${ALERT_POLICY_SCHEMA_ACK_RETENTION_PATH}",

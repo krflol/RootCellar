@@ -6,7 +6,7 @@ Execution has started with a Rust workspace baseline focused on Sprint 00 throug
 - `crates/rootcellar-core`: workbook transaction model, telemetry envelopes/sinks, XLSX inspection/report generation.
 - `crates/rootcellar-cli`: command-line interface for inspection/reporting and transaction demo flow.
 - `schemas/events/v1`: JSON schema contract for event envelopes.
-- `schemas/artifacts/v1`: JSON schema contracts for nightly adapter/export artifacts.
+- `schemas/artifacts/v1`: JSON schema contracts for nightly batch artifact family outputs.
 
 ## Quick Start
 ```bash
@@ -32,6 +32,7 @@ python python/build_batch_ack_retention_index.py --dispatch-report ./ci-batch-al
 python python/build_batch_dashboard_pack.py --snapshot ./ci-batch-throughput-snapshot.json --dispatch-report ./ci-batch-alert-dispatch.json --ack-retention-index ./ci-batch-ack-retention-index.json --dashboard-pack ./ci-batch-dashboard-pack.json --policy ./ci-batch-alert-policy.json --require-replay-metadata --require-ack-retention-coverage
 python python/build_batch_policy_adapters.py --policy ./ci-batch-alert-policy.json --dashboard-pack ./ci-batch-dashboard-pack.json --escalation ./ci-batch-policy-escalation.json --adapter-exports ./ci-batch-dashboard-adapter-exports.json
 python python/validate_batch_adapter_contracts.py --full-family
+python python/validate_batch_schema_canaries.py
 ```
 
 ## Current Status
@@ -58,6 +59,7 @@ python python/validate_batch_adapter_contracts.py --full-family
 - Nightly dashboard/policy utility (`python/build_batch_dashboard_pack.py`) publishes `ci-batch-dashboard-pack.json` and `ci-batch-alert-policy.json` from snapshot/dispatch/forensic artifacts.
 - Nightly escalation/adapter utility (`python/build_batch_policy_adapters.py`) publishes `ci-batch-policy-escalation.json` and `ci-batch-dashboard-adapter-exports.json` for downstream incident/dashboard ingestion integration.
 - Nightly batch artifact schema validator (`python/validate_batch_adapter_contracts.py --full-family`) enforces schema shape + compatibility version contracts before artifact publication.
+- Nightly schema-drift canary utility (`python/validate_batch_schema_canaries.py`) asserts expected validator failures for representative compatibility-regression scenarios.
 - Nightly gate now enforces both throughput snapshot status and alert-policy status for route-delivery/forensic policy checks.
 - Minimal calculation engine supports A1 references, arithmetic formulas, and cycle detection.
 - Formula parser scaffold now supports precedence and parentheses for arithmetic recalc.
@@ -82,5 +84,5 @@ python python/validate_batch_adapter_contracts.py --full-family
 ## Next Build Slice
 - Continue function parity expansion beyond current starter set.
 - Add parser/evaluator and scheduler optimization work on top of the AST interning scaffold.
-- Add schema-drift canary fixtures and compatibility migration playbook for artifact-family major-version changes.
+- Add dual-read migration drills for future artifact major-version rollouts (producer/consumer overlap and rollback verification).
 - Start desktop shell initialization and bridge UI->engine trace context propagation.

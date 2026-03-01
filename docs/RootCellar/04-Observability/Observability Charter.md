@@ -36,6 +36,7 @@ Provide full-stack introspection so any important system behavior can be explain
 - [[Telemetry Taxonomy and Event Schema]]
 - [[Trace Correlation Model]]
 - [[Inspectable Artifact Contract]]
+- [[Artifact Schema Migration Playbook]]
 - [[Dashboards SLOs and Alerts]]
 - [[Audit and Forensics]]
 - [[AI Introspection Workflow]]
