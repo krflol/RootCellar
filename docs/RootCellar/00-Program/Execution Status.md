@@ -25,7 +25,8 @@ Last updated: March 1, 2026
    - XLSX inspector producing compatibility report artifacts.
    - Minimal recalc engine with A1 refs, arithmetic eval, and cycle detection.
    - Parser scaffold with arithmetic precedence/parentheses and sheet dependency-graph analysis (topological order + cycle/parse diagnostics).
-   - Built-in function coverage increment for recalc (`SUM`, `MIN`, `MAX`, `IF`, `AVERAGE`/`AVG`, `ABS`, `AND`, `OR`, `NOT`).
+   - Built-in function coverage increment for recalc (`SUM`, `MIN`, `MAX`, `IF`, `AVERAGE`/`AVG`, `ABS`, `AND`, `OR`, `NOT`, `LEN`, `CHOOSE`, `MATCH`, `DATE`, `YEAR`, `MONTH`, `DAY`).
+   - Incremental scheduler/perf hardening increment: dependency analysis now caches reverse dependency indexes reused by impacted-formula discovery and DAG degree/adjacency analysis.
    - AST interning scaffold for parser structures (deduplicated AST node IDs, per-formula AST IDs, and intern previews).
    - Incremental recalc path (`recalc_sheet_from_roots`) for dependency-scoped recompute.
    - Recalc DAG timing artifact support (`recalc_sheet_with_dag_timing`, `recalc_sheet_from_roots_with_dag_timing`).
@@ -272,7 +273,8 @@ Last updated: March 1, 2026
 - `python python/validate_batch_migration_policy_dry_run.py --migration-script ./python/validate_batch_dual_read_migration.py --artifacts snapshot,dispatch,ack_retention,dashboard_pack,policy,escalation,adapter_exports --fault-scenarios malformed_fallback_schema,partial_wave_rollback`: pass (invalid wave-spec and unsupported fault-scenario policy checks fail as expected).
 - `python python/validate_batch_adapter_contracts.py --full-family --schema-policy-fallback ./schemas/artifacts/v1/batch-alert-policy.schema.json`: pass (fallback-schema path accepted in validator without regressions in primary-schema selection).
 - `rg -n "schema-.*-fallback|ALERT_POLICY_SCHEMA_MIGRATION_DRILL_VALIDATION_ENABLED|ALERT_POLICY_SCHEMA_MIGRATION_DRY_RUN_POLICY_VALIDATION_ENABLED|ALERT_POLICY_SCHEMA_MIGRATION_DRILL_ARTIFACTS|ALERT_POLICY_SCHEMA_MIGRATION_DRILL_WAVE_SPEC|ALERT_POLICY_SCHEMA_MIGRATION_DRILL_FAULT_INJECTION_ENABLED|ALERT_POLICY_SCHEMA_MIGRATION_DRILL_FAULT_SCENARIOS|Run dual-read migration drills|Run migration-drill policy dry-run checks|ci-batch-schema-migration-drill.json|alert_policy_schema_migration_drill_validation_enabled|alert_policy_schema_migration_dry_run_policy_validation_enabled|alert_policy_schema_migration_drill_artifacts|alert_policy_schema_migration_drill_wave_spec|alert_policy_schema_migration_drill_fault_injection_enabled|alert_policy_schema_migration_drill_fault_scenarios|schema_migration_drill_report_generated|validate_batch_dual_read_migration.py|validate_batch_migration_policy_dry_run.py" .github/workflows/batch-recalc-nightly.yml python/validate_batch_adapter_contracts.py python/validate_batch_dual_read_migration.py python/validate_batch_migration_policy_dry_run.py`: pass (dual-read fallback + migration-drill artifact-subset/staged-wave/fault-injection/report and dry-run policy checks integration markers present).
+- `cargo test -p rootcellar-core --offline`: pass (calc function parity increment validated, including `LEN`, `CHOOSE`, `MATCH`, `DATE`, `YEAR`, `MONTH`, and `DAY` coverage in recalc unit suite).
 
 ## Next Execution Slice
-1. Continue function parity expansion beyond current starter set (lookup/text/date families) with compatibility-focused semantics.
-2. Harden incremental scheduler/perf for larger dependency graphs and continue DAG introspection tuning.
+1. Continue function parity expansion beyond current starter set (deeper lookup/text/date coverage after initial `LEN`/`CHOOSE`/`MATCH`/`DATE`/`YEAR`/`MONTH`/`DAY` increment) with compatibility-focused semantics.
+2. Continue incremental scheduler/perf hardening for larger dependency graphs and DAG introspection tuning beyond reverse-dependency index reuse.

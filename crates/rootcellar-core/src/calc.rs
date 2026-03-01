@@ -1,5 +1,6 @@
 use crate::model::{CellRef, CellValue, Workbook};
 use crate::telemetry::{EventEnvelope, EventSink, TelemetryError, TraceContext};
+use chrono::{Datelike, Duration, NaiveDate};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use std::collections::VecDeque;
@@ -126,6 +127,8 @@ impl BinaryOp {
 struct SheetDependencyAnalysis {
     parsed_formulas: BTreeMap<CellRef, Result<Expr, EvalError>>,
     dependency_refs: BTreeMap<CellRef, BTreeSet<CellRef>>,
+    dependents_by_ref: BTreeMap<CellRef, BTreeSet<CellRef>>,
+    formula_nodes: BTreeSet<CellRef>,
     function_call_count: usize,
     ast_node_count: usize,
     ast_unique_node_count: usize,
@@ -624,6 +627,7 @@ fn build_sheet_dependency_analysis(
 
     let mut parsed_formulas = BTreeMap::<CellRef, Result<Expr, EvalError>>::new();
     let mut dependency_refs = BTreeMap::<CellRef, BTreeSet<CellRef>>::new();
+    let mut dependents_by_ref = BTreeMap::<CellRef, BTreeSet<CellRef>>::new();
     let mut ast_pool = AstInternPool::new();
     let mut formula_ast_ids = BTreeMap::<CellRef, u32>::new();
     let mut parse_error_cells = Vec::<CellRef>::new();
@@ -653,6 +657,12 @@ fn build_sheet_dependency_analysis(
         };
 
         dependency_edge_count += refs.len();
+        for referenced in &refs {
+            dependents_by_ref
+                .entry(*referenced)
+                .or_default()
+                .insert(*cell_ref);
+        }
         parsed_formulas.insert(*cell_ref, parsed);
         dependency_refs.insert(*cell_ref, refs);
     }
@@ -668,6 +678,8 @@ fn build_sheet_dependency_analysis(
     Ok(SheetDependencyAnalysis {
         parsed_formulas,
         dependency_refs,
+        dependents_by_ref,
+        formula_nodes: formula_set,
         function_call_count,
         ast_node_count,
         ast_unique_node_count: ast_pool.unique_node_count(),
@@ -685,28 +697,13 @@ fn collect_impacted_formula_cells(
     analysis: &SheetDependencyAnalysis,
     changed_roots: &BTreeSet<CellRef>,
 ) -> BTreeSet<CellRef> {
-    let formula_nodes = analysis
-        .parsed_formulas
-        .keys()
-        .copied()
-        .collect::<BTreeSet<_>>();
-    let mut dependents_by_ref = BTreeMap::<CellRef, BTreeSet<CellRef>>::new();
-    for (formula_cell, refs) in &analysis.dependency_refs {
-        for referenced in refs {
-            dependents_by_ref
-                .entry(*referenced)
-                .or_default()
-                .insert(*formula_cell);
-        }
-    }
-
     let mut impacted = BTreeSet::<CellRef>::new();
     let mut queue = VecDeque::<CellRef>::new();
     for root in changed_roots {
-        if formula_nodes.contains(root) && impacted.insert(*root) {
+        if analysis.formula_nodes.contains(root) && impacted.insert(*root) {
             queue.push_back(*root);
         }
-        if let Some(dependents) = dependents_by_ref.get(root) {
+        if let Some(dependents) = analysis.dependents_by_ref.get(root) {
             for dependent in dependents {
                 if impacted.insert(*dependent) {
                     queue.push_back(*dependent);
@@ -716,7 +713,7 @@ fn collect_impacted_formula_cells(
     }
 
     while let Some(node) = queue.pop_front() {
-        if let Some(dependents) = dependents_by_ref.get(&node) {
+        if let Some(dependents) = analysis.dependents_by_ref.get(&node) {
             for dependent in dependents {
                 if impacted.insert(*dependent) {
                     queue.push_back(*dependent);
@@ -930,11 +927,6 @@ fn build_dag_insights(
         .iter()
         .copied()
         .collect::<BTreeSet<_>>();
-    let formula_nodes = analysis
-        .parsed_formulas
-        .keys()
-        .copied()
-        .collect::<BTreeSet<_>>();
     let mut fan_in = target_formula_cells
         .iter()
         .copied()
@@ -947,15 +939,17 @@ fn build_dag_insights(
         .collect::<BTreeMap<_, _>>();
     let mut adjacency = BTreeMap::<CellRef, BTreeSet<CellRef>>::new();
 
-    for (cell, refs) in &analysis.dependency_refs {
-        if !target_set.contains(cell) {
+    for referenced in target_formula_cells {
+        if !analysis.formula_nodes.contains(referenced) {
             continue;
         }
-        for referenced in refs {
-            if target_set.contains(referenced) && formula_nodes.contains(referenced) {
-                *fan_in.entry(*cell).or_insert(0) += 1;
-                *fan_out.entry(*referenced).or_insert(0) += 1;
-                adjacency.entry(*referenced).or_default().insert(*cell);
+        if let Some(dependents) = analysis.dependents_by_ref.get(referenced) {
+            for dependent in dependents {
+                if target_set.contains(dependent) {
+                    *fan_in.entry(*dependent).or_insert(0) += 1;
+                    *fan_out.entry(*referenced).or_insert(0) += 1;
+                    adjacency.entry(*referenced).or_default().insert(*dependent);
+                }
             }
         }
     }
@@ -1194,87 +1188,190 @@ fn eval_function(
     stack: &mut BTreeSet<CellRef>,
     cache: &mut BTreeMap<CellRef, Result<f64, EvalError>>,
 ) -> Result<f64, EvalError> {
-    let mut values = Vec::<f64>::with_capacity(args.len());
-    for arg in args {
-        values.push(eval_expr(
-            workbook,
-            sheet_name,
-            arg,
-            parsed_formulas,
-            stack,
-            cache,
-        )?);
-    }
-
     match name {
-        "SUM" => Ok(values.into_iter().sum()),
-        "AVERAGE" | "AVG" => {
-            if values.is_empty() {
-                return Err(EvalError::Parse);
-            }
-            let sum = values.iter().sum::<f64>();
-            Ok(sum / values.len() as f64)
-        }
-        "MIN" => {
-            let min = values
-                .into_iter()
-                .min_by(f64::total_cmp)
-                .ok_or(EvalError::Parse)?;
-            Ok(min)
-        }
-        "MAX" => {
-            let max = values
-                .into_iter()
-                .max_by(f64::total_cmp)
-                .ok_or(EvalError::Parse)?;
-            Ok(max)
-        }
         "IF" => {
-            if values.len() < 2 || values.len() > 3 {
+            if args.len() < 2 || args.len() > 3 {
                 return Err(EvalError::Parse);
             }
-            let condition = values[0];
-            let true_value = values[1];
-            let false_value = if values.len() == 3 { values[2] } else { 0.0 };
+            let condition = eval_expr(
+                workbook,
+                sheet_name,
+                &args[0],
+                parsed_formulas,
+                stack,
+                cache,
+            )?;
             if condition != 0.0 {
-                Ok(true_value)
+                eval_expr(
+                    workbook,
+                    sheet_name,
+                    &args[1],
+                    parsed_formulas,
+                    stack,
+                    cache,
+                )
+            } else if args.len() == 3 {
+                eval_expr(
+                    workbook,
+                    sheet_name,
+                    &args[2],
+                    parsed_formulas,
+                    stack,
+                    cache,
+                )
             } else {
-                Ok(false_value)
+                Ok(0.0)
             }
         }
-        "ABS" => {
-            if values.len() != 1 {
+        "CHOOSE" => {
+            if args.len() < 2 {
                 return Err(EvalError::Parse);
             }
-            Ok(values[0].abs())
-        }
-        "AND" => {
-            if values.is_empty() {
+            let index_value = eval_expr(
+                workbook,
+                sheet_name,
+                &args[0],
+                parsed_formulas,
+                stack,
+                cache,
+            )?;
+            let option_index = trunc_f64_to_i64(index_value)?;
+            if option_index < 1 || option_index > (args.len() - 1) as i64 {
                 return Err(EvalError::Parse);
             }
-            Ok(if values.iter().all(|v| *v != 0.0) {
-                1.0
-            } else {
-                0.0
-            })
+            eval_expr(
+                workbook,
+                sheet_name,
+                &args[option_index as usize],
+                parsed_formulas,
+                stack,
+                cache,
+            )
         }
-        "OR" => {
-            if values.is_empty() {
+        "LEN" => {
+            if args.len() != 1 {
                 return Err(EvalError::Parse);
             }
-            Ok(if values.iter().any(|v| *v != 0.0) {
-                1.0
-            } else {
-                0.0
-            })
+            let text = eval_expr_as_text(
+                workbook,
+                sheet_name,
+                &args[0],
+                parsed_formulas,
+                stack,
+                cache,
+            )?;
+            Ok(text.chars().count() as f64)
         }
-        "NOT" => {
-            if values.len() != 1 {
-                return Err(EvalError::Parse);
+        _ => {
+            let mut values = Vec::<f64>::with_capacity(args.len());
+            for arg in args {
+                values.push(eval_expr(
+                    workbook,
+                    sheet_name,
+                    arg,
+                    parsed_formulas,
+                    stack,
+                    cache,
+                )?);
             }
-            Ok(if values[0] == 0.0 { 1.0 } else { 0.0 })
+
+            match name {
+                "SUM" => Ok(values.into_iter().sum()),
+                "AVERAGE" | "AVG" => {
+                    if values.is_empty() {
+                        return Err(EvalError::Parse);
+                    }
+                    let sum = values.iter().sum::<f64>();
+                    Ok(sum / values.len() as f64)
+                }
+                "MIN" => {
+                    let min = values
+                        .into_iter()
+                        .min_by(f64::total_cmp)
+                        .ok_or(EvalError::Parse)?;
+                    Ok(min)
+                }
+                "MAX" => {
+                    let max = values
+                        .into_iter()
+                        .max_by(f64::total_cmp)
+                        .ok_or(EvalError::Parse)?;
+                    Ok(max)
+                }
+                "ABS" => {
+                    if values.len() != 1 {
+                        return Err(EvalError::Parse);
+                    }
+                    Ok(values[0].abs())
+                }
+                "AND" => {
+                    if values.is_empty() {
+                        return Err(EvalError::Parse);
+                    }
+                    Ok(if values.iter().all(|v| *v != 0.0) {
+                        1.0
+                    } else {
+                        0.0
+                    })
+                }
+                "OR" => {
+                    if values.is_empty() {
+                        return Err(EvalError::Parse);
+                    }
+                    Ok(if values.iter().any(|v| *v != 0.0) {
+                        1.0
+                    } else {
+                        0.0
+                    })
+                }
+                "NOT" => {
+                    if values.len() != 1 {
+                        return Err(EvalError::Parse);
+                    }
+                    Ok(if values[0] == 0.0 { 1.0 } else { 0.0 })
+                }
+                "MATCH" => {
+                    if values.len() < 2 {
+                        return Err(EvalError::Parse);
+                    }
+                    let needle = values[0];
+                    for (idx, candidate) in values.iter().skip(1).enumerate() {
+                        if needle.total_cmp(candidate).is_eq() {
+                            return Ok((idx + 1) as f64);
+                        }
+                    }
+                    Err(EvalError::Parse)
+                }
+                "DATE" => {
+                    if values.len() != 3 {
+                        return Err(EvalError::Parse);
+                    }
+                    excel_date_to_serial(values[0], values[1], values[2])
+                }
+                "YEAR" => {
+                    if values.len() != 1 {
+                        return Err(EvalError::Parse);
+                    }
+                    let (year, _, _) = excel_serial_to_ymd(values[0])?;
+                    Ok(year as f64)
+                }
+                "MONTH" => {
+                    if values.len() != 1 {
+                        return Err(EvalError::Parse);
+                    }
+                    let (_, month, _) = excel_serial_to_ymd(values[0])?;
+                    Ok(month as f64)
+                }
+                "DAY" => {
+                    if values.len() != 1 {
+                        return Err(EvalError::Parse);
+                    }
+                    let (_, _, day) = excel_serial_to_ymd(values[0])?;
+                    Ok(day as f64)
+                }
+                _ => Err(EvalError::Parse),
+            }
         }
-        _ => Err(EvalError::Parse),
     }
 }
 
@@ -1564,6 +1661,141 @@ fn value_as_number(value: &CellValue) -> Result<f64, EvalError> {
     }
 }
 
+fn eval_expr_as_text(
+    workbook: &Workbook,
+    sheet_name: &str,
+    expr: &Expr,
+    parsed_formulas: &BTreeMap<CellRef, Result<Expr, EvalError>>,
+    stack: &mut BTreeSet<CellRef>,
+    cache: &mut BTreeMap<CellRef, Result<f64, EvalError>>,
+) -> Result<String, EvalError> {
+    match expr {
+        Expr::Cell(cell_ref) => {
+            let maybe_cell = workbook
+                .sheets
+                .get(sheet_name)
+                .and_then(|sheet| sheet.cells.get(cell_ref));
+            match maybe_cell {
+                Some(cell) if cell.formula.is_none() => cell_value_as_text(&cell.value),
+                _ => {
+                    let value = eval_cell(
+                        workbook,
+                        sheet_name,
+                        *cell_ref,
+                        parsed_formulas,
+                        stack,
+                        cache,
+                    )?;
+                    Ok(format_number_for_text(value))
+                }
+            }
+        }
+        _ => {
+            let value = eval_expr(workbook, sheet_name, expr, parsed_formulas, stack, cache)?;
+            Ok(format_number_for_text(value))
+        }
+    }
+}
+
+fn cell_value_as_text(value: &CellValue) -> Result<String, EvalError> {
+    match value {
+        CellValue::Number(n) => Ok(format_number_for_text(*n)),
+        CellValue::Bool(true) => Ok("TRUE".to_string()),
+        CellValue::Bool(false) => Ok("FALSE".to_string()),
+        CellValue::Text(text) => Ok(text.clone()),
+        CellValue::Empty => Ok(String::new()),
+        CellValue::Error(_) => Err(EvalError::Parse),
+    }
+}
+
+fn format_number_for_text(value: f64) -> String {
+    if value == 0.0 {
+        return "0".to_string();
+    }
+    let mut rendered = format!("{value}");
+    if rendered.contains('.') && !rendered.contains('e') && !rendered.contains('E') {
+        while rendered.ends_with('0') {
+            rendered.pop();
+        }
+        if rendered.ends_with('.') {
+            rendered.pop();
+        }
+    }
+    if rendered == "-0" {
+        "0".to_string()
+    } else {
+        rendered
+    }
+}
+
+fn trunc_f64_to_i64(value: f64) -> Result<i64, EvalError> {
+    if !value.is_finite() {
+        return Err(EvalError::Parse);
+    }
+    let truncated = value.trunc();
+    if truncated < i64::MIN as f64 || truncated > i64::MAX as f64 {
+        return Err(EvalError::Parse);
+    }
+    Ok(truncated as i64)
+}
+
+fn excel_serial_to_ymd(serial_value: f64) -> Result<(i32, u32, u32), EvalError> {
+    let serial = trunc_f64_to_i64(serial_value)?;
+    if serial <= 0 {
+        return Err(EvalError::Parse);
+    }
+    if serial == 60 {
+        return Ok((1900, 2, 29));
+    }
+
+    let adjusted = if serial > 60 { serial - 1 } else { serial };
+    let epoch = NaiveDate::from_ymd_opt(1899, 12, 31).ok_or(EvalError::Parse)?;
+    let date = epoch
+        .checked_add_signed(Duration::days(adjusted))
+        .ok_or(EvalError::Parse)?;
+    Ok((date.year(), date.month(), date.day()))
+}
+
+fn excel_date_to_serial(
+    year_value: f64,
+    month_value: f64,
+    day_value: f64,
+) -> Result<f64, EvalError> {
+    let mut year = trunc_f64_to_i64(year_value)?;
+    if (0..=1899).contains(&year) {
+        year += 1900;
+    }
+    if !(0..=9999).contains(&year) {
+        return Err(EvalError::Parse);
+    }
+
+    let month = trunc_f64_to_i64(month_value)?;
+    let day = trunc_f64_to_i64(day_value)?;
+
+    let month_index = month - 1;
+    let adjusted_year = year + month_index.div_euclid(12);
+    if !(0..=9999).contains(&adjusted_year) {
+        return Err(EvalError::Parse);
+    }
+    let adjusted_month = (month_index.rem_euclid(12) + 1) as u32;
+
+    let first_of_month =
+        NaiveDate::from_ymd_opt(adjusted_year as i32, adjusted_month, 1).ok_or(EvalError::Parse)?;
+    let date = first_of_month
+        .checked_add_signed(Duration::days(day - 1))
+        .ok_or(EvalError::Parse)?;
+    let epoch = NaiveDate::from_ymd_opt(1899, 12, 31).ok_or(EvalError::Parse)?;
+
+    let mut serial = date.signed_duration_since(epoch).num_days();
+    if serial >= 60 {
+        serial += 1;
+    }
+    if serial <= 0 {
+        return Err(EvalError::Parse);
+    }
+    Ok(serial as f64)
+}
+
 fn to_a1(cell_ref: CellRef) -> String {
     let mut col = cell_ref.col;
     let mut letters = Vec::<char>::new();
@@ -1804,6 +2036,82 @@ mod tests {
             formula: "=NOT(0)".to_string(),
             cached_value: CellValue::Empty,
         });
+        txn.apply(Mutation::SetCellValue {
+            sheet: "Sheet1".to_string(),
+            row: 2,
+            col: 1,
+            value: CellValue::Text("RootCellar".to_string()),
+        });
+        txn.apply(Mutation::SetCellFormula {
+            sheet: "Sheet1".to_string(),
+            row: 1,
+            col: 13,
+            formula: "=LEN(A2)".to_string(),
+            cached_value: CellValue::Empty,
+        });
+        txn.apply(Mutation::SetCellFormula {
+            sheet: "Sheet1".to_string(),
+            row: 1,
+            col: 14,
+            formula: "=CHOOSE(2,A1,B1,99)".to_string(),
+            cached_value: CellValue::Empty,
+        });
+        txn.apply(Mutation::SetCellFormula {
+            sheet: "Sheet1".to_string(),
+            row: 1,
+            col: 15,
+            formula: "=MATCH(B1,A1,B1,7)".to_string(),
+            cached_value: CellValue::Empty,
+        });
+        txn.apply(Mutation::SetCellFormula {
+            sheet: "Sheet1".to_string(),
+            row: 1,
+            col: 16,
+            formula: "=DATE(2026,3,1)".to_string(),
+            cached_value: CellValue::Empty,
+        });
+        txn.apply(Mutation::SetCellFormula {
+            sheet: "Sheet1".to_string(),
+            row: 1,
+            col: 17,
+            formula: "=YEAR(P1)".to_string(),
+            cached_value: CellValue::Empty,
+        });
+        txn.apply(Mutation::SetCellFormula {
+            sheet: "Sheet1".to_string(),
+            row: 1,
+            col: 18,
+            formula: "=MONTH(P1)".to_string(),
+            cached_value: CellValue::Empty,
+        });
+        txn.apply(Mutation::SetCellFormula {
+            sheet: "Sheet1".to_string(),
+            row: 1,
+            col: 19,
+            formula: "=DAY(P1)".to_string(),
+            cached_value: CellValue::Empty,
+        });
+        txn.apply(Mutation::SetCellFormula {
+            sheet: "Sheet1".to_string(),
+            row: 1,
+            col: 20,
+            formula: "=YEAR(60)".to_string(),
+            cached_value: CellValue::Empty,
+        });
+        txn.apply(Mutation::SetCellFormula {
+            sheet: "Sheet1".to_string(),
+            row: 1,
+            col: 21,
+            formula: "=MONTH(60)".to_string(),
+            cached_value: CellValue::Empty,
+        });
+        txn.apply(Mutation::SetCellFormula {
+            sheet: "Sheet1".to_string(),
+            row: 1,
+            col: 22,
+            formula: "=DAY(60)".to_string(),
+            cached_value: CellValue::Empty,
+        });
         txn.commit(&mut wb, &mut sink, &trace).expect("commit");
 
         recalc_sheet(&mut wb, "Sheet1", &mut sink, &trace).expect("recalc");
@@ -1877,6 +2185,76 @@ mod tests {
             .expect("l1")
             .value
             .clone();
+        let m1 = wb
+            .sheets
+            .get("Sheet1")
+            .and_then(|s| s.cells.get(&CellRef { row: 1, col: 13 }))
+            .expect("m1")
+            .value
+            .clone();
+        let n1 = wb
+            .sheets
+            .get("Sheet1")
+            .and_then(|s| s.cells.get(&CellRef { row: 1, col: 14 }))
+            .expect("n1")
+            .value
+            .clone();
+        let o1 = wb
+            .sheets
+            .get("Sheet1")
+            .and_then(|s| s.cells.get(&CellRef { row: 1, col: 15 }))
+            .expect("o1")
+            .value
+            .clone();
+        let p1 = wb
+            .sheets
+            .get("Sheet1")
+            .and_then(|s| s.cells.get(&CellRef { row: 1, col: 16 }))
+            .expect("p1")
+            .value
+            .clone();
+        let q1 = wb
+            .sheets
+            .get("Sheet1")
+            .and_then(|s| s.cells.get(&CellRef { row: 1, col: 17 }))
+            .expect("q1")
+            .value
+            .clone();
+        let r1 = wb
+            .sheets
+            .get("Sheet1")
+            .and_then(|s| s.cells.get(&CellRef { row: 1, col: 18 }))
+            .expect("r1")
+            .value
+            .clone();
+        let s1 = wb
+            .sheets
+            .get("Sheet1")
+            .and_then(|s| s.cells.get(&CellRef { row: 1, col: 19 }))
+            .expect("s1")
+            .value
+            .clone();
+        let t1 = wb
+            .sheets
+            .get("Sheet1")
+            .and_then(|s| s.cells.get(&CellRef { row: 1, col: 20 }))
+            .expect("t1")
+            .value
+            .clone();
+        let u1 = wb
+            .sheets
+            .get("Sheet1")
+            .and_then(|s| s.cells.get(&CellRef { row: 1, col: 21 }))
+            .expect("u1")
+            .value
+            .clone();
+        let v1 = wb
+            .sheets
+            .get("Sheet1")
+            .and_then(|s| s.cells.get(&CellRef { row: 1, col: 22 }))
+            .expect("v1")
+            .value
+            .clone();
         assert_eq!(c1, CellValue::Number(13.0));
         assert_eq!(d1, CellValue::Number(2.0));
         assert_eq!(e1, CellValue::Number(8.0));
@@ -1887,6 +2265,16 @@ mod tests {
         assert_eq!(j1, CellValue::Number(1.0));
         assert_eq!(k1, CellValue::Number(0.0));
         assert_eq!(l1, CellValue::Number(1.0));
+        assert_eq!(m1, CellValue::Number(10.0));
+        assert_eq!(n1, CellValue::Number(3.0));
+        assert_eq!(o1, CellValue::Number(2.0));
+        assert_eq!(p1, CellValue::Number(46082.0));
+        assert_eq!(q1, CellValue::Number(2026.0));
+        assert_eq!(r1, CellValue::Number(3.0));
+        assert_eq!(s1, CellValue::Number(1.0));
+        assert_eq!(t1, CellValue::Number(1900.0));
+        assert_eq!(u1, CellValue::Number(2.0));
+        assert_eq!(v1, CellValue::Number(29.0));
     }
 
     #[test]

@@ -67,9 +67,10 @@ python python/validate_batch_migration_policy_dry_run.py
 - Nightly gate now enforces both throughput snapshot status and alert-policy status for route-delivery/forensic policy checks.
 - Minimal calculation engine supports A1 references, arithmetic formulas, and cycle detection.
 - Formula parser scaffold now supports precedence and parentheses for arithmetic recalc.
-- Built-in function baseline now supports `SUM`, `MIN`, `MAX`, `IF`, `AVERAGE`/`AVG`, `ABS`, `AND`, `OR`, and `NOT`.
+- Built-in function baseline now supports `SUM`, `MIN`, `MAX`, `IF`, `AVERAGE`/`AVG`, `ABS`, `AND`, `OR`, `NOT`, `LEN`, `CHOOSE`, `MATCH`, `DATE`, `YEAR`, `MONTH`, and `DAY`.
 - AST interning scaffold now exposes deduplicated formula-node IDs for parser introspection.
 - Incremental recalc from changed roots is available in core and used by `tx-save` post-mutation workflows.
+- Incremental recalc now reuses cached reverse-dependency indexes during impacted-cell discovery and DAG degree analysis to reduce repeated graph traversal overhead on larger formula sets.
 - XLSX workbook loader projects worksheet values/formulas into the in-memory model for recalc workflows.
 - XLSX saver writes workbook model back to `.xlsx` with deterministic sheet/cell ordering baseline.
 - Preserve mode now uses passthrough copy semantics to retain unknown XML parts exactly.
@@ -87,5 +88,5 @@ python python/validate_batch_migration_policy_dry_run.py
 
 ## Next Build Slice
 - Continue function parity expansion beyond current starter set.
-- Add parser/evaluator and scheduler optimization work on top of the AST interning scaffold.
+- Continue parser/evaluator and scheduler optimization work on top of the AST interning scaffold.
 - Start desktop shell initialization and bridge UI->engine trace context propagation.
