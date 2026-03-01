@@ -1,0 +1,6 @@
+Bundle: ./ci-repro-bundle-v1
+Against: ./.ci/repro-fixtures/formula.xlsx
+Baseline value fingerprint: a1383551f450e1bf
+Against value fingerprint: a1383551f450e1bf
+Diff summary: changed=0, added=0, removed=0
+No cell-level differences detected.

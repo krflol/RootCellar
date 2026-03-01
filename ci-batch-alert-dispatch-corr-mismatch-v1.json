@@ -1,0 +1,194 @@
+{
+  "dispatch_version": 1,
+  "generated_at": "2026-03-01T00:05:18.746272+00:00",
+  "status": "partial_failure",
+  "alert_status": "breach",
+  "alert_file": "ci-batch-alert-hook-breach-v1.json",
+  "snapshot_file": "ci-batch-throughput-snapshot-breach-v1.json",
+  "route_count": 2,
+  "configured_route_count": 2,
+  "delivered_route_count": 0,
+  "failed_route_count": 2,
+  "ack_required_route_count": 0,
+  "ack_received_route_count": 2,
+  "ack_missing_route_count": 0,
+  "correlation_required_route_count": 2,
+  "correlation_matched_route_count": 0,
+  "correlation_mismatch_route_count": 2,
+  "dispatch_policy": {
+    "timeout_sec": 10.0,
+    "max_attempts": 3,
+    "initial_backoff_sec": 0.5,
+    "backoff_multiplier": 2.0,
+    "max_backoff_sec": 5.0,
+    "retry_status_codes": [
+      408,
+      425,
+      429,
+      500,
+      502,
+      503,
+      504
+    ],
+    "ack_field": "ack_id",
+    "require_ack_on_incident": false,
+    "require_ack_on_dashboard": false,
+    "correlation_field": "correlation_id",
+    "correlation_header": "X-Correlation-Id",
+    "require_correlation_on_incident": true,
+    "require_correlation_on_dashboard": true,
+    "idempotency_header": "Idempotency-Key",
+    "idempotency_key_prefix": "rootcellar-batch-alert",
+    "auth_scheme": "Bearer",
+    "incident_auth_configured": false,
+    "dashboard_auth_configured": false,
+    "signing_enabled": false,
+    "signature_header": null
+  },
+  "routes": [
+    {
+      "identifiers": {
+        "correlation_id": "rc-batch-6190b53b51203975e9dd",
+        "idempotency_key": "rootcellar-batch-alert-incident-6190b53b51203975e9dd39e8",
+        "digest_sha256": "6190b53b51203975e9dd39e8bccc4b26ffcc4f2bac21402ba46539df28916660"
+      },
+      "route": "incident",
+      "status": "failed",
+      "configured": true,
+      "endpoint": "http://127.0.0.1:8773/incident",
+      "auth": {
+        "token_configured": false,
+        "auth_scheme": "Bearer",
+        "signing_enabled": false,
+        "signature_header": null
+      },
+      "retry_policy": {
+        "max_attempts": 3,
+        "initial_backoff_sec": 0.5,
+        "backoff_multiplier": 2.0,
+        "max_backoff_sec": 5.0,
+        "retry_status_codes": [
+          408,
+          425,
+          429,
+          500,
+          502,
+          503,
+          504
+        ]
+      },
+      "delivery": {
+        "attempt_count": 1,
+        "attempts": [
+          {
+            "http_status": 202,
+            "response_excerpt": "{\"ack_id\":\"ack-1\",\"correlation_id\":\"mismatch-id\"}",
+            "response_body": "{\"ack_id\":\"ack-1\",\"correlation_id\":\"mismatch-id\"}",
+            "duration_ms": 8,
+            "retriable": false,
+            "attempt": 1,
+            "will_retry": false
+          }
+        ],
+        "final": {
+          "http_status": 202,
+          "response_excerpt": "{\"ack_id\":\"ack-1\",\"correlation_id\":\"mismatch-id\"}",
+          "response_body": "{\"ack_id\":\"ack-1\",\"correlation_id\":\"mismatch-id\"}",
+          "duration_ms": 8,
+          "retriable": false,
+          "attempt": 1,
+          "will_retry": false
+        }
+      },
+      "ack": {
+        "field": "ack_id",
+        "required": false,
+        "received": true,
+        "ack_id": "ack-1",
+        "parse_error": null
+      },
+      "correlation": {
+        "field": "correlation_id",
+        "required": true,
+        "received": true,
+        "matches": false,
+        "expected": "rc-batch-6190b53b51203975e9dd",
+        "actual": "mismatch-id",
+        "parse_error": null,
+        "reason": "required correlation id missing or mismatched in downstream acknowledgement"
+      }
+    },
+    {
+      "identifiers": {
+        "correlation_id": "rc-batch-c4528d476fe2cfbb3278",
+        "idempotency_key": "rootcellar-batch-alert-dashboard-c4528d476fe2cfbb3278b393",
+        "digest_sha256": "c4528d476fe2cfbb3278b3935db1f88638ef3f115c0df4a27365f3e2cea639c1"
+      },
+      "route": "dashboard",
+      "status": "failed",
+      "configured": true,
+      "endpoint": "http://127.0.0.1:8773/dashboard",
+      "auth": {
+        "token_configured": false,
+        "auth_scheme": "Bearer",
+        "signing_enabled": false,
+        "signature_header": null
+      },
+      "retry_policy": {
+        "max_attempts": 3,
+        "initial_backoff_sec": 0.5,
+        "backoff_multiplier": 2.0,
+        "max_backoff_sec": 5.0,
+        "retry_status_codes": [
+          408,
+          425,
+          429,
+          500,
+          502,
+          503,
+          504
+        ]
+      },
+      "delivery": {
+        "attempt_count": 1,
+        "attempts": [
+          {
+            "http_status": 202,
+            "response_excerpt": "{\"ack_id\":\"ack-1\",\"correlation_id\":\"mismatch-id\"}",
+            "response_body": "{\"ack_id\":\"ack-1\",\"correlation_id\":\"mismatch-id\"}",
+            "duration_ms": 20,
+            "retriable": false,
+            "attempt": 1,
+            "will_retry": false
+          }
+        ],
+        "final": {
+          "http_status": 202,
+          "response_excerpt": "{\"ack_id\":\"ack-1\",\"correlation_id\":\"mismatch-id\"}",
+          "response_body": "{\"ack_id\":\"ack-1\",\"correlation_id\":\"mismatch-id\"}",
+          "duration_ms": 20,
+          "retriable": false,
+          "attempt": 1,
+          "will_retry": false
+        }
+      },
+      "ack": {
+        "field": "ack_id",
+        "required": false,
+        "received": true,
+        "ack_id": "ack-1",
+        "parse_error": null
+      },
+      "correlation": {
+        "field": "correlation_id",
+        "required": true,
+        "received": true,
+        "matches": false,
+        "expected": "rc-batch-c4528d476fe2cfbb3278",
+        "actual": "mismatch-id",
+        "parse_error": null,
+        "reason": "required correlation id missing or mismatched in downstream acknowledgement"
+      }
+    }
+  ]
+}

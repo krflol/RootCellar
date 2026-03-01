@@ -1,0 +1,384 @@
+name: batch-recalc-nightly
+
+on:
+  schedule:
+    - cron: "13 6 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  CI_ARTIFACT_RETENTION_DAYS: "21"
+  CI_ARTIFACT_ROOT: ./ci-artifacts
+  BATCH_MIN_PROCESSED_FILES: "24"
+  BATCH_MIN_THROUGHPUT_FILES_PER_SEC: "5.0"
+  ROOTCELLAR_INCIDENT_WEBHOOK_URL: ${{ secrets.ROOTCELLAR_INCIDENT_WEBHOOK_URL }}
+  ROOTCELLAR_DASHBOARD_INGEST_URL: ${{ secrets.ROOTCELLAR_DASHBOARD_INGEST_URL }}
+  ROOTCELLAR_INCIDENT_WEBHOOK_TOKEN: ${{ secrets.ROOTCELLAR_INCIDENT_WEBHOOK_TOKEN }}
+  ROOTCELLAR_DASHBOARD_INGEST_TOKEN: ${{ secrets.ROOTCELLAR_DASHBOARD_INGEST_TOKEN }}
+  ROOTCELLAR_ALERT_SIGNING_SECRET: ${{ secrets.ROOTCELLAR_ALERT_SIGNING_SECRET }}
+  ALERT_DISPATCH_MAX_ATTEMPTS: "3"
+  ALERT_DISPATCH_INITIAL_BACKOFF_SEC: "0.5"
+  ALERT_DISPATCH_BACKOFF_MULTIPLIER: "2.0"
+  ALERT_DISPATCH_MAX_BACKOFF_SEC: "5.0"
+  ALERT_DISPATCH_REPLAY_WINDOW_SEC: "300"
+  ALERT_DISPATCH_REPLAY_TIMESTAMP_HEADER: "X-RootCellar-Timestamp"
+  ALERT_DISPATCH_REPLAY_NONCE_HEADER: "X-RootCellar-Nonce"
+  ALERT_DISPATCH_REPLAY_WINDOW_HEADER: "X-RootCellar-Replay-Window-Sec"
+  ALERT_DISPATCH_REQUIRE_ACK_ON_INCIDENT: "false"
+  ALERT_DISPATCH_REQUIRE_ACK_ON_DASHBOARD: "false"
+  ALERT_DISPATCH_REQUIRE_CORRELATION_ON_INCIDENT: "false"
+  ALERT_DISPATCH_REQUIRE_CORRELATION_ON_DASHBOARD: "false"
+  ALERT_ACK_RETENTION_DAYS: "30"
+  ALERT_POLICY_MAX_DISPATCH_FAILED_ROUTES: "0"
+  ALERT_POLICY_MAX_ACK_MISSING_ROUTES: "0"
+  ALERT_POLICY_MAX_CORRELATION_MISMATCH_ROUTES: "0"
+  ALERT_POLICY_REQUIRE_REPLAY_METADATA: "true"
+  ALERT_POLICY_REQUIRE_ACK_RETENTION_COVERAGE: "true"
+  ALERT_POLICY_FAIL_ON_BREACH: "true"
+  ALERT_POLICY_OWNER_TEAM_DEFAULT: "rootcellar-core"
+  ALERT_POLICY_OWNER_TEAM_SNAPSHOT: "rootcellar-performance"
+  ALERT_POLICY_OWNER_TEAM_DISPATCH: "rootcellar-reliability"
+  ALERT_POLICY_OWNER_TEAM_ACK_RETENTION: "rootcellar-observability"
+  ALERT_POLICY_OWNER_TEAM_POLICY: "rootcellar-observability"
+  ALERT_POLICY_OWNER_CONTACT_CHANNEL: "#rootcellar-oncall"
+  ALERT_POLICY_ESCALATION_TARGET_P1: "pagerduty://rootcellar-critical"
+  ALERT_POLICY_ESCALATION_TARGET_P2: "pagerduty://rootcellar-high"
+  ALERT_POLICY_ESCALATION_TARGET_P3: "slack://rootcellar-alerts"
+  ALERT_POLICY_ESCALATION_TARGET_INFO: "slack://rootcellar-observability"
+  ALERT_POLICY_ESCALATION_SLA_MINUTES_P1: "15"
+  ALERT_POLICY_ESCALATION_SLA_MINUTES_P2: "60"
+  ALERT_POLICY_ESCALATION_SLA_MINUTES_P3: "240"
+  ALERT_POLICY_ESCALATION_SLA_MINUTES_INFO: "1440"
+  ALERT_POLICY_SCHEMA_VALIDATION_ENABLED: "true"
+  ALERT_POLICY_SCHEMA_ESCALATION_PATH: "./schemas/artifacts/v1/batch-policy-escalation.schema.json"
+  ALERT_POLICY_SCHEMA_ADAPTER_EXPORTS_PATH: "./schemas/artifacts/v1/batch-dashboard-adapter-exports.schema.json"
+
+concurrency:
+  group: batch-recalc-nightly-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  batch-recalc:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Rust artifacts
+        uses: Swatinem/rust-cache@v2
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Build nightly batch corpus slice
+        run: |
+          python python/build_batch_nightly_corpus.py --output-dir ./.ci/batch-nightly-corpus --target-files 32
+
+      - name: Run tests
+        run: |
+          cargo test --workspace --locked
+
+      - name: Run batch recalc corpus
+        id: batch_recalc_run
+        continue-on-error: true
+        run: |
+          cargo run -p rootcellar-cli --locked -- batch recalc ./.ci/batch-nightly-corpus/files --threads 4 --detail-level diagnostic --fail-on-errors --report ./ci-batch-recalc-report.json --jsonl ./ci-batch-recalc-events.jsonl
+
+      - name: Build throughput trend snapshot and alert payload
+        if: always()
+        run: |
+          python python/build_batch_trend_snapshot.py \
+            --report ./ci-batch-recalc-report.json \
+            --snapshot ./ci-batch-throughput-snapshot.json \
+            --alert ./ci-batch-alert-hook.json \
+            --min-processed-files "${BATCH_MIN_PROCESSED_FILES}" \
+            --min-throughput-files-per-sec "${BATCH_MIN_THROUGHPUT_FILES_PER_SEC}" \
+            --allow-missing-report
+
+      - name: Dispatch alert payload to incident/dashboard routes
+        if: always()
+        run: |
+          args=(
+            python
+            python/dispatch_batch_alert_hook.py
+            --alert
+            ./ci-batch-alert-hook.json
+            --snapshot
+            ./ci-batch-throughput-snapshot.json
+            --dispatch-report
+            ./ci-batch-alert-dispatch.json
+            --max-attempts
+            "${ALERT_DISPATCH_MAX_ATTEMPTS}"
+            --initial-backoff-sec
+            "${ALERT_DISPATCH_INITIAL_BACKOFF_SEC}"
+            --backoff-multiplier
+            "${ALERT_DISPATCH_BACKOFF_MULTIPLIER}"
+            --max-backoff-sec
+            "${ALERT_DISPATCH_MAX_BACKOFF_SEC}"
+            --idempotency-key-prefix
+            rootcellar-batch-alert
+            --idempotency-header
+            Idempotency-Key
+            --correlation-header
+            X-Correlation-Id
+            --correlation-field
+            correlation_id
+            --replay-window-sec
+            "${ALERT_DISPATCH_REPLAY_WINDOW_SEC}"
+            --replay-timestamp-header
+            "${ALERT_DISPATCH_REPLAY_TIMESTAMP_HEADER}"
+            --replay-nonce-header
+            "${ALERT_DISPATCH_REPLAY_NONCE_HEADER}"
+            --replay-window-header
+            "${ALERT_DISPATCH_REPLAY_WINDOW_HEADER}"
+            --fail-on-route-error
+          )
+          if [ "${ALERT_DISPATCH_REQUIRE_ACK_ON_INCIDENT}" = "true" ]; then
+            args+=(--require-ack-on-incident)
+          fi
+          if [ "${ALERT_DISPATCH_REQUIRE_ACK_ON_DASHBOARD}" = "true" ]; then
+            args+=(--require-ack-on-dashboard)
+          fi
+          if [ "${ALERT_DISPATCH_REQUIRE_CORRELATION_ON_INCIDENT}" = "true" ]; then
+            args+=(--require-correlation-on-incident)
+          fi
+          if [ "${ALERT_DISPATCH_REQUIRE_CORRELATION_ON_DASHBOARD}" = "true" ]; then
+            args+=(--require-correlation-on-dashboard)
+          fi
+          "${args[@]}"
+
+      - name: Build acknowledgement retention index
+        if: always()
+        run: |
+          python python/build_batch_ack_retention_index.py \
+            --dispatch-report ./ci-batch-alert-dispatch.json \
+            --index ./ci-batch-ack-retention-index.json \
+            --retention-days "${ALERT_ACK_RETENTION_DAYS}" \
+            --allow-missing-dispatch-report
+
+      - name: Build dashboard pack and alert policy artifacts
+        if: always()
+        run: |
+          args=(
+            python
+            python/build_batch_dashboard_pack.py
+            --snapshot
+            ./ci-batch-throughput-snapshot.json
+            --dispatch-report
+            ./ci-batch-alert-dispatch.json
+            --ack-retention-index
+            ./ci-batch-ack-retention-index.json
+            --dashboard-pack
+            ./ci-batch-dashboard-pack.json
+            --policy
+            ./ci-batch-alert-policy.json
+            --max-dispatch-failed-routes
+            "${ALERT_POLICY_MAX_DISPATCH_FAILED_ROUTES}"
+            --max-ack-missing-routes
+            "${ALERT_POLICY_MAX_ACK_MISSING_ROUTES}"
+            --max-correlation-mismatch-routes
+            "${ALERT_POLICY_MAX_CORRELATION_MISMATCH_ROUTES}"
+            --allow-missing-inputs
+          )
+          if [ "${ALERT_POLICY_REQUIRE_REPLAY_METADATA}" = "true" ]; then
+            args+=(--require-replay-metadata)
+          fi
+          if [ "${ALERT_POLICY_REQUIRE_ACK_RETENTION_COVERAGE}" = "true" ]; then
+            args+=(--require-ack-retention-coverage)
+          fi
+          if [ "${ALERT_POLICY_FAIL_ON_BREACH}" = "true" ]; then
+            args+=(--fail-on-policy-breach)
+          fi
+          "${args[@]}"
+
+      - name: Build policy escalation metadata and adapter exports
+        if: always()
+        run: |
+          python python/build_batch_policy_adapters.py \
+            --policy ./ci-batch-alert-policy.json \
+            --dashboard-pack ./ci-batch-dashboard-pack.json \
+            --escalation ./ci-batch-policy-escalation.json \
+            --adapter-exports ./ci-batch-dashboard-adapter-exports.json \
+            --owner-team-default "${ALERT_POLICY_OWNER_TEAM_DEFAULT}" \
+            --owner-team-snapshot "${ALERT_POLICY_OWNER_TEAM_SNAPSHOT}" \
+            --owner-team-dispatch "${ALERT_POLICY_OWNER_TEAM_DISPATCH}" \
+            --owner-team-ack-retention "${ALERT_POLICY_OWNER_TEAM_ACK_RETENTION}" \
+            --owner-team-policy "${ALERT_POLICY_OWNER_TEAM_POLICY}" \
+            --owner-contact-channel "${ALERT_POLICY_OWNER_CONTACT_CHANNEL}" \
+            --escalation-target-p1 "${ALERT_POLICY_ESCALATION_TARGET_P1}" \
+            --escalation-target-p2 "${ALERT_POLICY_ESCALATION_TARGET_P2}" \
+            --escalation-target-p3 "${ALERT_POLICY_ESCALATION_TARGET_P3}" \
+            --escalation-target-info "${ALERT_POLICY_ESCALATION_TARGET_INFO}" \
+            --escalation-sla-minutes-p1 "${ALERT_POLICY_ESCALATION_SLA_MINUTES_P1}" \
+            --escalation-sla-minutes-p2 "${ALERT_POLICY_ESCALATION_SLA_MINUTES_P2}" \
+            --escalation-sla-minutes-p3 "${ALERT_POLICY_ESCALATION_SLA_MINUTES_P3}" \
+            --escalation-sla-minutes-info "${ALERT_POLICY_ESCALATION_SLA_MINUTES_INFO}" \
+            --allow-missing-inputs
+
+      - name: Validate adapter export schemas and version contracts
+        if: always()
+        run: |
+          if [ "${ALERT_POLICY_SCHEMA_VALIDATION_ENABLED}" != "true" ]; then
+            echo "adapter schema validation disabled by policy knob"
+            exit 0
+          fi
+          python python/validate_batch_adapter_contracts.py \
+            --escalation ./ci-batch-policy-escalation.json \
+            --adapter-exports ./ci-batch-dashboard-adapter-exports.json \
+            --schema-escalation "${ALERT_POLICY_SCHEMA_ESCALATION_PATH}" \
+            --schema-adapter-exports "${ALERT_POLICY_SCHEMA_ADAPTER_EXPORTS_PATH}"
+
+      - name: Enforce nightly batch gate
+        if: always()
+        run: |
+          python - <<'PY'
+          import json
+          with open("./ci-batch-throughput-snapshot.json", "r", encoding="utf-8") as fh:
+              snapshot = json.load(fh)
+          with open("./ci-batch-alert-policy.json", "r", encoding="utf-8") as fh:
+              policy = json.load(fh)
+          status = str(snapshot.get("status", "")).lower()
+          policy_status = str(policy.get("status", "")).lower()
+          if status != "pass":
+              raise SystemExit(f"nightly batch gate failed with status={status}")
+          if policy_status != "pass":
+              severity = policy.get("highest_severity")
+              breaches = policy.get("breach_count")
+              raise SystemExit(
+                  f"nightly batch policy gate failed with status={policy_status}, "
+                  f"highest_severity={severity}, breaches={breaches}"
+              )
+          print("nightly batch gate passed")
+          PY
+
+      - name: Assemble batch artifact bundle
+        if: always()
+        run: |
+          set -euo pipefail
+          bundle_dir="${CI_ARTIFACT_ROOT}/batch-recalc"
+          mkdir -p "${bundle_dir}"
+          for file in ci-batch-recalc-report.json ci-batch-recalc-events.jsonl ci-batch-throughput-snapshot.json ci-batch-alert-hook.json ci-batch-alert-dispatch.json ci-batch-ack-retention-index.json ci-batch-dashboard-pack.json ci-batch-alert-policy.json ci-batch-policy-escalation.json ci-batch-dashboard-adapter-exports.json; do
+            if [ -f "${file}" ]; then
+              cp "${file}" "${bundle_dir}/"
+            fi
+          done
+          if [ -d ./.ci/batch-nightly-corpus ]; then
+            rm -rf "${bundle_dir}/corpus"
+            cp -R ./.ci/batch-nightly-corpus "${bundle_dir}/corpus"
+          fi
+          generated_at="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          incident_route_configured=false
+          if [ -n "${ROOTCELLAR_INCIDENT_WEBHOOK_URL}" ]; then
+            incident_route_configured=true
+          fi
+          dashboard_route_configured=false
+          if [ -n "${ROOTCELLAR_DASHBOARD_INGEST_URL}" ]; then
+            dashboard_route_configured=true
+          fi
+          incident_auth_configured=false
+          if [ -n "${ROOTCELLAR_INCIDENT_WEBHOOK_TOKEN}" ]; then
+            incident_auth_configured=true
+          fi
+          dashboard_auth_configured=false
+          if [ -n "${ROOTCELLAR_DASHBOARD_INGEST_TOKEN}" ]; then
+            dashboard_auth_configured=true
+          fi
+          alert_signing_configured=false
+          if [ -n "${ROOTCELLAR_ALERT_SIGNING_SECRET}" ]; then
+            alert_signing_configured=true
+          fi
+          ack_retention_index_generated=false
+          if [ -f "./ci-batch-ack-retention-index.json" ]; then
+            ack_retention_index_generated=true
+          fi
+          dashboard_pack_generated=false
+          if [ -f "./ci-batch-dashboard-pack.json" ]; then
+            dashboard_pack_generated=true
+          fi
+          alert_policy_generated=false
+          if [ -f "./ci-batch-alert-policy.json" ]; then
+            alert_policy_generated=true
+          fi
+          policy_escalation_generated=false
+          if [ -f "./ci-batch-policy-escalation.json" ]; then
+            policy_escalation_generated=true
+          fi
+          dashboard_adapter_exports_generated=false
+          if [ -f "./ci-batch-dashboard-adapter-exports.json" ]; then
+            dashboard_adapter_exports_generated=true
+          fi
+          cat > "${bundle_dir}/manifest.json" <<EOF
+          {
+            "workflow": "batch-recalc-nightly",
+            "generated_at": "${generated_at}",
+            "repository": "${GITHUB_REPOSITORY}",
+            "ref": "${GITHUB_REF}",
+            "sha": "${GITHUB_SHA}",
+            "run_id": "${GITHUB_RUN_ID}",
+            "run_attempt": "${GITHUB_RUN_ATTEMPT}",
+            "min_processed_files": ${BATCH_MIN_PROCESSED_FILES},
+            "min_throughput_files_per_sec": ${BATCH_MIN_THROUGHPUT_FILES_PER_SEC},
+            "incident_route_configured": ${incident_route_configured},
+            "dashboard_route_configured": ${dashboard_route_configured},
+            "incident_auth_configured": ${incident_auth_configured},
+            "dashboard_auth_configured": ${dashboard_auth_configured},
+            "alert_signing_configured": ${alert_signing_configured},
+            "alert_dispatch_max_attempts": ${ALERT_DISPATCH_MAX_ATTEMPTS},
+            "alert_dispatch_replay_window_sec": ${ALERT_DISPATCH_REPLAY_WINDOW_SEC},
+            "alert_dispatch_replay_timestamp_header": "${ALERT_DISPATCH_REPLAY_TIMESTAMP_HEADER}",
+            "alert_dispatch_replay_nonce_header": "${ALERT_DISPATCH_REPLAY_NONCE_HEADER}",
+            "alert_dispatch_replay_window_header": "${ALERT_DISPATCH_REPLAY_WINDOW_HEADER}",
+            "alert_dispatch_require_ack_on_incident": ${ALERT_DISPATCH_REQUIRE_ACK_ON_INCIDENT},
+            "alert_dispatch_require_ack_on_dashboard": ${ALERT_DISPATCH_REQUIRE_ACK_ON_DASHBOARD},
+            "alert_dispatch_require_correlation_on_incident": ${ALERT_DISPATCH_REQUIRE_CORRELATION_ON_INCIDENT},
+            "alert_dispatch_require_correlation_on_dashboard": ${ALERT_DISPATCH_REQUIRE_CORRELATION_ON_DASHBOARD},
+            "alert_ack_retention_days": ${ALERT_ACK_RETENTION_DAYS},
+            "ack_retention_index_generated": ${ack_retention_index_generated},
+            "alert_policy_max_dispatch_failed_routes": ${ALERT_POLICY_MAX_DISPATCH_FAILED_ROUTES},
+            "alert_policy_max_ack_missing_routes": ${ALERT_POLICY_MAX_ACK_MISSING_ROUTES},
+            "alert_policy_max_correlation_mismatch_routes": ${ALERT_POLICY_MAX_CORRELATION_MISMATCH_ROUTES},
+            "alert_policy_require_replay_metadata": ${ALERT_POLICY_REQUIRE_REPLAY_METADATA},
+            "alert_policy_require_ack_retention_coverage": ${ALERT_POLICY_REQUIRE_ACK_RETENTION_COVERAGE},
+            "alert_policy_fail_on_breach": ${ALERT_POLICY_FAIL_ON_BREACH},
+            "alert_policy_owner_team_default": "${ALERT_POLICY_OWNER_TEAM_DEFAULT}",
+            "alert_policy_owner_team_snapshot": "${ALERT_POLICY_OWNER_TEAM_SNAPSHOT}",
+            "alert_policy_owner_team_dispatch": "${ALERT_POLICY_OWNER_TEAM_DISPATCH}",
+            "alert_policy_owner_team_ack_retention": "${ALERT_POLICY_OWNER_TEAM_ACK_RETENTION}",
+            "alert_policy_owner_team_policy": "${ALERT_POLICY_OWNER_TEAM_POLICY}",
+            "alert_policy_owner_contact_channel": "${ALERT_POLICY_OWNER_CONTACT_CHANNEL}",
+            "alert_policy_escalation_target_p1": "${ALERT_POLICY_ESCALATION_TARGET_P1}",
+            "alert_policy_escalation_target_p2": "${ALERT_POLICY_ESCALATION_TARGET_P2}",
+            "alert_policy_escalation_target_p3": "${ALERT_POLICY_ESCALATION_TARGET_P3}",
+            "alert_policy_escalation_target_info": "${ALERT_POLICY_ESCALATION_TARGET_INFO}",
+            "alert_policy_escalation_sla_minutes_p1": ${ALERT_POLICY_ESCALATION_SLA_MINUTES_P1},
+            "alert_policy_escalation_sla_minutes_p2": ${ALERT_POLICY_ESCALATION_SLA_MINUTES_P2},
+            "alert_policy_escalation_sla_minutes_p3": ${ALERT_POLICY_ESCALATION_SLA_MINUTES_P3},
+            "alert_policy_escalation_sla_minutes_info": ${ALERT_POLICY_ESCALATION_SLA_MINUTES_INFO},
+            "alert_policy_schema_validation_enabled": ${ALERT_POLICY_SCHEMA_VALIDATION_ENABLED},
+            "alert_policy_schema_escalation_path": "${ALERT_POLICY_SCHEMA_ESCALATION_PATH}",
+            "alert_policy_schema_adapter_exports_path": "${ALERT_POLICY_SCHEMA_ADAPTER_EXPORTS_PATH}",
+            "dashboard_pack_generated": ${dashboard_pack_generated},
+            "alert_policy_generated": ${alert_policy_generated},
+            "policy_escalation_generated": ${policy_escalation_generated},
+            "dashboard_adapter_exports_generated": ${dashboard_adapter_exports_generated},
+            "retention_policy_days": ${CI_ARTIFACT_RETENTION_DAYS},
+            "artifact_kind": "batch_recalc"
+          }
+          EOF
+
+      - name: Upload batch artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: rootcellar-batch-recalc-${{ github.run_id }}-${{ github.run_attempt }}
+          if-no-files-found: warn
+          retention-days: ${{ env.CI_ARTIFACT_RETENTION_DAYS }}
+          path: ${{ env.CI_ARTIFACT_ROOT }}/batch-recalc

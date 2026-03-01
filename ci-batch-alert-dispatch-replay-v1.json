@@ -1,0 +1,259 @@
+{
+  "dispatch_version": 1,
+  "generated_at": "2026-03-01T00:12:50.800778+00:00",
+  "status": "delivered",
+  "alert_status": "breach",
+  "alert_file": "ci-batch-alert-hook-breach-v1.json",
+  "snapshot_file": "ci-batch-throughput-snapshot-breach-v1.json",
+  "route_count": 2,
+  "configured_route_count": 2,
+  "delivered_route_count": 2,
+  "failed_route_count": 0,
+  "ack_required_route_count": 2,
+  "ack_received_route_count": 2,
+  "ack_missing_route_count": 0,
+  "correlation_required_route_count": 2,
+  "correlation_matched_route_count": 2,
+  "correlation_mismatch_route_count": 0,
+  "dispatch_policy": {
+    "timeout_sec": 10.0,
+    "max_attempts": 3,
+    "initial_backoff_sec": 0.1,
+    "backoff_multiplier": 2.0,
+    "max_backoff_sec": 0.2,
+    "retry_status_codes": [
+      408,
+      425,
+      429,
+      500,
+      502,
+      503,
+      504
+    ],
+    "ack_field": "ack_id",
+    "require_ack_on_incident": true,
+    "require_ack_on_dashboard": true,
+    "correlation_field": "correlation_id",
+    "correlation_header": "X-Correlation-Id",
+    "require_correlation_on_incident": true,
+    "require_correlation_on_dashboard": true,
+    "idempotency_header": "Idempotency-Key",
+    "idempotency_key_prefix": "rootcellar-batch-alert",
+    "replay_timestamp_header": "X-RootCellar-Timestamp",
+    "replay_nonce_header": "X-RootCellar-Nonce",
+    "replay_window_header": "X-RootCellar-Replay-Window-Sec",
+    "replay_window_sec": 300,
+    "auth_scheme": "Bearer",
+    "incident_auth_configured": false,
+    "dashboard_auth_configured": false,
+    "signing_enabled": false,
+    "signature_header": null
+  },
+  "routes": [
+    {
+      "identifiers": {
+        "correlation_id": "rc-batch-6190b53b51203975e9dd",
+        "idempotency_key": "rootcellar-batch-alert-incident-6190b53b51203975e9dd39e8",
+        "digest_sha256": "6190b53b51203975e9dd39e8bccc4b26ffcc4f2bac21402ba46539df28916660"
+      },
+      "route": "incident",
+      "status": "delivered",
+      "configured": true,
+      "endpoint": "http://127.0.0.1:8780/incident",
+      "auth": {
+        "token_configured": false,
+        "auth_scheme": "Bearer",
+        "signing_enabled": false,
+        "signature_header": null
+      },
+      "retry_policy": {
+        "max_attempts": 3,
+        "initial_backoff_sec": 0.1,
+        "backoff_multiplier": 2.0,
+        "max_backoff_sec": 0.2,
+        "retry_status_codes": [
+          408,
+          425,
+          429,
+          500,
+          502,
+          503,
+          504
+        ]
+      },
+      "replay_policy": {
+        "timestamp_header": "X-RootCellar-Timestamp",
+        "nonce_header": "X-RootCellar-Nonce",
+        "window_header": "X-RootCellar-Replay-Window-Sec",
+        "window_sec": 300
+      },
+      "delivery": {
+        "attempt_count": 1,
+        "attempts": [
+          {
+            "http_status": 200,
+            "response_excerpt": "{\"ack_id\": \"incident-ack\", \"correlation_id\": \"rc-batch-6190b53b51203975e9dd\"}",
+            "response_body": "{\"ack_id\": \"incident-ack\", \"correlation_id\": \"rc-batch-6190b53b51203975e9dd\"}",
+            "duration_ms": 6,
+            "retriable": false,
+            "replay": {
+              "timestamp_header": "X-RootCellar-Timestamp",
+              "timestamp": "1772323970",
+              "nonce_header": "X-RootCellar-Nonce",
+              "nonce": "bd39bf845393378b97b68d3b60b4046f",
+              "window_header": "X-RootCellar-Replay-Window-Sec",
+              "window_sec": 300
+            },
+            "attempt": 1,
+            "will_retry": false
+          }
+        ],
+        "final": {
+          "http_status": 200,
+          "response_excerpt": "{\"ack_id\": \"incident-ack\", \"correlation_id\": \"rc-batch-6190b53b51203975e9dd\"}",
+          "response_body": "{\"ack_id\": \"incident-ack\", \"correlation_id\": \"rc-batch-6190b53b51203975e9dd\"}",
+          "duration_ms": 6,
+          "retriable": false,
+          "replay": {
+            "timestamp_header": "X-RootCellar-Timestamp",
+            "timestamp": "1772323970",
+            "nonce_header": "X-RootCellar-Nonce",
+            "nonce": "bd39bf845393378b97b68d3b60b4046f",
+            "window_header": "X-RootCellar-Replay-Window-Sec",
+            "window_sec": 300
+          },
+          "attempt": 1,
+          "will_retry": false
+        }
+      },
+      "ack": {
+        "field": "ack_id",
+        "required": true,
+        "received": true,
+        "ack_id": "incident-ack",
+        "parse_error": null
+      },
+      "correlation": {
+        "field": "correlation_id",
+        "required": true,
+        "received": true,
+        "matches": true,
+        "expected": "rc-batch-6190b53b51203975e9dd",
+        "actual": "rc-batch-6190b53b51203975e9dd",
+        "parse_error": null
+      }
+    },
+    {
+      "identifiers": {
+        "correlation_id": "rc-batch-c4528d476fe2cfbb3278",
+        "idempotency_key": "rootcellar-batch-alert-dashboard-c4528d476fe2cfbb3278b393",
+        "digest_sha256": "c4528d476fe2cfbb3278b3935db1f88638ef3f115c0df4a27365f3e2cea639c1"
+      },
+      "route": "dashboard",
+      "status": "delivered",
+      "configured": true,
+      "endpoint": "http://127.0.0.1:8780/dashboard",
+      "auth": {
+        "token_configured": false,
+        "auth_scheme": "Bearer",
+        "signing_enabled": false,
+        "signature_header": null
+      },
+      "retry_policy": {
+        "max_attempts": 3,
+        "initial_backoff_sec": 0.1,
+        "backoff_multiplier": 2.0,
+        "max_backoff_sec": 0.2,
+        "retry_status_codes": [
+          408,
+          425,
+          429,
+          500,
+          502,
+          503,
+          504
+        ]
+      },
+      "replay_policy": {
+        "timestamp_header": "X-RootCellar-Timestamp",
+        "nonce_header": "X-RootCellar-Nonce",
+        "window_header": "X-RootCellar-Replay-Window-Sec",
+        "window_sec": 300
+      },
+      "delivery": {
+        "attempt_count": 2,
+        "attempts": [
+          {
+            "http_status": 503,
+            "error": "HTTP Error 503: Service Unavailable",
+            "response_excerpt": "{\"ack_id\": \"dash-retry\", \"correlation_id\": \"rc-batch-c4528d476fe2cfbb3278\"}",
+            "response_body": "{\"ack_id\": \"dash-retry\", \"correlation_id\": \"rc-batch-c4528d476fe2cfbb3278\"}",
+            "duration_ms": 1,
+            "retriable": true,
+            "replay": {
+              "timestamp_header": "X-RootCellar-Timestamp",
+              "timestamp": "1772323970",
+              "nonce_header": "X-RootCellar-Nonce",
+              "nonce": "e0dd4e67f2b117ecff74207c4664c82b",
+              "window_header": "X-RootCellar-Replay-Window-Sec",
+              "window_sec": 300
+            },
+            "attempt": 1,
+            "will_retry": true,
+            "retry_sleep_sec": 0.1
+          },
+          {
+            "http_status": 200,
+            "response_excerpt": "{\"ack_id\": \"dashboard-ack\", \"correlation_id\": \"rc-batch-c4528d476fe2cfbb3278\"}",
+            "response_body": "{\"ack_id\": \"dashboard-ack\", \"correlation_id\": \"rc-batch-c4528d476fe2cfbb3278\"}",
+            "duration_ms": 1,
+            "retriable": false,
+            "replay": {
+              "timestamp_header": "X-RootCellar-Timestamp",
+              "timestamp": "1772323970",
+              "nonce_header": "X-RootCellar-Nonce",
+              "nonce": "e68e92d6bcaf60807d1d821f5249a06b",
+              "window_header": "X-RootCellar-Replay-Window-Sec",
+              "window_sec": 300
+            },
+            "attempt": 2,
+            "will_retry": false
+          }
+        ],
+        "final": {
+          "http_status": 200,
+          "response_excerpt": "{\"ack_id\": \"dashboard-ack\", \"correlation_id\": \"rc-batch-c4528d476fe2cfbb3278\"}",
+          "response_body": "{\"ack_id\": \"dashboard-ack\", \"correlation_id\": \"rc-batch-c4528d476fe2cfbb3278\"}",
+          "duration_ms": 1,
+          "retriable": false,
+          "replay": {
+            "timestamp_header": "X-RootCellar-Timestamp",
+            "timestamp": "1772323970",
+            "nonce_header": "X-RootCellar-Nonce",
+            "nonce": "e68e92d6bcaf60807d1d821f5249a06b",
+            "window_header": "X-RootCellar-Replay-Window-Sec",
+            "window_sec": 300
+          },
+          "attempt": 2,
+          "will_retry": false
+        }
+      },
+      "ack": {
+        "field": "ack_id",
+        "required": true,
+        "received": true,
+        "ack_id": "dashboard-ack",
+        "parse_error": null
+      },
+      "correlation": {
+        "field": "correlation_id",
+        "required": true,
+        "received": true,
+        "matches": true,
+        "expected": "rc-batch-c4528d476fe2cfbb3278",
+        "actual": "rc-batch-c4528d476fe2cfbb3278",
+        "parse_error": null
+      }
+    }
+  ]
+}

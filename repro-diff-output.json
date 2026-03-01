@@ -1,0 +1,41 @@
+{
+  "added": [],
+  "against": "./sample-formula-mutated.xlsx",
+  "against_value_fingerprint_fnv64": "8245fc247bded3ad",
+  "baseline_value_fingerprint_fnv64": "82fa16334c2b6a32",
+  "bundle": "./repro-bundle",
+  "changed": [
+    {
+      "against": "number:111.000000000000000",
+      "baseline": "number:40.000000000000000",
+      "cell": "Sheet1!A1"
+    },
+    {
+      "against": "number:9.000000000000000",
+      "baseline": "number:2.000000000000000",
+      "cell": "Sheet1!A2"
+    },
+    {
+      "against": "=A1+A2|number:120.000000000000000",
+      "baseline": "=A1+A2|number:42.000000000000000",
+      "cell": "Sheet1!A3"
+    },
+    {
+      "against": "text:world",
+      "baseline": "text:Hello",
+      "cell": "Sheet1!B1"
+    }
+  ],
+  "removed": [],
+  "summary": {
+    "added": 0,
+    "changed": 4,
+    "limit": 50,
+    "removed": 0
+  },
+  "truncated": {
+    "added": false,
+    "changed": false,
+    "removed": false
+  }
+}

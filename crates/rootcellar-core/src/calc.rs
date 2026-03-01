@@ -1,0 +1,2369 @@
+use crate::model::{CellRef, CellValue, Workbook};
+use crate::telemetry::{EventEnvelope, EventSink, TelemetryError, TraceContext};
+use serde::{Deserialize, Serialize};
+use serde_json::json;
+use std::collections::VecDeque;
+use std::collections::{BTreeMap, BTreeSet};
+use std::time::Instant;
+use thiserror::Error;
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RecalcReport {
+    pub sheet: String,
+    pub evaluated_cells: usize,
+    pub cycle_count: usize,
+    pub parse_error_count: usize,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DependencyGraphReport {
+    pub sheet: String,
+    pub formula_cell_count: usize,
+    pub function_call_count: usize,
+    pub ast_node_count: usize,
+    pub ast_unique_node_count: usize,
+    pub dependency_edge_count: usize,
+    pub formula_edge_count: usize,
+    pub topo_order: Vec<String>,
+    pub cyclic_cells: Vec<String>,
+    pub parse_error_cells: Vec<String>,
+    pub formula_ast_ids: BTreeMap<String, u32>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RecalcDagNodeTiming {
+    pub cell: String,
+    pub duration_us: u64,
+    pub status: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RecalcDagNodeDegree {
+    pub cell: String,
+    pub fan_in: usize,
+    pub fan_out: usize,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RecalcDagTimingReport {
+    pub sheet: String,
+    pub mode: String,
+    pub formula_cell_count: usize,
+    pub evaluated_cells: usize,
+    pub changed_root_count: Option<usize>,
+    pub total_node_duration_us: u64,
+    pub max_node_duration_us: u64,
+    pub node_timings: Vec<RecalcDagNodeTiming>,
+    pub node_degrees: Vec<RecalcDagNodeDegree>,
+    pub max_fan_in: usize,
+    pub max_fan_out: usize,
+    pub critical_path: Vec<String>,
+    pub critical_path_duration_us: u64,
+    pub critical_path_truncated_by_cycles: bool,
+    pub slow_nodes_threshold_us: u64,
+    pub slow_nodes: Vec<RecalcDagNodeTiming>,
+}
+
+#[derive(Debug, Clone, Copy, Default, Serialize, Deserialize)]
+pub struct RecalcDagTimingOptions {
+    pub slow_nodes_threshold_us: Option<u64>,
+}
+
+#[derive(Debug, Error)]
+pub enum CalcError {
+    #[error("sheet not found: {0}")]
+    SheetNotFound(String),
+    #[error("telemetry error: {0}")]
+    Telemetry(#[from] TelemetryError),
+}
+
+#[derive(Debug, Clone, Error)]
+enum EvalError {
+    #[error("cycle detected at {0:?}")]
+    Cycle(CellRef),
+    #[error("parse error")]
+    Parse,
+    #[error("division by zero")]
+    DivisionByZero,
+}
+
+#[derive(Debug, Clone)]
+enum Expr {
+    Number(f64),
+    Cell(CellRef),
+    Function {
+        name: String,
+        args: Vec<Expr>,
+    },
+    UnaryMinus(Box<Expr>),
+    Binary {
+        op: BinaryOp,
+        left: Box<Expr>,
+        right: Box<Expr>,
+    },
+}
+
+#[derive(Debug, Clone, Copy)]
+enum BinaryOp {
+    Add,
+    Sub,
+    Mul,
+    Div,
+}
+
+impl BinaryOp {
+    fn as_str(self) -> &'static str {
+        match self {
+            BinaryOp::Add => "add",
+            BinaryOp::Sub => "sub",
+            BinaryOp::Mul => "mul",
+            BinaryOp::Div => "div",
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+struct SheetDependencyAnalysis {
+    parsed_formulas: BTreeMap<CellRef, Result<Expr, EvalError>>,
+    dependency_refs: BTreeMap<CellRef, BTreeSet<CellRef>>,
+    function_call_count: usize,
+    ast_node_count: usize,
+    ast_unique_node_count: usize,
+    formula_ast_ids: BTreeMap<CellRef, u32>,
+    ast_intern_nodes: BTreeMap<u32, String>,
+    dependency_edge_count: usize,
+    formula_edge_count: usize,
+    topo_order: Vec<CellRef>,
+    cyclic_cells: Vec<CellRef>,
+    parse_error_cells: Vec<CellRef>,
+}
+
+#[derive(Debug)]
+struct InternalRecalcResult {
+    report: RecalcReport,
+    dag_timing: Option<RecalcDagTimingReport>,
+}
+
+#[derive(Debug)]
+struct DagInsights {
+    node_degrees: Vec<RecalcDagNodeDegree>,
+    max_fan_in: usize,
+    max_fan_out: usize,
+    critical_path: Vec<String>,
+    critical_path_duration_us: u64,
+    critical_path_truncated_by_cycles: bool,
+    slow_nodes_threshold_us: u64,
+    slow_nodes: Vec<RecalcDagNodeTiming>,
+}
+
+#[derive(Debug, Default, Clone)]
+struct AstInternPool {
+    next_id: u32,
+    id_by_key: BTreeMap<String, u32>,
+    key_by_id: BTreeMap<u32, String>,
+}
+
+impl AstInternPool {
+    fn new() -> Self {
+        Self {
+            next_id: 1,
+            id_by_key: BTreeMap::new(),
+            key_by_id: BTreeMap::new(),
+        }
+    }
+
+    fn intern_expr(&mut self, expr: &Expr) -> u32 {
+        let key = match expr {
+            Expr::Number(n) => format!("num:{n:.15}"),
+            Expr::Cell(cell) => format!("cell:r{}c{}", cell.row, cell.col),
+            Expr::Function { name, args } => {
+                let arg_ids = args
+                    .iter()
+                    .map(|arg| self.intern_expr(arg).to_string())
+                    .collect::<Vec<_>>()
+                    .join(",");
+                format!("fn:{}:[{}]", name.to_ascii_uppercase(), arg_ids)
+            }
+            Expr::UnaryMinus(inner) => {
+                let inner_id = self.intern_expr(inner);
+                format!("neg:{inner_id}")
+            }
+            Expr::Binary { op, left, right } => {
+                let left_id = self.intern_expr(left);
+                let right_id = self.intern_expr(right);
+                format!("bin:{}:{left_id}:{right_id}", op.as_str())
+            }
+        };
+        self.intern_key(key)
+    }
+
+    fn intern_key(&mut self, key: String) -> u32 {
+        if let Some(id) = self.id_by_key.get(&key) {
+            return *id;
+        }
+        let id = self.next_id;
+        self.next_id = self.next_id.saturating_add(1);
+        self.id_by_key.insert(key.clone(), id);
+        self.key_by_id.insert(id, key);
+        id
+    }
+
+    fn unique_node_count(&self) -> usize {
+        self.key_by_id.len()
+    }
+}
+
+pub fn recalc_sheet(
+    workbook: &mut Workbook,
+    sheet_name: &str,
+    sink: &mut dyn EventSink,
+    trace: &TraceContext,
+) -> Result<RecalcReport, CalcError> {
+    Ok(recalc_sheet_impl(
+        workbook,
+        sheet_name,
+        None,
+        sink,
+        trace,
+        "calc.recalc.start",
+        "calc.recalc.end",
+        false,
+        RecalcDagTimingOptions::default(),
+    )?
+    .report)
+}
+
+pub fn recalc_sheet_with_dag_timing(
+    workbook: &mut Workbook,
+    sheet_name: &str,
+    sink: &mut dyn EventSink,
+    trace: &TraceContext,
+) -> Result<(RecalcReport, RecalcDagTimingReport), CalcError> {
+    recalc_sheet_with_dag_timing_options(
+        workbook,
+        sheet_name,
+        RecalcDagTimingOptions::default(),
+        sink,
+        trace,
+    )
+}
+
+pub fn recalc_sheet_with_dag_timing_options(
+    workbook: &mut Workbook,
+    sheet_name: &str,
+    options: RecalcDagTimingOptions,
+    sink: &mut dyn EventSink,
+    trace: &TraceContext,
+) -> Result<(RecalcReport, RecalcDagTimingReport), CalcError> {
+    let result = recalc_sheet_impl(
+        workbook,
+        sheet_name,
+        None,
+        sink,
+        trace,
+        "calc.recalc.start",
+        "calc.recalc.end",
+        true,
+        options,
+    )?;
+    let dag_timing = result
+        .dag_timing
+        .expect("dag timing report must be present when capture_dag_timing=true");
+    Ok((result.report, dag_timing))
+}
+
+pub fn recalc_sheet_from_roots(
+    workbook: &mut Workbook,
+    sheet_name: &str,
+    changed_roots: &[CellRef],
+    sink: &mut dyn EventSink,
+    trace: &TraceContext,
+) -> Result<RecalcReport, CalcError> {
+    let roots = changed_roots.iter().copied().collect::<BTreeSet<_>>();
+    Ok(recalc_sheet_impl(
+        workbook,
+        sheet_name,
+        Some(&roots),
+        sink,
+        trace,
+        "calc.recalc.incremental.start",
+        "calc.recalc.incremental.end",
+        false,
+        RecalcDagTimingOptions::default(),
+    )?
+    .report)
+}
+
+pub fn recalc_sheet_from_roots_with_dag_timing(
+    workbook: &mut Workbook,
+    sheet_name: &str,
+    changed_roots: &[CellRef],
+    sink: &mut dyn EventSink,
+    trace: &TraceContext,
+) -> Result<(RecalcReport, RecalcDagTimingReport), CalcError> {
+    recalc_sheet_from_roots_with_dag_timing_options(
+        workbook,
+        sheet_name,
+        changed_roots,
+        RecalcDagTimingOptions::default(),
+        sink,
+        trace,
+    )
+}
+
+pub fn recalc_sheet_from_roots_with_dag_timing_options(
+    workbook: &mut Workbook,
+    sheet_name: &str,
+    changed_roots: &[CellRef],
+    options: RecalcDagTimingOptions,
+    sink: &mut dyn EventSink,
+    trace: &TraceContext,
+) -> Result<(RecalcReport, RecalcDagTimingReport), CalcError> {
+    let roots = changed_roots.iter().copied().collect::<BTreeSet<_>>();
+    let result = recalc_sheet_impl(
+        workbook,
+        sheet_name,
+        Some(&roots),
+        sink,
+        trace,
+        "calc.recalc.incremental.start",
+        "calc.recalc.incremental.end",
+        true,
+        options,
+    )?;
+    let dag_timing = result
+        .dag_timing
+        .expect("dag timing report must be present when capture_dag_timing=true");
+    Ok((result.report, dag_timing))
+}
+
+fn recalc_sheet_impl(
+    workbook: &mut Workbook,
+    sheet_name: &str,
+    changed_roots: Option<&BTreeSet<CellRef>>,
+    sink: &mut dyn EventSink,
+    trace: &TraceContext,
+    start_event: &str,
+    end_event: &str,
+    capture_dag_timing: bool,
+    dag_timing_options: RecalcDagTimingOptions,
+) -> Result<InternalRecalcResult, CalcError> {
+    let start = Instant::now();
+    let span = trace.child();
+    let mode = if changed_roots.is_some() {
+        "incremental"
+    } else {
+        "full"
+    };
+    let changed_roots_preview = changed_roots.map(|roots| {
+        roots
+            .iter()
+            .take(20)
+            .map(|cell| to_a1(*cell))
+            .collect::<Vec<_>>()
+    });
+
+    sink.emit(
+        EventEnvelope::info(start_event, &span)
+            .with_workbook_id(workbook.workbook_id)
+            .with_context(json!({
+                "sheet": sheet_name,
+                "mode": mode,
+                "changed_root_count": changed_roots.map(|roots| roots.len()),
+                "changed_roots_preview": changed_roots_preview,
+            })),
+    )?;
+
+    let formula_cells = collect_formula_cells(workbook, sheet_name)?;
+    let analysis = build_sheet_dependency_analysis(workbook, sheet_name, &formula_cells)?;
+    emit_dependency_graph_event(sink, &span, workbook.workbook_id, sheet_name, &analysis)?;
+
+    let target_formula_set = if let Some(roots) = changed_roots {
+        collect_impacted_formula_cells(&analysis, roots)
+    } else {
+        formula_cells.iter().copied().collect::<BTreeSet<_>>()
+    };
+    let target_formula_cells = order_formula_cells(&analysis, &target_formula_set);
+
+    let mut cache = BTreeMap::<CellRef, Result<f64, EvalError>>::new();
+    let mut cycle_count = 0usize;
+    let mut parse_error_count = 0usize;
+    let mut duration_by_cell = BTreeMap::<CellRef, u64>::new();
+    let mut node_timings = if capture_dag_timing {
+        Some(Vec::<RecalcDagNodeTiming>::new())
+    } else {
+        None
+    };
+
+    for cell_ref in &target_formula_cells {
+        let mut stack = BTreeSet::new();
+        let eval_started = Instant::now();
+        let result = eval_cell(
+            workbook,
+            sheet_name,
+            *cell_ref,
+            &analysis.parsed_formulas,
+            &mut stack,
+            &mut cache,
+        );
+        let duration_us = eval_started.elapsed().as_micros().min(u128::from(u64::MAX)) as u64;
+        duration_by_cell.insert(*cell_ref, duration_us);
+        if let Some(timings) = node_timings.as_mut() {
+            timings.push(RecalcDagNodeTiming {
+                cell: to_a1(*cell_ref),
+                duration_us,
+                status: eval_status(&result).to_string(),
+            });
+        }
+
+        if let Some(sheet_mut) = workbook.sheets.get_mut(sheet_name) {
+            if let Some(cell) = sheet_mut.cells.get_mut(cell_ref) {
+                match result {
+                    Ok(value) => {
+                        cell.value = CellValue::Number(value);
+                    }
+                    Err(EvalError::Cycle(_)) => {
+                        cycle_count += 1;
+                        cell.value = CellValue::Error("#CYCLE!".to_string());
+                        sink.emit(
+                            EventEnvelope::info("calc.cycle.detected", &span)
+                                .with_workbook_id(workbook.workbook_id)
+                                .with_payload(json!({
+                                    "sheet": sheet_name,
+                                    "row": cell_ref.row,
+                                    "col": cell_ref.col,
+                                })),
+                        )?;
+                    }
+                    Err(EvalError::Parse) => {
+                        parse_error_count += 1;
+                        cell.value = CellValue::Error("#PARSE!".to_string());
+                    }
+                    Err(EvalError::DivisionByZero) => {
+                        cell.value = CellValue::Error("#DIV/0!".to_string());
+                    }
+                }
+            }
+        }
+    }
+
+    let report = RecalcReport {
+        sheet: sheet_name.to_string(),
+        evaluated_cells: target_formula_cells.len(),
+        cycle_count,
+        parse_error_count,
+    };
+
+    let dag_timing = if let Some(node_timings) = node_timings {
+        let total_node_duration_us = node_timings.iter().map(|n| n.duration_us).sum::<u64>();
+        let max_node_duration_us = node_timings
+            .iter()
+            .map(|n| n.duration_us)
+            .max()
+            .unwrap_or(0);
+        let insights = build_dag_insights(
+            &analysis,
+            &target_formula_cells,
+            &duration_by_cell,
+            &node_timings,
+            dag_timing_options.slow_nodes_threshold_us,
+        );
+        let mut slowest = node_timings.clone();
+        slowest.sort_by(|a, b| {
+            b.duration_us
+                .cmp(&a.duration_us)
+                .then_with(|| a.cell.cmp(&b.cell))
+        });
+        let slowest_preview = slowest
+            .iter()
+            .take(20)
+            .map(|n| {
+                json!({
+                    "cell": n.cell,
+                    "duration_us": n.duration_us,
+                    "status": n.status,
+                })
+            })
+            .collect::<Vec<_>>();
+        let slow_nodes_preview = insights
+            .slow_nodes
+            .iter()
+            .take(20)
+            .map(|n| {
+                json!({
+                    "cell": n.cell,
+                    "duration_us": n.duration_us,
+                    "status": n.status,
+                })
+            })
+            .collect::<Vec<_>>();
+        let degree_preview = insights
+            .node_degrees
+            .iter()
+            .take(20)
+            .map(|node| {
+                json!({
+                    "cell": node.cell,
+                    "fan_in": node.fan_in,
+                    "fan_out": node.fan_out,
+                })
+            })
+            .collect::<Vec<_>>();
+        sink.emit(
+            EventEnvelope::info("calc.recalc.dag_timing", &span)
+                .with_workbook_id(workbook.workbook_id)
+                .with_context(json!({
+                    "sheet": sheet_name,
+                    "mode": mode,
+                    "changed_root_count": changed_roots.map(|roots| roots.len()),
+                }))
+                .with_metrics(json!({
+                    "node_count": node_timings.len(),
+                    "total_node_duration_us": total_node_duration_us,
+                    "max_node_duration_us": max_node_duration_us,
+                    "max_fan_in": insights.max_fan_in,
+                    "max_fan_out": insights.max_fan_out,
+                    "critical_path_duration_us": insights.critical_path_duration_us,
+                    "critical_path_len": insights.critical_path.len(),
+                    "slow_nodes_threshold_us": insights.slow_nodes_threshold_us,
+                    "slow_node_count": insights.slow_nodes.len(),
+                }))
+                .with_payload(json!({
+                    "slowest_nodes_preview": slowest_preview,
+                    "slowest_preview_truncated": node_timings.len() > 20,
+                    "slow_nodes_preview": slow_nodes_preview,
+                    "slow_nodes_preview_truncated": insights.slow_nodes.len() > 20,
+                    "node_degree_preview": degree_preview,
+                    "node_degree_preview_truncated": insights.node_degrees.len() > 20,
+                    "critical_path": insights.critical_path,
+                    "critical_path_truncated_by_cycles": insights.critical_path_truncated_by_cycles,
+                    "slow_nodes_threshold_override_us": dag_timing_options.slow_nodes_threshold_us,
+                })),
+        )?;
+        Some(RecalcDagTimingReport {
+            sheet: sheet_name.to_string(),
+            mode: mode.to_string(),
+            formula_cell_count: formula_cells.len(),
+            evaluated_cells: report.evaluated_cells,
+            changed_root_count: changed_roots.map(|roots| roots.len()),
+            total_node_duration_us,
+            max_node_duration_us,
+            node_timings,
+            node_degrees: insights.node_degrees,
+            max_fan_in: insights.max_fan_in,
+            max_fan_out: insights.max_fan_out,
+            critical_path: insights.critical_path,
+            critical_path_duration_us: insights.critical_path_duration_us,
+            critical_path_truncated_by_cycles: insights.critical_path_truncated_by_cycles,
+            slow_nodes_threshold_us: insights.slow_nodes_threshold_us,
+            slow_nodes: insights.slow_nodes,
+        })
+    } else {
+        None
+    };
+
+    sink.emit(
+        EventEnvelope::info(end_event, &span)
+            .with_workbook_id(workbook.workbook_id)
+            .with_metrics(json!({
+                "duration_ms": start.elapsed().as_secs_f64() * 1000.0,
+                "evaluated_cells": report.evaluated_cells,
+                "formula_cell_count": formula_cells.len(),
+                "cycle_count": report.cycle_count,
+                "parse_error_count": report.parse_error_count,
+            }))
+            .with_payload(json!({
+                "sheet": report.sheet,
+            })),
+    )?;
+
+    Ok(InternalRecalcResult { report, dag_timing })
+}
+
+pub fn analyze_sheet_dependencies(
+    workbook: &Workbook,
+    sheet_name: &str,
+    sink: &mut dyn EventSink,
+    trace: &TraceContext,
+) -> Result<DependencyGraphReport, CalcError> {
+    let span = trace.child();
+    let formula_cells = collect_formula_cells(workbook, sheet_name)?;
+    let analysis = build_sheet_dependency_analysis(workbook, sheet_name, &formula_cells)?;
+    emit_dependency_graph_event(sink, &span, workbook.workbook_id, sheet_name, &analysis)?;
+    Ok(build_dependency_report(sheet_name, &analysis))
+}
+
+fn collect_formula_cells(workbook: &Workbook, sheet_name: &str) -> Result<Vec<CellRef>, CalcError> {
+    let sheet = workbook
+        .sheets
+        .get(sheet_name)
+        .ok_or_else(|| CalcError::SheetNotFound(sheet_name.to_string()))?;
+    Ok(sheet
+        .cells
+        .iter()
+        .filter_map(|(cell_ref, cell)| {
+            if cell.formula.is_some() {
+                Some(*cell_ref)
+            } else {
+                None
+            }
+        })
+        .collect::<Vec<_>>())
+}
+
+fn build_sheet_dependency_analysis(
+    workbook: &Workbook,
+    sheet_name: &str,
+    formula_cells: &[CellRef],
+) -> Result<SheetDependencyAnalysis, CalcError> {
+    let sheet = workbook
+        .sheets
+        .get(sheet_name)
+        .ok_or_else(|| CalcError::SheetNotFound(sheet_name.to_string()))?;
+    let formula_set = formula_cells.iter().copied().collect::<BTreeSet<_>>();
+
+    let mut parsed_formulas = BTreeMap::<CellRef, Result<Expr, EvalError>>::new();
+    let mut dependency_refs = BTreeMap::<CellRef, BTreeSet<CellRef>>::new();
+    let mut ast_pool = AstInternPool::new();
+    let mut formula_ast_ids = BTreeMap::<CellRef, u32>::new();
+    let mut parse_error_cells = Vec::<CellRef>::new();
+    let mut function_call_count = 0usize;
+    let mut ast_node_count = 0usize;
+    let mut dependency_edge_count = 0usize;
+
+    for cell_ref in formula_cells {
+        let parsed = sheet
+            .cells
+            .get(cell_ref)
+            .and_then(|cell| cell.formula.as_deref())
+            .ok_or(EvalError::Parse)
+            .and_then(parse_formula_expression);
+
+        let refs = if let Ok(expr) = &parsed {
+            let mut refs = BTreeSet::<CellRef>::new();
+            collect_expr_references(expr, &mut refs);
+            function_call_count += count_expr_functions(expr);
+            ast_node_count += count_expr_nodes(expr);
+            let root_id = ast_pool.intern_expr(expr);
+            formula_ast_ids.insert(*cell_ref, root_id);
+            refs
+        } else {
+            parse_error_cells.push(*cell_ref);
+            BTreeSet::new()
+        };
+
+        dependency_edge_count += refs.len();
+        parsed_formulas.insert(*cell_ref, parsed);
+        dependency_refs.insert(*cell_ref, refs);
+    }
+
+    let (topo_order, formula_edge_count) =
+        build_formula_topological_order(&formula_set, &dependency_refs);
+    let topo_set = topo_order.iter().copied().collect::<BTreeSet<_>>();
+    let cyclic_cells = formula_set
+        .difference(&topo_set)
+        .copied()
+        .collect::<Vec<_>>();
+
+    Ok(SheetDependencyAnalysis {
+        parsed_formulas,
+        dependency_refs,
+        function_call_count,
+        ast_node_count,
+        ast_unique_node_count: ast_pool.unique_node_count(),
+        formula_ast_ids,
+        ast_intern_nodes: ast_pool.key_by_id,
+        dependency_edge_count,
+        formula_edge_count,
+        topo_order,
+        cyclic_cells,
+        parse_error_cells,
+    })
+}
+
+fn collect_impacted_formula_cells(
+    analysis: &SheetDependencyAnalysis,
+    changed_roots: &BTreeSet<CellRef>,
+) -> BTreeSet<CellRef> {
+    let formula_nodes = analysis
+        .parsed_formulas
+        .keys()
+        .copied()
+        .collect::<BTreeSet<_>>();
+    let mut dependents_by_ref = BTreeMap::<CellRef, BTreeSet<CellRef>>::new();
+    for (formula_cell, refs) in &analysis.dependency_refs {
+        for referenced in refs {
+            dependents_by_ref
+                .entry(*referenced)
+                .or_default()
+                .insert(*formula_cell);
+        }
+    }
+
+    let mut impacted = BTreeSet::<CellRef>::new();
+    let mut queue = VecDeque::<CellRef>::new();
+    for root in changed_roots {
+        if formula_nodes.contains(root) && impacted.insert(*root) {
+            queue.push_back(*root);
+        }
+        if let Some(dependents) = dependents_by_ref.get(root) {
+            for dependent in dependents {
+                if impacted.insert(*dependent) {
+                    queue.push_back(*dependent);
+                }
+            }
+        }
+    }
+
+    while let Some(node) = queue.pop_front() {
+        if let Some(dependents) = dependents_by_ref.get(&node) {
+            for dependent in dependents {
+                if impacted.insert(*dependent) {
+                    queue.push_back(*dependent);
+                }
+            }
+        }
+    }
+
+    impacted
+}
+
+fn order_formula_cells(
+    analysis: &SheetDependencyAnalysis,
+    target_cells: &BTreeSet<CellRef>,
+) -> Vec<CellRef> {
+    let mut ordered = analysis
+        .topo_order
+        .iter()
+        .copied()
+        .filter(|cell| target_cells.contains(cell))
+        .collect::<Vec<_>>();
+    let ordered_set = ordered.iter().copied().collect::<BTreeSet<_>>();
+    let mut remaining = target_cells
+        .difference(&ordered_set)
+        .copied()
+        .collect::<Vec<_>>();
+    remaining.sort();
+    ordered.extend(remaining);
+    ordered
+}
+
+fn build_formula_topological_order(
+    formula_set: &BTreeSet<CellRef>,
+    dependency_refs: &BTreeMap<CellRef, BTreeSet<CellRef>>,
+) -> (Vec<CellRef>, usize) {
+    let mut indegree = formula_set
+        .iter()
+        .copied()
+        .map(|cell| (cell, 0usize))
+        .collect::<BTreeMap<_, _>>();
+    let mut adjacency = BTreeMap::<CellRef, BTreeSet<CellRef>>::new();
+    let mut formula_edge_count = 0usize;
+
+    for (cell, refs) in dependency_refs {
+        for referenced in refs {
+            if formula_set.contains(referenced) {
+                adjacency.entry(*referenced).or_default().insert(*cell);
+                if let Some(entry) = indegree.get_mut(cell) {
+                    *entry += 1;
+                }
+                formula_edge_count += 1;
+            }
+        }
+    }
+
+    let mut ready = indegree
+        .iter()
+        .filter_map(|(cell, degree)| if *degree == 0 { Some(*cell) } else { None })
+        .collect::<BTreeSet<_>>();
+    let mut order = Vec::<CellRef>::new();
+
+    while let Some(next) = ready.iter().next().copied() {
+        ready.remove(&next);
+        order.push(next);
+
+        if let Some(dependents) = adjacency.get(&next) {
+            for dependent in dependents {
+                if let Some(degree) = indegree.get_mut(dependent) {
+                    *degree = degree.saturating_sub(1);
+                    if *degree == 0 {
+                        ready.insert(*dependent);
+                    }
+                }
+            }
+        }
+    }
+
+    (order, formula_edge_count)
+}
+
+fn emit_dependency_graph_event(
+    sink: &mut dyn EventSink,
+    span: &TraceContext,
+    workbook_id: uuid::Uuid,
+    sheet_name: &str,
+    analysis: &SheetDependencyAnalysis,
+) -> Result<(), CalcError> {
+    let parse_errors = analysis
+        .parse_error_cells
+        .iter()
+        .map(|cell| to_a1(*cell))
+        .collect::<Vec<_>>();
+    let cyclic_cells = analysis
+        .cyclic_cells
+        .iter()
+        .map(|cell| to_a1(*cell))
+        .collect::<Vec<_>>();
+    let topo_preview = analysis
+        .topo_order
+        .iter()
+        .take(20)
+        .map(|cell| to_a1(*cell))
+        .collect::<Vec<_>>();
+    let ast_preview = analysis
+        .ast_intern_nodes
+        .iter()
+        .take(20)
+        .map(|(id, key)| {
+            json!({
+                "id": id,
+                "key": key,
+            })
+        })
+        .collect::<Vec<_>>();
+    let formula_ast_ids = analysis
+        .formula_ast_ids
+        .iter()
+        .map(|(cell, id)| {
+            json!({
+                "cell": to_a1(*cell),
+                "ast_id": id,
+            })
+        })
+        .collect::<Vec<_>>();
+
+    sink.emit(
+        EventEnvelope::info("calc.dependency_graph.built", span)
+            .with_workbook_id(workbook_id)
+            .with_context(json!({
+                "sheet": sheet_name,
+            }))
+            .with_metrics(json!({
+                "formula_cell_count": analysis.parsed_formulas.len(),
+                "function_call_count": analysis.function_call_count,
+                "ast_node_count": analysis.ast_node_count,
+                "ast_unique_node_count": analysis.ast_unique_node_count,
+                "dependency_edge_count": analysis.dependency_edge_count,
+                "formula_edge_count": analysis.formula_edge_count,
+                "topo_order_count": analysis.topo_order.len(),
+                "cyclic_formula_count": analysis.cyclic_cells.len(),
+                "parse_error_formula_count": analysis.parse_error_cells.len(),
+            }))
+            .with_payload(json!({
+                "parse_error_cells": parse_errors,
+                "cyclic_cells": cyclic_cells,
+                "topo_order_preview": topo_preview,
+                "topo_order_truncated": analysis.topo_order.len() > 20,
+                "formula_ast_ids": formula_ast_ids,
+                "ast_intern_preview": ast_preview,
+                "ast_intern_preview_truncated": analysis.ast_intern_nodes.len() > 20,
+                "dependency_refs": analysis
+                    .dependency_refs
+                    .iter()
+                    .map(|(cell, refs)| {
+                        json!({
+                            "cell": to_a1(*cell),
+                            "references": refs.iter().map(|dep| to_a1(*dep)).collect::<Vec<_>>(),
+                        })
+                    })
+                    .collect::<Vec<_>>(),
+            })),
+    )?;
+
+    Ok(())
+}
+
+fn build_dependency_report(
+    sheet_name: &str,
+    analysis: &SheetDependencyAnalysis,
+) -> DependencyGraphReport {
+    let formula_ast_ids = analysis
+        .formula_ast_ids
+        .iter()
+        .map(|(cell, id)| (to_a1(*cell), *id))
+        .collect::<BTreeMap<_, _>>();
+    DependencyGraphReport {
+        sheet: sheet_name.to_string(),
+        formula_cell_count: analysis.parsed_formulas.len(),
+        function_call_count: analysis.function_call_count,
+        ast_node_count: analysis.ast_node_count,
+        ast_unique_node_count: analysis.ast_unique_node_count,
+        dependency_edge_count: analysis.dependency_edge_count,
+        formula_edge_count: analysis.formula_edge_count,
+        topo_order: analysis
+            .topo_order
+            .iter()
+            .map(|cell| to_a1(*cell))
+            .collect(),
+        cyclic_cells: analysis
+            .cyclic_cells
+            .iter()
+            .map(|cell| to_a1(*cell))
+            .collect(),
+        parse_error_cells: analysis
+            .parse_error_cells
+            .iter()
+            .map(|cell| to_a1(*cell))
+            .collect(),
+        formula_ast_ids,
+    }
+}
+
+fn build_dag_insights(
+    analysis: &SheetDependencyAnalysis,
+    target_formula_cells: &[CellRef],
+    duration_by_cell: &BTreeMap<CellRef, u64>,
+    node_timings: &[RecalcDagNodeTiming],
+    slow_nodes_threshold_override_us: Option<u64>,
+) -> DagInsights {
+    let target_set = target_formula_cells
+        .iter()
+        .copied()
+        .collect::<BTreeSet<_>>();
+    let formula_nodes = analysis
+        .parsed_formulas
+        .keys()
+        .copied()
+        .collect::<BTreeSet<_>>();
+    let mut fan_in = target_formula_cells
+        .iter()
+        .copied()
+        .map(|cell| (cell, 0usize))
+        .collect::<BTreeMap<_, _>>();
+    let mut fan_out = target_formula_cells
+        .iter()
+        .copied()
+        .map(|cell| (cell, 0usize))
+        .collect::<BTreeMap<_, _>>();
+    let mut adjacency = BTreeMap::<CellRef, BTreeSet<CellRef>>::new();
+
+    for (cell, refs) in &analysis.dependency_refs {
+        if !target_set.contains(cell) {
+            continue;
+        }
+        for referenced in refs {
+            if target_set.contains(referenced) && formula_nodes.contains(referenced) {
+                *fan_in.entry(*cell).or_insert(0) += 1;
+                *fan_out.entry(*referenced).or_insert(0) += 1;
+                adjacency.entry(*referenced).or_default().insert(*cell);
+            }
+        }
+    }
+
+    let node_degrees = target_formula_cells
+        .iter()
+        .map(|cell| RecalcDagNodeDegree {
+            cell: to_a1(*cell),
+            fan_in: *fan_in.get(cell).unwrap_or(&0),
+            fan_out: *fan_out.get(cell).unwrap_or(&0),
+        })
+        .collect::<Vec<_>>();
+    let max_fan_in = node_degrees.iter().map(|n| n.fan_in).max().unwrap_or(0);
+    let max_fan_out = node_degrees.iter().map(|n| n.fan_out).max().unwrap_or(0);
+
+    let topo_nodes = analysis
+        .topo_order
+        .iter()
+        .copied()
+        .filter(|cell| target_set.contains(cell))
+        .collect::<Vec<_>>();
+    let critical_path_truncated_by_cycles = topo_nodes.len() < target_set.len();
+    let mut best_duration = BTreeMap::<CellRef, u64>::new();
+    let mut predecessor = BTreeMap::<CellRef, CellRef>::new();
+    for node in &topo_nodes {
+        let self_duration = *duration_by_cell.get(node).unwrap_or(&0);
+        best_duration.entry(*node).or_insert(self_duration);
+        if let Some(dependents) = adjacency.get(node) {
+            for dependent in dependents {
+                let dependent_duration = *duration_by_cell.get(dependent).unwrap_or(&0);
+                let candidate = best_duration.get(node).copied().unwrap_or(0) + dependent_duration;
+                let current = best_duration
+                    .get(dependent)
+                    .copied()
+                    .unwrap_or(dependent_duration);
+                let should_update = if candidate > current {
+                    true
+                } else if candidate == current {
+                    predecessor
+                        .get(dependent)
+                        .map(|existing| node < existing)
+                        .unwrap_or(true)
+                } else {
+                    false
+                };
+                if should_update {
+                    best_duration.insert(*dependent, candidate);
+                    predecessor.insert(*dependent, *node);
+                }
+            }
+        }
+    }
+
+    let critical_end = if !topo_nodes.is_empty() {
+        topo_nodes
+            .iter()
+            .max_by(|a, b| {
+                best_duration
+                    .get(a)
+                    .copied()
+                    .unwrap_or(0)
+                    .cmp(&best_duration.get(b).copied().unwrap_or(0))
+                    .then_with(|| b.cmp(a))
+            })
+            .copied()
+    } else {
+        target_formula_cells
+            .iter()
+            .max_by(|a, b| {
+                duration_by_cell
+                    .get(a)
+                    .copied()
+                    .unwrap_or(0)
+                    .cmp(&duration_by_cell.get(b).copied().unwrap_or(0))
+                    .then_with(|| b.cmp(a))
+            })
+            .copied()
+    };
+
+    let mut critical_path_refs = Vec::<CellRef>::new();
+    if let Some(mut cursor) = critical_end {
+        critical_path_refs.push(cursor);
+        while let Some(prev) = predecessor.get(&cursor).copied() {
+            critical_path_refs.push(prev);
+            cursor = prev;
+        }
+        critical_path_refs.reverse();
+    }
+    let critical_path_duration_us = critical_path_refs
+        .iter()
+        .map(|cell| duration_by_cell.get(cell).copied().unwrap_or(0))
+        .sum::<u64>();
+    let critical_path = critical_path_refs.iter().map(|cell| to_a1(*cell)).collect();
+
+    let max_node_duration_us = node_timings
+        .iter()
+        .map(|n| n.duration_us)
+        .max()
+        .unwrap_or(0);
+    let derived_slow_nodes_threshold_us = if max_node_duration_us == 0 {
+        0
+    } else {
+        ((max_node_duration_us * 8) / 10).max(1)
+    };
+    let slow_nodes_threshold_us =
+        slow_nodes_threshold_override_us.unwrap_or(derived_slow_nodes_threshold_us);
+    let mut slow_nodes = node_timings
+        .iter()
+        .filter(|node| node.duration_us >= slow_nodes_threshold_us)
+        .cloned()
+        .collect::<Vec<_>>();
+    slow_nodes.sort_by(|a, b| {
+        b.duration_us
+            .cmp(&a.duration_us)
+            .then_with(|| a.cell.cmp(&b.cell))
+    });
+
+    DagInsights {
+        node_degrees,
+        max_fan_in,
+        max_fan_out,
+        critical_path,
+        critical_path_duration_us,
+        critical_path_truncated_by_cycles,
+        slow_nodes_threshold_us,
+        slow_nodes,
+    }
+}
+
+fn eval_cell(
+    workbook: &Workbook,
+    sheet_name: &str,
+    cell_ref: CellRef,
+    parsed_formulas: &BTreeMap<CellRef, Result<Expr, EvalError>>,
+    stack: &mut BTreeSet<CellRef>,
+    cache: &mut BTreeMap<CellRef, Result<f64, EvalError>>,
+) -> Result<f64, EvalError> {
+    if let Some(cached) = cache.get(&cell_ref) {
+        return cached.clone();
+    }
+
+    if !stack.insert(cell_ref) {
+        return Err(EvalError::Cycle(cell_ref));
+    }
+
+    let result = match workbook
+        .sheets
+        .get(sheet_name)
+        .and_then(|sheet| sheet.cells.get(&cell_ref))
+    {
+        Some(cell) => {
+            if let Some(formula) = &cell.formula {
+                if let Some(parsed) = parsed_formulas.get(&cell_ref) {
+                    match parsed {
+                        Ok(expr) => {
+                            eval_expr(workbook, sheet_name, expr, parsed_formulas, stack, cache)
+                        }
+                        Err(err) => Err(err.clone()),
+                    }
+                } else {
+                    let parsed = parse_formula_expression(formula)?;
+                    eval_expr(workbook, sheet_name, &parsed, parsed_formulas, stack, cache)
+                }
+            } else {
+                value_as_number(&cell.value)
+            }
+        }
+        None => Ok(0.0),
+    };
+
+    stack.remove(&cell_ref);
+    cache.insert(cell_ref, result.clone());
+    result
+}
+
+fn eval_expr(
+    workbook: &Workbook,
+    sheet_name: &str,
+    expr: &Expr,
+    parsed_formulas: &BTreeMap<CellRef, Result<Expr, EvalError>>,
+    stack: &mut BTreeSet<CellRef>,
+    cache: &mut BTreeMap<CellRef, Result<f64, EvalError>>,
+) -> Result<f64, EvalError> {
+    match expr {
+        Expr::Number(n) => Ok(*n),
+        Expr::Cell(cell_ref) => eval_cell(
+            workbook,
+            sheet_name,
+            *cell_ref,
+            parsed_formulas,
+            stack,
+            cache,
+        ),
+        Expr::Function { name, args } => eval_function(
+            workbook,
+            sheet_name,
+            name,
+            args,
+            parsed_formulas,
+            stack,
+            cache,
+        ),
+        Expr::UnaryMinus(inner) => Ok(-eval_expr(
+            workbook,
+            sheet_name,
+            inner,
+            parsed_formulas,
+            stack,
+            cache,
+        )?),
+        Expr::Binary { op, left, right } => {
+            let lhs = eval_expr(workbook, sheet_name, left, parsed_formulas, stack, cache)?;
+            let rhs = eval_expr(workbook, sheet_name, right, parsed_formulas, stack, cache)?;
+            match op {
+                BinaryOp::Add => Ok(lhs + rhs),
+                BinaryOp::Sub => Ok(lhs - rhs),
+                BinaryOp::Mul => Ok(lhs * rhs),
+                BinaryOp::Div => {
+                    if rhs == 0.0 {
+                        Err(EvalError::DivisionByZero)
+                    } else {
+                        Ok(lhs / rhs)
+                    }
+                }
+            }
+        }
+    }
+}
+
+fn eval_function(
+    workbook: &Workbook,
+    sheet_name: &str,
+    name: &str,
+    args: &[Expr],
+    parsed_formulas: &BTreeMap<CellRef, Result<Expr, EvalError>>,
+    stack: &mut BTreeSet<CellRef>,
+    cache: &mut BTreeMap<CellRef, Result<f64, EvalError>>,
+) -> Result<f64, EvalError> {
+    let mut values = Vec::<f64>::with_capacity(args.len());
+    for arg in args {
+        values.push(eval_expr(
+            workbook,
+            sheet_name,
+            arg,
+            parsed_formulas,
+            stack,
+            cache,
+        )?);
+    }
+
+    match name {
+        "SUM" => Ok(values.into_iter().sum()),
+        "AVERAGE" | "AVG" => {
+            if values.is_empty() {
+                return Err(EvalError::Parse);
+            }
+            let sum = values.iter().sum::<f64>();
+            Ok(sum / values.len() as f64)
+        }
+        "MIN" => {
+            let min = values
+                .into_iter()
+                .min_by(f64::total_cmp)
+                .ok_or(EvalError::Parse)?;
+            Ok(min)
+        }
+        "MAX" => {
+            let max = values
+                .into_iter()
+                .max_by(f64::total_cmp)
+                .ok_or(EvalError::Parse)?;
+            Ok(max)
+        }
+        "IF" => {
+            if values.len() < 2 || values.len() > 3 {
+                return Err(EvalError::Parse);
+            }
+            let condition = values[0];
+            let true_value = values[1];
+            let false_value = if values.len() == 3 { values[2] } else { 0.0 };
+            if condition != 0.0 {
+                Ok(true_value)
+            } else {
+                Ok(false_value)
+            }
+        }
+        "ABS" => {
+            if values.len() != 1 {
+                return Err(EvalError::Parse);
+            }
+            Ok(values[0].abs())
+        }
+        "AND" => {
+            if values.is_empty() {
+                return Err(EvalError::Parse);
+            }
+            Ok(if values.iter().all(|v| *v != 0.0) {
+                1.0
+            } else {
+                0.0
+            })
+        }
+        "OR" => {
+            if values.is_empty() {
+                return Err(EvalError::Parse);
+            }
+            Ok(if values.iter().any(|v| *v != 0.0) {
+                1.0
+            } else {
+                0.0
+            })
+        }
+        "NOT" => {
+            if values.len() != 1 {
+                return Err(EvalError::Parse);
+            }
+            Ok(if values[0] == 0.0 { 1.0 } else { 0.0 })
+        }
+        _ => Err(EvalError::Parse),
+    }
+}
+
+fn eval_status(result: &Result<f64, EvalError>) -> &'static str {
+    match result {
+        Ok(_) => "ok",
+        Err(EvalError::Cycle(_)) => "cycle",
+        Err(EvalError::Parse) => "parse_error",
+        Err(EvalError::DivisionByZero) => "division_by_zero",
+    }
+}
+
+fn parse_formula_expression(formula: &str) -> Result<Expr, EvalError> {
+    let body = formula.strip_prefix('=').unwrap_or(formula).trim();
+    if body.is_empty() {
+        return Err(EvalError::Parse);
+    }
+    let mut parser = FormulaParser::new(body);
+    let expr = parser.parse_expression()?;
+    parser.skip_ws();
+    if !parser.is_eof() {
+        return Err(EvalError::Parse);
+    }
+    Ok(expr)
+}
+
+fn collect_expr_references(expr: &Expr, out: &mut BTreeSet<CellRef>) {
+    match expr {
+        Expr::Number(_) => {}
+        Expr::Cell(cell) => {
+            out.insert(*cell);
+        }
+        Expr::Function { args, .. } => {
+            for arg in args {
+                collect_expr_references(arg, out);
+            }
+        }
+        Expr::UnaryMinus(inner) => collect_expr_references(inner, out),
+        Expr::Binary { left, right, .. } => {
+            collect_expr_references(left, out);
+            collect_expr_references(right, out);
+        }
+    }
+}
+
+fn count_expr_functions(expr: &Expr) -> usize {
+    match expr {
+        Expr::Number(_) | Expr::Cell(_) => 0,
+        Expr::Function { args, .. } => 1 + args.iter().map(count_expr_functions).sum::<usize>(),
+        Expr::UnaryMinus(inner) => count_expr_functions(inner),
+        Expr::Binary { left, right, .. } => {
+            count_expr_functions(left) + count_expr_functions(right)
+        }
+    }
+}
+
+fn count_expr_nodes(expr: &Expr) -> usize {
+    match expr {
+        Expr::Number(_) | Expr::Cell(_) => 1,
+        Expr::Function { args, .. } => 1 + args.iter().map(count_expr_nodes).sum::<usize>(),
+        Expr::UnaryMinus(inner) => 1 + count_expr_nodes(inner),
+        Expr::Binary { left, right, .. } => 1 + count_expr_nodes(left) + count_expr_nodes(right),
+    }
+}
+
+struct FormulaParser<'a> {
+    input: &'a str,
+    index: usize,
+}
+
+impl<'a> FormulaParser<'a> {
+    fn new(input: &'a str) -> Self {
+        Self { input, index: 0 }
+    }
+
+    fn is_eof(&self) -> bool {
+        self.index >= self.input.len()
+    }
+
+    fn skip_ws(&mut self) {
+        while let Some(ch) = self.peek_char() {
+            if ch.is_ascii_whitespace() {
+                self.bump_char();
+            } else {
+                break;
+            }
+        }
+    }
+
+    fn peek_char(&self) -> Option<char> {
+        self.input[self.index..].chars().next()
+    }
+
+    fn bump_char(&mut self) -> Option<char> {
+        let ch = self.peek_char()?;
+        self.index += ch.len_utf8();
+        Some(ch)
+    }
+
+    fn parse_expression(&mut self) -> Result<Expr, EvalError> {
+        let mut expr = self.parse_term()?;
+        loop {
+            self.skip_ws();
+            let op = match self.peek_char() {
+                Some('+') => BinaryOp::Add,
+                Some('-') => BinaryOp::Sub,
+                _ => break,
+            };
+            self.bump_char();
+            let right = self.parse_term()?;
+            expr = Expr::Binary {
+                op,
+                left: Box::new(expr),
+                right: Box::new(right),
+            };
+        }
+        Ok(expr)
+    }
+
+    fn parse_term(&mut self) -> Result<Expr, EvalError> {
+        let mut expr = self.parse_factor()?;
+        loop {
+            self.skip_ws();
+            let op = match self.peek_char() {
+                Some('*') => BinaryOp::Mul,
+                Some('/') => BinaryOp::Div,
+                _ => break,
+            };
+            self.bump_char();
+            let right = self.parse_factor()?;
+            expr = Expr::Binary {
+                op,
+                left: Box::new(expr),
+                right: Box::new(right),
+            };
+        }
+        Ok(expr)
+    }
+
+    fn parse_factor(&mut self) -> Result<Expr, EvalError> {
+        self.skip_ws();
+        match self.peek_char() {
+            Some('+') => {
+                self.bump_char();
+                self.parse_factor()
+            }
+            Some('-') => {
+                self.bump_char();
+                Ok(Expr::UnaryMinus(Box::new(self.parse_factor()?)))
+            }
+            Some('(') => {
+                self.bump_char();
+                let expr = self.parse_expression()?;
+                self.skip_ws();
+                if self.bump_char() != Some(')') {
+                    return Err(EvalError::Parse);
+                }
+                Ok(expr)
+            }
+            Some(ch) if ch.is_ascii_digit() || ch == '.' => self.parse_number(),
+            Some(ch) if ch.is_ascii_alphabetic() || ch == '_' => self.parse_identifier_expr(),
+            _ => Err(EvalError::Parse),
+        }
+    }
+
+    fn parse_number(&mut self) -> Result<Expr, EvalError> {
+        let start = self.index;
+        let mut saw_digit = false;
+        let mut saw_dot = false;
+        while let Some(ch) = self.peek_char() {
+            if ch.is_ascii_digit() {
+                saw_digit = true;
+                self.bump_char();
+            } else if ch == '.' && !saw_dot {
+                saw_dot = true;
+                self.bump_char();
+            } else {
+                break;
+            }
+        }
+        if !saw_digit {
+            return Err(EvalError::Parse);
+        }
+        let token = &self.input[start..self.index];
+        let number = token.parse::<f64>().map_err(|_| EvalError::Parse)?;
+        Ok(Expr::Number(number))
+    }
+
+    fn parse_identifier_expr(&mut self) -> Result<Expr, EvalError> {
+        let token = self.parse_identifier_token()?;
+        self.skip_ws();
+        if self.peek_char() == Some('(') {
+            self.bump_char();
+            self.skip_ws();
+            let mut args = Vec::<Expr>::new();
+            if self.peek_char() != Some(')') {
+                loop {
+                    let arg = self.parse_expression()?;
+                    args.push(arg);
+                    self.skip_ws();
+                    match self.peek_char() {
+                        Some(',') => {
+                            self.bump_char();
+                            self.skip_ws();
+                        }
+                        Some(')') => break,
+                        _ => return Err(EvalError::Parse),
+                    }
+                }
+            }
+            if self.bump_char() != Some(')') {
+                return Err(EvalError::Parse);
+            }
+            return Ok(Expr::Function {
+                name: token.to_ascii_uppercase(),
+                args,
+            });
+        }
+
+        parse_a1_cell(&token)
+            .map(Expr::Cell)
+            .ok_or(EvalError::Parse)
+    }
+
+    fn parse_identifier_token(&mut self) -> Result<String, EvalError> {
+        let start = self.index;
+        match self.peek_char() {
+            Some(ch) if ch.is_ascii_alphabetic() || ch == '_' => {
+                self.bump_char();
+            }
+            _ => return Err(EvalError::Parse),
+        }
+        while let Some(ch) = self.peek_char() {
+            if ch.is_ascii_alphanumeric() || ch == '_' {
+                self.bump_char();
+            } else {
+                break;
+            }
+        }
+        Ok(self.input[start..self.index].to_string())
+    }
+}
+
+fn parse_a1_cell(input: &str) -> Option<CellRef> {
+    let mut col_part = String::new();
+    let mut row_part = String::new();
+
+    for ch in input.chars() {
+        if ch.is_ascii_alphabetic() {
+            if !row_part.is_empty() {
+                return None;
+            }
+            col_part.push(ch.to_ascii_uppercase());
+        } else if ch.is_ascii_digit() {
+            row_part.push(ch);
+        } else {
+            return None;
+        }
+    }
+
+    if col_part.is_empty() || row_part.is_empty() {
+        return None;
+    }
+
+    let mut col: u32 = 0;
+    for ch in col_part.chars() {
+        let v = (ch as u32).checked_sub('A' as u32)? + 1;
+        col = col.checked_mul(26)?.checked_add(v)?;
+    }
+
+    let row = row_part.parse::<u32>().ok()?;
+    if row == 0 || col == 0 {
+        return None;
+    }
+
+    Some(CellRef { row, col })
+}
+
+fn value_as_number(value: &CellValue) -> Result<f64, EvalError> {
+    match value {
+        CellValue::Number(n) => Ok(*n),
+        CellValue::Bool(true) => Ok(1.0),
+        CellValue::Bool(false) => Ok(0.0),
+        CellValue::Text(_) => Ok(0.0),
+        CellValue::Empty => Ok(0.0),
+        CellValue::Error(_) => Err(EvalError::Parse),
+    }
+}
+
+fn to_a1(cell_ref: CellRef) -> String {
+    let mut col = cell_ref.col;
+    let mut letters = Vec::<char>::new();
+    while col > 0 {
+        let rem = ((col - 1) % 26) as u8;
+        letters.push((b'A' + rem) as char);
+        col = (col - 1) / 26;
+    }
+    letters.reverse();
+    format!(
+        "{}{}",
+        letters.into_iter().collect::<String>(),
+        cell_ref.row
+    )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::model::{Mutation, Workbook};
+    use crate::telemetry::NoopEventSink;
+
+    #[test]
+    fn recalculates_formula_cells() {
+        let mut wb = Workbook::new();
+        let mut sink = NoopEventSink;
+        let trace = TraceContext::root();
+
+        let mut txn = wb.begin_txn(&mut sink, &trace).expect("begin");
+        txn.apply(Mutation::SetCellValue {
+            sheet: "Sheet1".to_string(),
+            row: 1,
+            col: 1,
+            value: CellValue::Number(2.0),
+        });
+        txn.apply(Mutation::SetCellValue {
+            sheet: "Sheet1".to_string(),
+            row: 1,
+            col: 2,
+            value: CellValue::Number(3.0),
+        });
+        txn.apply(Mutation::SetCellFormula {
+            sheet: "Sheet1".to_string(),
+            row: 1,
+            col: 3,
+            formula: "=A1+B1".to_string(),
+            cached_value: CellValue::Empty,
+        });
+        txn.commit(&mut wb, &mut sink, &trace).expect("commit");
+
+        let report = recalc_sheet(&mut wb, "Sheet1", &mut sink, &trace).expect("recalc");
+        assert_eq!(report.evaluated_cells, 1);
+
+        let value = wb
+            .sheets
+            .get("Sheet1")
+            .and_then(|s| s.cells.get(&CellRef { row: 1, col: 3 }))
+            .expect("cell")
+            .value
+            .clone();
+
+        assert_eq!(value, CellValue::Number(5.0));
+    }
+
+    #[test]
+    fn marks_cycles_as_error() {
+        let mut wb = Workbook::new();
+        let mut sink = NoopEventSink;
+        let trace = TraceContext::root();
+
+        let mut txn = wb.begin_txn(&mut sink, &trace).expect("begin");
+        txn.apply(Mutation::SetCellFormula {
+            sheet: "Sheet1".to_string(),
+            row: 1,
+            col: 1,
+            formula: "=B1".to_string(),
+            cached_value: CellValue::Empty,
+        });
+        txn.apply(Mutation::SetCellFormula {
+            sheet: "Sheet1".to_string(),
+            row: 1,
+            col: 2,
+            formula: "=A1".to_string(),
+            cached_value: CellValue::Empty,
+        });
+        txn.commit(&mut wb, &mut sink, &trace).expect("commit");
+
+        let report = recalc_sheet(&mut wb, "Sheet1", &mut sink, &trace).expect("recalc");
+        assert_eq!(report.cycle_count, 2);
+    }
+
+    #[test]
+    fn supports_operator_precedence_and_parentheses() {
+        let mut wb = Workbook::new();
+        let mut sink = NoopEventSink;
+        let trace = TraceContext::root();
+
+        let mut txn = wb.begin_txn(&mut sink, &trace).expect("begin");
+        txn.apply(Mutation::SetCellValue {
+            sheet: "Sheet1".to_string(),
+            row: 1,
+            col: 1,
+            value: CellValue::Number(2.0),
+        });
+        txn.apply(Mutation::SetCellValue {
+            sheet: "Sheet1".to_string(),
+            row: 1,
+            col: 2,
+            value: CellValue::Number(3.0),
+        });
+        txn.apply(Mutation::SetCellValue {
+            sheet: "Sheet1".to_string(),
+            row: 1,
+            col: 3,
+            value: CellValue::Number(4.0),
+        });
+        txn.apply(Mutation::SetCellFormula {
+            sheet: "Sheet1".to_string(),
+            row: 1,
+            col: 4,
+            formula: "=A1+B1*C1".to_string(),
+            cached_value: CellValue::Empty,
+        });
+        txn.apply(Mutation::SetCellFormula {
+            sheet: "Sheet1".to_string(),
+            row: 1,
+            col: 5,
+            formula: "=(A1+B1)*C1".to_string(),
+            cached_value: CellValue::Empty,
+        });
+        txn.commit(&mut wb, &mut sink, &trace).expect("commit");
+
+        recalc_sheet(&mut wb, "Sheet1", &mut sink, &trace).expect("recalc");
+        let d1 = wb
+            .sheets
+            .get("Sheet1")
+            .and_then(|s| s.cells.get(&CellRef { row: 1, col: 4 }))
+            .expect("d1")
+            .value
+            .clone();
+        let e1 = wb
+            .sheets
+            .get("Sheet1")
+            .and_then(|s| s.cells.get(&CellRef { row: 1, col: 5 }))
+            .expect("e1")
+            .value
+            .clone();
+        assert_eq!(d1, CellValue::Number(14.0));
+        assert_eq!(e1, CellValue::Number(20.0));
+    }
+
+    #[test]
+    fn evaluates_builtin_functions() {
+        let mut wb = Workbook::new();
+        let mut sink = NoopEventSink;
+        let trace = TraceContext::root();
+
+        let mut txn = wb.begin_txn(&mut sink, &trace).expect("begin");
+        txn.apply(Mutation::SetCellValue {
+            sheet: "Sheet1".to_string(),
+            row: 1,
+            col: 1,
+            value: CellValue::Number(8.0),
+        });
+        txn.apply(Mutation::SetCellValue {
+            sheet: "Sheet1".to_string(),
+            row: 1,
+            col: 2,
+            value: CellValue::Number(3.0),
+        });
+        txn.apply(Mutation::SetCellFormula {
+            sheet: "Sheet1".to_string(),
+            row: 1,
+            col: 3,
+            formula: "=SUM(A1,B1,2)".to_string(),
+            cached_value: CellValue::Empty,
+        });
+        txn.apply(Mutation::SetCellFormula {
+            sheet: "Sheet1".to_string(),
+            row: 1,
+            col: 4,
+            formula: "=MIN(A1,B1,2)".to_string(),
+            cached_value: CellValue::Empty,
+        });
+        txn.apply(Mutation::SetCellFormula {
+            sheet: "Sheet1".to_string(),
+            row: 1,
+            col: 5,
+            formula: "=MAX(A1,B1,2)".to_string(),
+            cached_value: CellValue::Empty,
+        });
+        txn.apply(Mutation::SetCellFormula {
+            sheet: "Sheet1".to_string(),
+            row: 1,
+            col: 6,
+            formula: "=IF(A1-B1,10,20)".to_string(),
+            cached_value: CellValue::Empty,
+        });
+        txn.apply(Mutation::SetCellFormula {
+            sheet: "Sheet1".to_string(),
+            row: 1,
+            col: 7,
+            formula: "=AVERAGE(A1,B1,1)".to_string(),
+            cached_value: CellValue::Empty,
+        });
+        txn.apply(Mutation::SetCellFormula {
+            sheet: "Sheet1".to_string(),
+            row: 1,
+            col: 8,
+            formula: "=ABS(B1-A1)".to_string(),
+            cached_value: CellValue::Empty,
+        });
+        txn.apply(Mutation::SetCellFormula {
+            sheet: "Sheet1".to_string(),
+            row: 1,
+            col: 9,
+            formula: "=AND(A1,B1,1)".to_string(),
+            cached_value: CellValue::Empty,
+        });
+        txn.apply(Mutation::SetCellFormula {
+            sheet: "Sheet1".to_string(),
+            row: 1,
+            col: 10,
+            formula: "=OR(0,0,B1-A1)".to_string(),
+            cached_value: CellValue::Empty,
+        });
+        txn.apply(Mutation::SetCellFormula {
+            sheet: "Sheet1".to_string(),
+            row: 1,
+            col: 11,
+            formula: "=NOT(B1-A1)".to_string(),
+            cached_value: CellValue::Empty,
+        });
+        txn.apply(Mutation::SetCellFormula {
+            sheet: "Sheet1".to_string(),
+            row: 1,
+            col: 12,
+            formula: "=NOT(0)".to_string(),
+            cached_value: CellValue::Empty,
+        });
+        txn.commit(&mut wb, &mut sink, &trace).expect("commit");
+
+        recalc_sheet(&mut wb, "Sheet1", &mut sink, &trace).expect("recalc");
+        let c1 = wb
+            .sheets
+            .get("Sheet1")
+            .and_then(|s| s.cells.get(&CellRef { row: 1, col: 3 }))
+            .expect("c1")
+            .value
+            .clone();
+        let d1 = wb
+            .sheets
+            .get("Sheet1")
+            .and_then(|s| s.cells.get(&CellRef { row: 1, col: 4 }))
+            .expect("d1")
+            .value
+            .clone();
+        let e1 = wb
+            .sheets
+            .get("Sheet1")
+            .and_then(|s| s.cells.get(&CellRef { row: 1, col: 5 }))
+            .expect("e1")
+            .value
+            .clone();
+        let f1 = wb
+            .sheets
+            .get("Sheet1")
+            .and_then(|s| s.cells.get(&CellRef { row: 1, col: 6 }))
+            .expect("f1")
+            .value
+            .clone();
+        let g1 = wb
+            .sheets
+            .get("Sheet1")
+            .and_then(|s| s.cells.get(&CellRef { row: 1, col: 7 }))
+            .expect("g1")
+            .value
+            .clone();
+        let h1 = wb
+            .sheets
+            .get("Sheet1")
+            .and_then(|s| s.cells.get(&CellRef { row: 1, col: 8 }))
+            .expect("h1")
+            .value
+            .clone();
+        let i1 = wb
+            .sheets
+            .get("Sheet1")
+            .and_then(|s| s.cells.get(&CellRef { row: 1, col: 9 }))
+            .expect("i1")
+            .value
+            .clone();
+        let j1 = wb
+            .sheets
+            .get("Sheet1")
+            .and_then(|s| s.cells.get(&CellRef { row: 1, col: 10 }))
+            .expect("j1")
+            .value
+            .clone();
+        let k1 = wb
+            .sheets
+            .get("Sheet1")
+            .and_then(|s| s.cells.get(&CellRef { row: 1, col: 11 }))
+            .expect("k1")
+            .value
+            .clone();
+        let l1 = wb
+            .sheets
+            .get("Sheet1")
+            .and_then(|s| s.cells.get(&CellRef { row: 1, col: 12 }))
+            .expect("l1")
+            .value
+            .clone();
+        assert_eq!(c1, CellValue::Number(13.0));
+        assert_eq!(d1, CellValue::Number(2.0));
+        assert_eq!(e1, CellValue::Number(8.0));
+        assert_eq!(f1, CellValue::Number(10.0));
+        assert_eq!(g1, CellValue::Number(4.0));
+        assert_eq!(h1, CellValue::Number(5.0));
+        assert_eq!(i1, CellValue::Number(1.0));
+        assert_eq!(j1, CellValue::Number(1.0));
+        assert_eq!(k1, CellValue::Number(0.0));
+        assert_eq!(l1, CellValue::Number(1.0));
+    }
+
+    #[test]
+    fn unknown_function_yields_parse_error() {
+        let mut wb = Workbook::new();
+        let mut sink = NoopEventSink;
+        let trace = TraceContext::root();
+
+        let mut txn = wb.begin_txn(&mut sink, &trace).expect("begin");
+        txn.apply(Mutation::SetCellFormula {
+            sheet: "Sheet1".to_string(),
+            row: 1,
+            col: 1,
+            formula: "=NOPE(1,2)".to_string(),
+            cached_value: CellValue::Empty,
+        });
+        txn.commit(&mut wb, &mut sink, &trace).expect("commit");
+
+        let report = recalc_sheet(&mut wb, "Sheet1", &mut sink, &trace).expect("recalc");
+        assert_eq!(report.parse_error_count, 1);
+        let a1 = wb
+            .sheets
+            .get("Sheet1")
+            .and_then(|s| s.cells.get(&CellRef { row: 1, col: 1 }))
+            .expect("a1")
+            .value
+            .clone();
+        assert_eq!(a1, CellValue::Error("#PARSE!".to_string()));
+    }
+
+    #[test]
+    fn analyzes_dependency_graph() {
+        let mut wb = Workbook::new();
+        let mut sink = NoopEventSink;
+        let trace = TraceContext::root();
+
+        let mut txn = wb.begin_txn(&mut sink, &trace).expect("begin");
+        txn.apply(Mutation::SetCellValue {
+            sheet: "Sheet1".to_string(),
+            row: 1,
+            col: 1,
+            value: CellValue::Number(2.0),
+        });
+        txn.apply(Mutation::SetCellFormula {
+            sheet: "Sheet1".to_string(),
+            row: 1,
+            col: 2,
+            formula: "=A1+1".to_string(),
+            cached_value: CellValue::Empty,
+        });
+        txn.apply(Mutation::SetCellFormula {
+            sheet: "Sheet1".to_string(),
+            row: 1,
+            col: 3,
+            formula: "=B1*2".to_string(),
+            cached_value: CellValue::Empty,
+        });
+        txn.commit(&mut wb, &mut sink, &trace).expect("commit");
+
+        let graph = analyze_sheet_dependencies(&wb, "Sheet1", &mut sink, &trace).expect("graph");
+        assert_eq!(graph.formula_cell_count, 2);
+        assert_eq!(graph.function_call_count, 0);
+        assert!(graph.ast_node_count >= graph.ast_unique_node_count);
+        assert_eq!(graph.formula_ast_ids.len(), 2);
+        assert_eq!(graph.dependency_edge_count, 2);
+        assert_eq!(graph.formula_edge_count, 1);
+        assert_eq!(graph.topo_order, vec!["B1".to_string(), "C1".to_string()]);
+        assert!(graph.cyclic_cells.is_empty());
+        assert!(graph.parse_error_cells.is_empty());
+    }
+
+    #[test]
+    fn reports_cyclic_cells_in_dependency_graph() {
+        let mut wb = Workbook::new();
+        let mut sink = NoopEventSink;
+        let trace = TraceContext::root();
+
+        let mut txn = wb.begin_txn(&mut sink, &trace).expect("begin");
+        txn.apply(Mutation::SetCellFormula {
+            sheet: "Sheet1".to_string(),
+            row: 1,
+            col: 1,
+            formula: "=B1".to_string(),
+            cached_value: CellValue::Empty,
+        });
+        txn.apply(Mutation::SetCellFormula {
+            sheet: "Sheet1".to_string(),
+            row: 1,
+            col: 2,
+            formula: "=A1".to_string(),
+            cached_value: CellValue::Empty,
+        });
+        txn.commit(&mut wb, &mut sink, &trace).expect("commit");
+
+        let graph = analyze_sheet_dependencies(&wb, "Sheet1", &mut sink, &trace).expect("graph");
+        assert_eq!(graph.formula_cell_count, 2);
+        assert_eq!(graph.function_call_count, 0);
+        assert!(graph.ast_node_count >= graph.ast_unique_node_count);
+        assert_eq!(graph.formula_ast_ids.len(), 2);
+        assert_eq!(graph.formula_edge_count, 2);
+        assert!(graph.topo_order.is_empty());
+        assert_eq!(graph.cyclic_cells, vec!["A1".to_string(), "B1".to_string()]);
+    }
+
+    #[test]
+    fn dependency_graph_counts_function_calls() {
+        let mut wb = Workbook::new();
+        let mut sink = NoopEventSink;
+        let trace = TraceContext::root();
+
+        let mut txn = wb.begin_txn(&mut sink, &trace).expect("begin");
+        txn.apply(Mutation::SetCellValue {
+            sheet: "Sheet1".to_string(),
+            row: 1,
+            col: 1,
+            value: CellValue::Number(2.0),
+        });
+        txn.apply(Mutation::SetCellValue {
+            sheet: "Sheet1".to_string(),
+            row: 1,
+            col: 2,
+            value: CellValue::Number(4.0),
+        });
+        txn.apply(Mutation::SetCellFormula {
+            sheet: "Sheet1".to_string(),
+            row: 1,
+            col: 3,
+            formula: "=SUM(A1,MAX(B1,3))".to_string(),
+            cached_value: CellValue::Empty,
+        });
+        txn.commit(&mut wb, &mut sink, &trace).expect("commit");
+
+        let graph = analyze_sheet_dependencies(&wb, "Sheet1", &mut sink, &trace).expect("graph");
+        assert_eq!(graph.formula_cell_count, 1);
+        assert_eq!(graph.function_call_count, 2);
+        assert_eq!(graph.formula_ast_ids.len(), 1);
+        assert!(graph.ast_node_count >= graph.ast_unique_node_count);
+        assert_eq!(graph.dependency_edge_count, 2);
+    }
+
+    #[test]
+    fn ast_interning_deduplicates_repeated_formulas() {
+        let mut wb = Workbook::new();
+        let mut sink = NoopEventSink;
+        let trace = TraceContext::root();
+
+        let mut txn = wb.begin_txn(&mut sink, &trace).expect("begin");
+        txn.apply(Mutation::SetCellValue {
+            sheet: "Sheet1".to_string(),
+            row: 1,
+            col: 1,
+            value: CellValue::Number(1.0),
+        });
+        txn.apply(Mutation::SetCellValue {
+            sheet: "Sheet1".to_string(),
+            row: 1,
+            col: 2,
+            value: CellValue::Number(2.0),
+        });
+        txn.apply(Mutation::SetCellFormula {
+            sheet: "Sheet1".to_string(),
+            row: 1,
+            col: 3,
+            formula: "=SUM(A1,B1)".to_string(),
+            cached_value: CellValue::Empty,
+        });
+        txn.apply(Mutation::SetCellFormula {
+            sheet: "Sheet1".to_string(),
+            row: 1,
+            col: 4,
+            formula: "=SUM(A1,B1)".to_string(),
+            cached_value: CellValue::Empty,
+        });
+        txn.commit(&mut wb, &mut sink, &trace).expect("commit");
+
+        let graph = analyze_sheet_dependencies(&wb, "Sheet1", &mut sink, &trace).expect("graph");
+        let c1_id = graph.formula_ast_ids.get("C1").copied().expect("C1 ast id");
+        let d1_id = graph.formula_ast_ids.get("D1").copied().expect("D1 ast id");
+        assert_eq!(c1_id, d1_id);
+        assert!(graph.ast_unique_node_count < graph.ast_node_count);
+    }
+
+    #[test]
+    fn incremental_recalc_recomputes_only_impacted_formulas() {
+        let mut wb = Workbook::new();
+        let mut sink = NoopEventSink;
+        let trace = TraceContext::root();
+
+        let mut txn = wb.begin_txn(&mut sink, &trace).expect("begin");
+        txn.apply(Mutation::SetCellValue {
+            sheet: "Sheet1".to_string(),
+            row: 1,
+            col: 1,
+            value: CellValue::Number(10.0),
+        });
+        txn.apply(Mutation::SetCellValue {
+            sheet: "Sheet1".to_string(),
+            row: 1,
+            col: 2,
+            value: CellValue::Number(5.0),
+        });
+        txn.apply(Mutation::SetCellFormula {
+            sheet: "Sheet1".to_string(),
+            row: 1,
+            col: 3,
+            formula: "=A1+B1".to_string(),
+            cached_value: CellValue::Empty,
+        });
+        txn.apply(Mutation::SetCellFormula {
+            sheet: "Sheet1".to_string(),
+            row: 1,
+            col: 4,
+            formula: "=C1*2".to_string(),
+            cached_value: CellValue::Empty,
+        });
+        txn.apply(Mutation::SetCellFormula {
+            sheet: "Sheet1".to_string(),
+            row: 1,
+            col: 5,
+            formula: "=B1*3".to_string(),
+            cached_value: CellValue::Empty,
+        });
+        txn.commit(&mut wb, &mut sink, &trace).expect("commit");
+
+        let full = recalc_sheet(&mut wb, "Sheet1", &mut sink, &trace).expect("full");
+        assert_eq!(full.evaluated_cells, 3);
+
+        let mut txn2 = wb.begin_txn(&mut sink, &trace).expect("begin");
+        txn2.apply(Mutation::SetCellValue {
+            sheet: "Sheet1".to_string(),
+            row: 1,
+            col: 1,
+            value: CellValue::Number(20.0),
+        });
+        txn2.commit(&mut wb, &mut sink, &trace).expect("commit");
+
+        let changed_roots = [CellRef { row: 1, col: 1 }];
+        let incremental =
+            recalc_sheet_from_roots(&mut wb, "Sheet1", &changed_roots, &mut sink, &trace)
+                .expect("incremental");
+        assert_eq!(incremental.evaluated_cells, 2);
+
+        let d1 = wb
+            .sheets
+            .get("Sheet1")
+            .and_then(|s| s.cells.get(&CellRef { row: 1, col: 4 }))
+            .expect("d1")
+            .value
+            .clone();
+        let e1 = wb
+            .sheets
+            .get("Sheet1")
+            .and_then(|s| s.cells.get(&CellRef { row: 1, col: 5 }))
+            .expect("e1")
+            .value
+            .clone();
+        assert_eq!(d1, CellValue::Number(50.0));
+        assert_eq!(e1, CellValue::Number(15.0));
+    }
+
+    #[test]
+    fn incremental_recalc_includes_formula_root_and_dependents() {
+        let mut wb = Workbook::new();
+        let mut sink = NoopEventSink;
+        let trace = TraceContext::root();
+
+        let mut txn = wb.begin_txn(&mut sink, &trace).expect("begin");
+        txn.apply(Mutation::SetCellValue {
+            sheet: "Sheet1".to_string(),
+            row: 1,
+            col: 1,
+            value: CellValue::Number(4.0),
+        });
+        txn.apply(Mutation::SetCellFormula {
+            sheet: "Sheet1".to_string(),
+            row: 1,
+            col: 2,
+            formula: "=A1+1".to_string(),
+            cached_value: CellValue::Empty,
+        });
+        txn.apply(Mutation::SetCellFormula {
+            sheet: "Sheet1".to_string(),
+            row: 1,
+            col: 3,
+            formula: "=B1*2".to_string(),
+            cached_value: CellValue::Empty,
+        });
+        txn.commit(&mut wb, &mut sink, &trace).expect("commit");
+        recalc_sheet(&mut wb, "Sheet1", &mut sink, &trace).expect("full");
+
+        let mut txn2 = wb.begin_txn(&mut sink, &trace).expect("begin");
+        txn2.apply(Mutation::SetCellFormula {
+            sheet: "Sheet1".to_string(),
+            row: 1,
+            col: 2,
+            formula: "=A1+2".to_string(),
+            cached_value: CellValue::Empty,
+        });
+        txn2.commit(&mut wb, &mut sink, &trace).expect("commit");
+
+        let changed_roots = [CellRef { row: 1, col: 2 }];
+        let incremental =
+            recalc_sheet_from_roots(&mut wb, "Sheet1", &changed_roots, &mut sink, &trace)
+                .expect("incremental");
+        assert_eq!(incremental.evaluated_cells, 2);
+
+        let b1 = wb
+            .sheets
+            .get("Sheet1")
+            .and_then(|s| s.cells.get(&CellRef { row: 1, col: 2 }))
+            .expect("b1")
+            .value
+            .clone();
+        let c1 = wb
+            .sheets
+            .get("Sheet1")
+            .and_then(|s| s.cells.get(&CellRef { row: 1, col: 3 }))
+            .expect("c1")
+            .value
+            .clone();
+        assert_eq!(b1, CellValue::Number(6.0));
+        assert_eq!(c1, CellValue::Number(12.0));
+    }
+
+    #[test]
+    fn recalc_dag_timing_report_contains_node_timings() {
+        let mut wb = Workbook::new();
+        let mut sink = NoopEventSink;
+        let trace = TraceContext::root();
+
+        let mut txn = wb.begin_txn(&mut sink, &trace).expect("begin");
+        txn.apply(Mutation::SetCellValue {
+            sheet: "Sheet1".to_string(),
+            row: 1,
+            col: 1,
+            value: CellValue::Number(2.0),
+        });
+        txn.apply(Mutation::SetCellFormula {
+            sheet: "Sheet1".to_string(),
+            row: 1,
+            col: 2,
+            formula: "=A1+1".to_string(),
+            cached_value: CellValue::Empty,
+        });
+        txn.apply(Mutation::SetCellFormula {
+            sheet: "Sheet1".to_string(),
+            row: 1,
+            col: 3,
+            formula: "=B1*2".to_string(),
+            cached_value: CellValue::Empty,
+        });
+        txn.commit(&mut wb, &mut sink, &trace).expect("commit");
+
+        let (recalc_report, dag) =
+            recalc_sheet_with_dag_timing(&mut wb, "Sheet1", &mut sink, &trace).expect("recalc");
+        assert_eq!(recalc_report.evaluated_cells, 2);
+        assert_eq!(dag.mode, "full");
+        assert_eq!(dag.formula_cell_count, 2);
+        assert_eq!(dag.evaluated_cells, 2);
+        assert_eq!(dag.node_timings.len(), 2);
+        assert_eq!(dag.node_degrees.len(), 2);
+        assert_eq!(dag.max_fan_in, 1);
+        assert_eq!(dag.max_fan_out, 1);
+        assert!(dag.critical_path.contains(&"C1".to_string()));
+        assert!(dag.critical_path_duration_us >= dag.max_node_duration_us);
+        assert!(dag
+            .slow_nodes
+            .iter()
+            .all(|node| node.duration_us >= dag.slow_nodes_threshold_us));
+        assert!(dag.node_timings.iter().all(|node| node.status == "ok"));
+        assert!(dag.total_node_duration_us >= dag.max_node_duration_us);
+    }
+
+    #[test]
+    fn incremental_dag_timing_report_tracks_changed_roots() {
+        let mut wb = Workbook::new();
+        let mut sink = NoopEventSink;
+        let trace = TraceContext::root();
+
+        let mut txn = wb.begin_txn(&mut sink, &trace).expect("begin");
+        txn.apply(Mutation::SetCellValue {
+            sheet: "Sheet1".to_string(),
+            row: 1,
+            col: 1,
+            value: CellValue::Number(10.0),
+        });
+        txn.apply(Mutation::SetCellValue {
+            sheet: "Sheet1".to_string(),
+            row: 1,
+            col: 2,
+            value: CellValue::Number(5.0),
+        });
+        txn.apply(Mutation::SetCellFormula {
+            sheet: "Sheet1".to_string(),
+            row: 1,
+            col: 3,
+            formula: "=A1+B1".to_string(),
+            cached_value: CellValue::Empty,
+        });
+        txn.apply(Mutation::SetCellFormula {
+            sheet: "Sheet1".to_string(),
+            row: 1,
+            col: 4,
+            formula: "=C1*2".to_string(),
+            cached_value: CellValue::Empty,
+        });
+        txn.commit(&mut wb, &mut sink, &trace).expect("commit");
+        recalc_sheet(&mut wb, "Sheet1", &mut sink, &trace).expect("full");
+
+        let mut txn2 = wb.begin_txn(&mut sink, &trace).expect("begin");
+        txn2.apply(Mutation::SetCellValue {
+            sheet: "Sheet1".to_string(),
+            row: 1,
+            col: 1,
+            value: CellValue::Number(20.0),
+        });
+        txn2.commit(&mut wb, &mut sink, &trace).expect("commit");
+
+        let changed_roots = [CellRef { row: 1, col: 1 }];
+        let (_report, dag) = recalc_sheet_from_roots_with_dag_timing(
+            &mut wb,
+            "Sheet1",
+            &changed_roots,
+            &mut sink,
+            &trace,
+        )
+        .expect("incremental");
+        assert_eq!(dag.mode, "incremental");
+        assert_eq!(dag.changed_root_count, Some(1));
+        assert_eq!(dag.evaluated_cells, 2);
+        assert_eq!(dag.node_timings.len(), 2);
+        assert_eq!(dag.node_degrees.len(), 2);
+        assert_eq!(dag.max_fan_in, 1);
+        assert_eq!(dag.max_fan_out, 1);
+        assert!(dag.critical_path_duration_us >= dag.max_node_duration_us);
+        assert!(dag
+            .slow_nodes
+            .iter()
+            .all(|node| node.duration_us >= dag.slow_nodes_threshold_us));
+    }
+
+    #[test]
+    fn dag_timing_supports_slow_node_threshold_override() {
+        let mut wb = Workbook::new();
+        let mut sink = NoopEventSink;
+        let trace = TraceContext::root();
+
+        let mut txn = wb.begin_txn(&mut sink, &trace).expect("begin");
+        txn.apply(Mutation::SetCellValue {
+            sheet: "Sheet1".to_string(),
+            row: 1,
+            col: 1,
+            value: CellValue::Number(2.0),
+        });
+        txn.apply(Mutation::SetCellFormula {
+            sheet: "Sheet1".to_string(),
+            row: 1,
+            col: 2,
+            formula: "=A1+1".to_string(),
+            cached_value: CellValue::Empty,
+        });
+        txn.apply(Mutation::SetCellFormula {
+            sheet: "Sheet1".to_string(),
+            row: 1,
+            col: 3,
+            formula: "=B1*2".to_string(),
+            cached_value: CellValue::Empty,
+        });
+        txn.commit(&mut wb, &mut sink, &trace).expect("commit");
+
+        let options = RecalcDagTimingOptions {
+            slow_nodes_threshold_us: Some(u64::MAX),
+        };
+        let (_recalc_report, dag) =
+            recalc_sheet_with_dag_timing_options(&mut wb, "Sheet1", options, &mut sink, &trace)
+                .expect("recalc");
+        assert_eq!(dag.slow_nodes_threshold_us, u64::MAX);
+        assert!(dag.slow_nodes.is_empty());
+    }
+}

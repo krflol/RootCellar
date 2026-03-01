@@ -1,0 +1,72 @@
+{
+  "dispatch_version": 1,
+  "generated_at": "2026-03-01T00:07:09.709439+00:00",
+  "status": "no_routes",
+  "alert_status": "pass",
+  "alert_file": "ci-batch-alert-hook-v2.json",
+  "snapshot_file": "ci-batch-throughput-snapshot-v2.json",
+  "route_count": 2,
+  "configured_route_count": 0,
+  "delivered_route_count": 0,
+  "failed_route_count": 0,
+  "ack_required_route_count": 0,
+  "ack_received_route_count": 0,
+  "ack_missing_route_count": 0,
+  "correlation_required_route_count": 0,
+  "correlation_matched_route_count": 0,
+  "correlation_mismatch_route_count": 0,
+  "dispatch_policy": {
+    "timeout_sec": 10.0,
+    "max_attempts": 3,
+    "initial_backoff_sec": 0.5,
+    "backoff_multiplier": 2.0,
+    "max_backoff_sec": 5.0,
+    "retry_status_codes": [
+      408,
+      425,
+      429,
+      500,
+      502,
+      503,
+      504
+    ],
+    "ack_field": "ack_id",
+    "require_ack_on_incident": false,
+    "require_ack_on_dashboard": false,
+    "correlation_field": "correlation_id",
+    "correlation_header": "X-Correlation-Id",
+    "require_correlation_on_incident": false,
+    "require_correlation_on_dashboard": false,
+    "idempotency_header": "Idempotency-Key",
+    "idempotency_key_prefix": "rootcellar-batch-alert",
+    "auth_scheme": "Bearer",
+    "incident_auth_configured": false,
+    "dashboard_auth_configured": false,
+    "signing_enabled": false,
+    "signature_header": null
+  },
+  "routes": [
+    {
+      "identifiers": {
+        "correlation_id": "rc-batch-205fd4f0a8136917e9ce",
+        "idempotency_key": "rootcellar-batch-alert-incident-205fd4f0a8136917e9cee0b8",
+        "digest_sha256": "205fd4f0a8136917e9cee0b8ebfe40146ff248ad32be47ef8009e17c3e736364"
+      },
+      "route": "incident",
+      "status": "skipped",
+      "reason": "endpoint not configured",
+      "configured": false
+    },
+    {
+      "identifiers": {
+        "correlation_id": "rc-batch-93ef07385d7b688ac995",
+        "idempotency_key": "rootcellar-batch-alert-dashboard-93ef07385d7b688ac995bdf6",
+        "digest_sha256": "93ef07385d7b688ac995bdf6bc8e650d5ff3aff3f0470ffa03fc8b914c1d0e9d"
+      },
+      "route": "dashboard",
+      "status": "skipped",
+      "reason": "endpoint not configured",
+      "configured": false
+    }
+  ]
+}

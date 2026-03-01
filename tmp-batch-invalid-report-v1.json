@@ -1,0 +1,41 @@
+{
+  "generated_at": "2026-02-28T21:50:49.363675700Z",
+  "input_dir": "./tmp-corpus-invalid",
+  "report_detail_level": "minimal",
+  "sheet": null,
+  "max_files": null,
+  "fail_on_errors": true,
+  "summary": {
+    "discovered_files": 2,
+    "processed_files": 2,
+    "success_count": 1,
+    "failure_count": 1,
+    "configured_threads": 2,
+    "effective_threads": 2,
+    "total_sheet_count": 1,
+    "total_evaluated_cells": 1,
+    "total_cycle_count": 0,
+    "total_parse_error_count": 0,
+    "total_file_duration_ms": 16,
+    "max_file_duration_ms": 16,
+    "wall_clock_duration_ms": 17
+  },
+  "files": [
+    {
+      "path": "./tmp-corpus-invalid/good.xlsx",
+      "duration_ms": 16,
+      "sheet_count": 1,
+      "evaluated_cells": 1,
+      "cycle_count": 0,
+      "parse_error_count": 0,
+      "value_fingerprint_fnv64": "82fa16334c2b6a32"
+    }
+  ],
+  "failures": [
+    {
+      "path": "./tmp-corpus-invalid/bad.xlsx",
+      "duration_ms": 0,
+      "error": "interop error: zip error: invalid Zip archive: Could not find EOCD"
+    }
+  ]
+}

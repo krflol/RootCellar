@@ -1,0 +1,40 @@
+{
+  "alert_version": 1,
+  "generated_at": "2026-02-28T23:24:54.161089+00:00",
+  "source": "rootcellar.batch-nightly",
+  "status": "breach",
+  "severity": "p3",
+  "summary": "Nightly batch throughput regression detected",
+  "routing_key": "rootcellar.batch.throughput",
+  "workflow": {
+    "name": null,
+    "repository": null,
+    "ref": null,
+    "sha": null,
+    "run_id": null,
+    "run_attempt": null
+  },
+  "metrics": {
+    "processed_files": 0,
+    "failure_count": 1,
+    "throughput_files_per_sec": 0.0,
+    "effective_threads": 0,
+    "wall_clock_duration_ms": 0,
+    "aggregate_file_time_ratio": 0.0
+  },
+  "thresholds": {
+    "min_processed_files": 24,
+    "min_throughput_files_per_sec": 5.0,
+    "max_failure_count": 0
+  },
+  "breach_count": 1,
+  "breaches": [
+    {
+      "metric": "report_available",
+      "actual": 0,
+      "threshold": 1,
+      "operator": "==",
+      "reason": "batch recalc report missing; nightly batch run did not produce expected artifact"
+    }
+  ]
+}

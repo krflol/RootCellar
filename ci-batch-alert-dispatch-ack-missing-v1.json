@@ -1,0 +1,156 @@
+{
+  "dispatch_version": 1,
+  "generated_at": "2026-02-28T23:31:55.059837+00:00",
+  "status": "partial_failure",
+  "alert_status": "breach",
+  "alert_file": "ci-batch-alert-hook-breach-v1.json",
+  "snapshot_file": "ci-batch-throughput-snapshot-breach-v1.json",
+  "route_count": 2,
+  "configured_route_count": 2,
+  "delivered_route_count": 1,
+  "failed_route_count": 1,
+  "ack_required_route_count": 1,
+  "ack_received_route_count": 1,
+  "ack_missing_route_count": 1,
+  "dispatch_policy": {
+    "timeout_sec": 10.0,
+    "max_attempts": 3,
+    "initial_backoff_sec": 0.5,
+    "backoff_multiplier": 2.0,
+    "max_backoff_sec": 5.0,
+    "retry_status_codes": [
+      408,
+      425,
+      429,
+      500,
+      502,
+      503,
+      504
+    ],
+    "ack_field": "ack_id",
+    "require_ack_on_incident": false,
+    "require_ack_on_dashboard": true,
+    "auth_scheme": "Bearer",
+    "incident_auth_configured": false,
+    "dashboard_auth_configured": false,
+    "signing_enabled": false,
+    "signature_header": null
+  },
+  "routes": [
+    {
+      "route": "incident",
+      "status": "delivered",
+      "configured": true,
+      "endpoint": "http://127.0.0.1:8771/incident",
+      "auth": {
+        "token_configured": false,
+        "auth_scheme": "Bearer",
+        "signing_enabled": false,
+        "signature_header": null
+      },
+      "retry_policy": {
+        "max_attempts": 3,
+        "initial_backoff_sec": 0.5,
+        "backoff_multiplier": 2.0,
+        "max_backoff_sec": 5.0,
+        "retry_status_codes": [
+          408,
+          425,
+          429,
+          500,
+          502,
+          503,
+          504
+        ]
+      },
+      "delivery": {
+        "attempt_count": 1,
+        "attempts": [
+          {
+            "http_status": 202,
+            "response_excerpt": "{\"ack_id\":\"inc-ack\"}",
+            "response_body": "{\"ack_id\":\"inc-ack\"}",
+            "duration_ms": 7,
+            "retriable": false,
+            "attempt": 1,
+            "will_retry": false
+          }
+        ],
+        "final": {
+          "http_status": 202,
+          "response_excerpt": "{\"ack_id\":\"inc-ack\"}",
+          "response_body": "{\"ack_id\":\"inc-ack\"}",
+          "duration_ms": 7,
+          "retriable": false,
+          "attempt": 1,
+          "will_retry": false
+        }
+      },
+      "ack": {
+        "field": "ack_id",
+        "required": false,
+        "received": true,
+        "ack_id": "inc-ack",
+        "parse_error": null
+      }
+    },
+    {
+      "route": "dashboard",
+      "status": "failed",
+      "configured": true,
+      "endpoint": "http://127.0.0.1:8771/dashboard",
+      "auth": {
+        "token_configured": false,
+        "auth_scheme": "Bearer",
+        "signing_enabled": false,
+        "signature_header": null
+      },
+      "retry_policy": {
+        "max_attempts": 3,
+        "initial_backoff_sec": 0.5,
+        "backoff_multiplier": 2.0,
+        "max_backoff_sec": 5.0,
+        "retry_status_codes": [
+          408,
+          425,
+          429,
+          500,
+          502,
+          503,
+          504
+        ]
+      },
+      "delivery": {
+        "attempt_count": 1,
+        "attempts": [
+          {
+            "http_status": 202,
+            "response_excerpt": "{\"accepted\":true}",
+            "response_body": "{\"accepted\":true}",
+            "duration_ms": 1,
+            "retriable": false,
+            "attempt": 1,
+            "will_retry": false
+          }
+        ],
+        "final": {
+          "http_status": 202,
+          "response_excerpt": "{\"accepted\":true}",
+          "response_body": "{\"accepted\":true}",
+          "duration_ms": 1,
+          "retriable": false,
+          "attempt": 1,
+          "will_retry": false
+        }
+      },
+      "ack": {
+        "field": "ack_id",
+        "required": true,
+        "received": false,
+        "ack_id": null,
+        "parse_error": null,
+        "reason": "required acknowledgement missing"
+      }
+    }
+  ]
+}

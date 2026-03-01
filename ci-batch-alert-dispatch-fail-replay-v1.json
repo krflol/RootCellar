@@ -1,0 +1,264 @@
+{
+  "dispatch_version": 1,
+  "generated_at": "2026-03-01T00:17:12.754950+00:00",
+  "status": "partial_failure",
+  "alert_status": "breach",
+  "alert_file": "ci-batch-alert-hook-breach-v1.json",
+  "snapshot_file": "ci-batch-throughput-snapshot-breach-v1.json",
+  "route_count": 2,
+  "configured_route_count": 2,
+  "delivered_route_count": 0,
+  "failed_route_count": 2,
+  "ack_required_route_count": 0,
+  "ack_received_route_count": 0,
+  "ack_missing_route_count": 0,
+  "correlation_required_route_count": 0,
+  "correlation_matched_route_count": 0,
+  "correlation_mismatch_route_count": 0,
+  "dispatch_policy": {
+    "timeout_sec": 10.0,
+    "max_attempts": 2,
+    "initial_backoff_sec": 0.1,
+    "backoff_multiplier": 2.0,
+    "max_backoff_sec": 0.1,
+    "retry_status_codes": [
+      408,
+      425,
+      429,
+      500,
+      502,
+      503,
+      504
+    ],
+    "ack_field": "ack_id",
+    "require_ack_on_incident": false,
+    "require_ack_on_dashboard": false,
+    "correlation_field": "correlation_id",
+    "correlation_header": "X-Correlation-Id",
+    "require_correlation_on_incident": false,
+    "require_correlation_on_dashboard": false,
+    "idempotency_header": "Idempotency-Key",
+    "idempotency_key_prefix": "rootcellar-batch-alert",
+    "replay_timestamp_header": "X-RootCellar-Timestamp",
+    "replay_nonce_header": "X-RootCellar-Nonce",
+    "replay_window_header": "X-RootCellar-Replay-Window-Sec",
+    "replay_window_sec": 300,
+    "auth_scheme": "Bearer",
+    "incident_auth_configured": false,
+    "dashboard_auth_configured": false,
+    "signing_enabled": false,
+    "signature_header": null
+  },
+  "routes": [
+    {
+      "identifiers": {
+        "correlation_id": "rc-batch-6190b53b51203975e9dd",
+        "idempotency_key": "rootcellar-batch-alert-incident-6190b53b51203975e9dd39e8",
+        "digest_sha256": "6190b53b51203975e9dd39e8bccc4b26ffcc4f2bac21402ba46539df28916660"
+      },
+      "route": "incident",
+      "status": "failed",
+      "configured": true,
+      "endpoint": "http://127.0.0.1:9989/incident",
+      "auth": {
+        "token_configured": false,
+        "auth_scheme": "Bearer",
+        "signing_enabled": false,
+        "signature_header": null
+      },
+      "retry_policy": {
+        "max_attempts": 2,
+        "initial_backoff_sec": 0.1,
+        "backoff_multiplier": 2.0,
+        "max_backoff_sec": 0.1,
+        "retry_status_codes": [
+          408,
+          425,
+          429,
+          500,
+          502,
+          503,
+          504
+        ]
+      },
+      "replay_policy": {
+        "timestamp_header": "X-RootCellar-Timestamp",
+        "nonce_header": "X-RootCellar-Nonce",
+        "window_header": "X-RootCellar-Replay-Window-Sec",
+        "window_sec": 300
+      },
+      "delivery": {
+        "attempt_count": 2,
+        "attempts": [
+          {
+            "error": "<urlopen error [WinError 10061] No connection could be made because the target machine actively refused it>",
+            "duration_ms": 2036,
+            "retriable": true,
+            "replay": {
+              "timestamp_header": "X-RootCellar-Timestamp",
+              "timestamp": "1772324224",
+              "nonce_header": "X-RootCellar-Nonce",
+              "nonce": "e83558c329a657584370d0eb00b87842",
+              "window_header": "X-RootCellar-Replay-Window-Sec",
+              "window_sec": 300
+            },
+            "attempt": 1,
+            "will_retry": true,
+            "retry_sleep_sec": 0.1
+          },
+          {
+            "error": "<urlopen error [WinError 10061] No connection could be made because the target machine actively refused it>",
+            "duration_ms": 2023,
+            "retriable": true,
+            "replay": {
+              "timestamp_header": "X-RootCellar-Timestamp",
+              "timestamp": "1772324226",
+              "nonce_header": "X-RootCellar-Nonce",
+              "nonce": "6e050e41b16b18040fd0f18a22b66df8",
+              "window_header": "X-RootCellar-Replay-Window-Sec",
+              "window_sec": 300
+            },
+            "attempt": 2,
+            "will_retry": false
+          }
+        ],
+        "final": {
+          "error": "<urlopen error [WinError 10061] No connection could be made because the target machine actively refused it>",
+          "duration_ms": 2023,
+          "retriable": true,
+          "replay": {
+            "timestamp_header": "X-RootCellar-Timestamp",
+            "timestamp": "1772324226",
+            "nonce_header": "X-RootCellar-Nonce",
+            "nonce": "6e050e41b16b18040fd0f18a22b66df8",
+            "window_header": "X-RootCellar-Replay-Window-Sec",
+            "window_sec": 300
+          },
+          "attempt": 2,
+          "will_retry": false
+        }
+      },
+      "ack": {
+        "field": "ack_id",
+        "required": false,
+        "received": false,
+        "ack_id": null,
+        "parse_error": null
+      },
+      "correlation": {
+        "field": "correlation_id",
+        "required": false,
+        "received": false,
+        "matches": false,
+        "expected": "rc-batch-6190b53b51203975e9dd",
+        "actual": null,
+        "parse_error": null
+      }
+    },
+    {
+      "identifiers": {
+        "correlation_id": "rc-batch-c4528d476fe2cfbb3278",
+        "idempotency_key": "rootcellar-batch-alert-dashboard-c4528d476fe2cfbb3278b393",
+        "digest_sha256": "c4528d476fe2cfbb3278b3935db1f88638ef3f115c0df4a27365f3e2cea639c1"
+      },
+      "route": "dashboard",
+      "status": "failed",
+      "configured": true,
+      "endpoint": "http://127.0.0.1:9989/dashboard",
+      "auth": {
+        "token_configured": false,
+        "auth_scheme": "Bearer",
+        "signing_enabled": false,
+        "signature_header": null
+      },
+      "retry_policy": {
+        "max_attempts": 2,
+        "initial_backoff_sec": 0.1,
+        "backoff_multiplier": 2.0,
+        "max_backoff_sec": 0.1,
+        "retry_status_codes": [
+          408,
+          425,
+          429,
+          500,
+          502,
+          503,
+          504
+        ]
+      },
+      "replay_policy": {
+        "timestamp_header": "X-RootCellar-Timestamp",
+        "nonce_header": "X-RootCellar-Nonce",
+        "window_header": "X-RootCellar-Replay-Window-Sec",
+        "window_sec": 300
+      },
+      "delivery": {
+        "attempt_count": 2,
+        "attempts": [
+          {
+            "error": "<urlopen error [WinError 10061] No connection could be made because the target machine actively refused it>",
+            "duration_ms": 2044,
+            "retriable": true,
+            "replay": {
+              "timestamp_header": "X-RootCellar-Timestamp",
+              "timestamp": "1772324228",
+              "nonce_header": "X-RootCellar-Nonce",
+              "nonce": "07387dbd16cb96013aaeb6f3547edfa9",
+              "window_header": "X-RootCellar-Replay-Window-Sec",
+              "window_sec": 300
+            },
+            "attempt": 1,
+            "will_retry": true,
+            "retry_sleep_sec": 0.1
+          },
+          {
+            "error": "<urlopen error [WinError 10061] No connection could be made because the target machine actively refused it>",
+            "duration_ms": 2018,
+            "retriable": true,
+            "replay": {
+              "timestamp_header": "X-RootCellar-Timestamp",
+              "timestamp": "1772324230",
+              "nonce_header": "X-RootCellar-Nonce",
+              "nonce": "b1b8cc3dc81ab7ed02c310e6024c40b7",
+              "window_header": "X-RootCellar-Replay-Window-Sec",
+              "window_sec": 300
+            },
+            "attempt": 2,
+            "will_retry": false
+          }
+        ],
+        "final": {
+          "error": "<urlopen error [WinError 10061] No connection could be made because the target machine actively refused it>",
+          "duration_ms": 2018,
+          "retriable": true,
+          "replay": {
+            "timestamp_header": "X-RootCellar-Timestamp",
+            "timestamp": "1772324230",
+            "nonce_header": "X-RootCellar-Nonce",
+            "nonce": "b1b8cc3dc81ab7ed02c310e6024c40b7",
+            "window_header": "X-RootCellar-Replay-Window-Sec",
+            "window_sec": 300
+          },
+          "attempt": 2,
+          "will_retry": false
+        }
+      },
+      "ack": {
+        "field": "ack_id",
+        "required": false,
+        "received": false,
+        "ack_id": null,
+        "parse_error": null
+      },
+      "correlation": {
+        "field": "correlation_id",
+        "required": false,
+        "received": false,
+        "matches": false,
+        "expected": "rc-batch-c4528d476fe2cfbb3278",
+        "actual": null,
+        "parse_error": null
+      }
+    }
+  ]
+}

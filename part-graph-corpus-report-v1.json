@@ -1,0 +1,119 @@
+{
+  "generated_at": "2026-02-28T21:20:34.252382Z",
+  "input_dir": ".",
+  "max_files": 8,
+  "fail_on_errors": false,
+  "summary": {
+    "discovered_files": 20,
+    "processed_files": 8,
+    "success_count": 8,
+    "failure_count": 0,
+    "total_issue_count": 13,
+    "total_unknown_part_count": 0,
+    "total_nodes": 43,
+    "total_edges": 11,
+    "total_dangling_edges": 0,
+    "total_external_edges": 0,
+    "files_with_dangling_edges": 0,
+    "files_with_unknown_parts": 0
+  },
+  "files": [
+    {
+      "path": ".\\incremental-mutated.xlsx",
+      "issue_count": 1,
+      "unknown_part_count": 0,
+      "part_graph": {
+        "node_count": 5,
+        "edge_count": 1,
+        "dangling_edge_count": 0,
+        "external_edge_count": 0,
+        "unknown_part_count": 0
+      }
+    },
+    {
+      "path": ".\\incremental-seed.xlsx",
+      "issue_count": 1,
+      "unknown_part_count": 0,
+      "part_graph": {
+        "node_count": 5,
+        "edge_count": 1,
+        "dangling_edge_count": 0,
+        "external_edge_count": 0,
+        "unknown_part_count": 0
+      }
+    },
+    {
+      "path": ".\\normalized-output.xlsx",
+      "issue_count": 2,
+      "unknown_part_count": 0,
+      "part_graph": {
+        "node_count": 6,
+        "edge_count": 2,
+        "dangling_edge_count": 0,
+        "external_edge_count": 0,
+        "unknown_part_count": 0
+      }
+    },
+    {
+      "path": ".\\normalized-v2.xlsx",
+      "issue_count": 2,
+      "unknown_part_count": 0,
+      "part_graph": {
+        "node_count": 6,
+        "edge_count": 2,
+        "dangling_edge_count": 0,
+        "external_edge_count": 0,
+        "unknown_part_count": 0
+      }
+    },
+    {
+      "path": ".\\normalized.xlsx",
+      "issue_count": 2,
+      "unknown_part_count": 0,
+      "part_graph": {
+        "node_count": 6,
+        "edge_count": 2,
+        "dangling_edge_count": 0,
+        "external_edge_count": 0,
+        "unknown_part_count": 0
+      }
+    },
+    {
+      "path": ".\\preserve-source.xlsx",
+      "issue_count": 2,
+      "unknown_part_count": 0,
+      "part_graph": {
+        "node_count": 5,
+        "edge_count": 1,
+        "dangling_edge_count": 0,
+        "external_edge_count": 0,
+        "unknown_part_count": 0
+      }
+    },
+    {
+      "path": ".\\preserved-output.xlsx",
+      "issue_count": 2,
+      "unknown_part_count": 0,
+      "part_graph": {
+        "node_count": 5,
+        "edge_count": 1,
+        "dangling_edge_count": 0,
+        "external_edge_count": 0,
+        "unknown_part_count": 0
+      }
+    },
+    {
+      "path": ".\\repro-bundle\\input.xlsx",
+      "issue_count": 1,
+      "unknown_part_count": 0,
+      "part_graph": {
+        "node_count": 5,
+        "edge_count": 1,
+        "dangling_edge_count": 0,
+        "external_edge_count": 0,
+        "unknown_part_count": 0
+      }
+    }
+  ],
+  "failures": []
+}

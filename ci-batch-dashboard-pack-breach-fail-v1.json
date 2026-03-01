@@ -1,0 +1,274 @@
+{
+  "dashboard_pack_version": 1,
+  "generated_at": "2026-03-01T00:21:30.852499+00:00",
+  "status": "breach",
+  "highest_severity": "p2",
+  "source_files": {
+    "snapshot": "ci-batch-throughput-snapshot-breach-v1.json",
+    "dispatch_report": "ci-batch-alert-dispatch-fail-replay-v1.json",
+    "ack_retention_index": "ci-batch-ack-retention-index-fail-route-v1.json",
+    "policy": "ci-batch-alert-policy-breach-fail-v1.json"
+  },
+  "headline_metrics": {
+    "processed_files": 32,
+    "failure_count": 0,
+    "throughput_files_per_sec": 320.0,
+    "dispatch_delivered_route_count": 0,
+    "dispatch_failed_route_count": 2,
+    "ack_lookup_count": 0,
+    "correlation_lookup_count": 2,
+    "policy_breach_count": 2
+  },
+  "panels": {
+    "throughput": {
+      "snapshot_status": "breach",
+      "thresholds": {
+        "min_processed_files": 128,
+        "min_throughput_files_per_sec": 500.0,
+        "max_failure_count": 0
+      },
+      "metrics": {
+        "processed_files": 32,
+        "failure_count": 0,
+        "throughput_files_per_sec": 320.0,
+        "effective_threads": 4,
+        "wall_clock_duration_ms": 100,
+        "aggregate_file_time_ratio": 3.55
+      },
+      "breaches": [
+        {
+          "metric": "processed_files",
+          "actual": 32,
+          "threshold": 128,
+          "operator": ">=",
+          "reason": "batch corpus coverage dropped below minimum threshold"
+        },
+        {
+          "metric": "throughput_files_per_sec",
+          "actual": 320.0,
+          "threshold": 500.0,
+          "operator": ">=",
+          "reason": "batch throughput below regression threshold"
+        }
+      ]
+    },
+    "route_delivery": {
+      "dispatch_status": "partial_failure",
+      "dispatch_counts": {
+        "route_count": 2,
+        "configured_route_count": 2,
+        "delivered_route_count": 0,
+        "failed_route_count": 2,
+        "ack_missing_route_count": 0,
+        "correlation_mismatch_route_count": 0
+      },
+      "routes": [
+        {
+          "route": "incident",
+          "status": "failed",
+          "endpoint": "http://127.0.0.1:9989/incident",
+          "attempt_count": 2,
+          "final_http_status": null,
+          "ack_received": false,
+          "correlation_matches": false,
+          "idempotency_key": "rootcellar-batch-alert-incident-6190b53b51203975e9dd39e8",
+          "correlation_id": "rc-batch-6190b53b51203975e9dd",
+          "replay_timestamp": "1772324226",
+          "replay_nonce": "6e050e41b16b18040fd0f18a22b66df8",
+          "replay_window_sec": 300
+        },
+        {
+          "route": "dashboard",
+          "status": "failed",
+          "endpoint": "http://127.0.0.1:9989/dashboard",
+          "attempt_count": 2,
+          "final_http_status": null,
+          "ack_received": false,
+          "correlation_matches": false,
+          "idempotency_key": "rootcellar-batch-alert-dashboard-c4528d476fe2cfbb3278b393",
+          "correlation_id": "rc-batch-c4528d476fe2cfbb3278",
+          "replay_timestamp": "1772324230",
+          "replay_nonce": "b1b8cc3dc81ab7ed02c310e6024c40b7",
+          "replay_window_sec": 300
+        }
+      ],
+      "failed_routes": [
+        {
+          "route": "incident",
+          "status": "failed",
+          "endpoint": "http://127.0.0.1:9989/incident",
+          "attempt_count": 2,
+          "final_http_status": null,
+          "ack_received": false,
+          "correlation_matches": false,
+          "idempotency_key": "rootcellar-batch-alert-incident-6190b53b51203975e9dd39e8",
+          "correlation_id": "rc-batch-6190b53b51203975e9dd",
+          "replay_timestamp": "1772324226",
+          "replay_nonce": "6e050e41b16b18040fd0f18a22b66df8",
+          "replay_window_sec": 300
+        },
+        {
+          "route": "dashboard",
+          "status": "failed",
+          "endpoint": "http://127.0.0.1:9989/dashboard",
+          "attempt_count": 2,
+          "final_http_status": null,
+          "ack_received": false,
+          "correlation_matches": false,
+          "idempotency_key": "rootcellar-batch-alert-dashboard-c4528d476fe2cfbb3278b393",
+          "correlation_id": "rc-batch-c4528d476fe2cfbb3278",
+          "replay_timestamp": "1772324230",
+          "replay_nonce": "b1b8cc3dc81ab7ed02c310e6024c40b7",
+          "replay_window_sec": 300
+        }
+      ]
+    },
+    "forensics": {
+      "ack_index_status": "no_ack_records",
+      "retention_policy": {
+        "retention_days": 30,
+        "anchor": "dispatch_generated_at",
+        "anchor_timestamp": "2026-03-01T00:17:12.754950+00:00"
+      },
+      "lookup_count": {
+        "ack_id": 0,
+        "ack_id_sha256": 0,
+        "idempotency_key": 2,
+        "correlation_id": 2
+      },
+      "record_count": 2
+    },
+    "policy": {
+      "status": "breach",
+      "highest_severity": "p2",
+      "breach_count": 2,
+      "checks": [
+        {
+          "id": "snapshot.status.pass",
+          "title": "Snapshot status is pass",
+          "severity": "p3",
+          "status": "breach",
+          "observed": "breach",
+          "expected": "pass",
+          "source": "snapshot",
+          "message": "Throughput snapshot must remain within thresholds."
+        },
+        {
+          "id": "dispatch.failed_routes.max",
+          "title": "Dispatch failed routes within threshold",
+          "severity": "p2",
+          "status": "breach",
+          "observed": 2,
+          "expected": {
+            "max": 0
+          },
+          "source": "dispatch",
+          "message": "Failed dispatch routes indicate downstream delivery reliability risk."
+        },
+        {
+          "id": "dispatch.ack_missing.max",
+          "title": "Ack-missing routes within threshold",
+          "severity": "p2",
+          "status": "pass",
+          "observed": 0,
+          "expected": {
+            "max": 0
+          },
+          "source": "dispatch",
+          "message": "Missing required acknowledgements reduce delivery traceability confidence."
+        },
+        {
+          "id": "dispatch.correlation_mismatch.max",
+          "title": "Correlation mismatch routes within threshold",
+          "severity": "p2",
+          "status": "pass",
+          "observed": 0,
+          "expected": {
+            "max": 0
+          },
+          "source": "dispatch",
+          "message": "Correlation mismatches prevent deterministic cross-system trace joins."
+        },
+        {
+          "id": "dispatch.replay_metadata.required",
+          "title": "Replay metadata present on delivered routes",
+          "severity": "p2",
+          "status": "pass",
+          "observed": 0,
+          "expected": {
+            "missing_allowed": 0
+          },
+          "source": "dispatch",
+          "message": "Replay timestamp/nonce/window fields must be present for delivered routes."
+        },
+        {
+          "id": "ack_retention.lookup_coverage.required",
+          "title": "Ack retention lookup covers acknowledged routes",
+          "severity": "p2",
+          "status": "pass",
+          "observed": {
+            "ack_received_route_count": 0,
+            "ack_lookup_count": 0
+          },
+          "expected": "ack_lookup_count >= ack_received_route_count",
+          "source": "ack_retention_index",
+          "message": "Retention lookup count should cover all acknowledged routes."
+        },
+        {
+          "id": "ack_retention.status.valid",
+          "title": "Ack retention index status valid",
+          "severity": "p2",
+          "status": "pass",
+          "observed": "no_ack_records",
+          "expected": "ok|no_ack_records|no_routes",
+          "source": "ack_retention_index",
+          "message": "Ack retention index should not report degraded dispatch availability when dispatch ran."
+        }
+      ]
+    }
+  },
+  "drilldowns": {
+    "dispatch_policy": {
+      "timeout_sec": 10.0,
+      "max_attempts": 2,
+      "initial_backoff_sec": 0.1,
+      "backoff_multiplier": 2.0,
+      "max_backoff_sec": 0.1,
+      "retry_status_codes": [
+        408,
+        425,
+        429,
+        500,
+        502,
+        503,
+        504
+      ],
+      "ack_field": "ack_id",
+      "require_ack_on_incident": false,
+      "require_ack_on_dashboard": false,
+      "correlation_field": "correlation_id",
+      "correlation_header": "X-Correlation-Id",
+      "require_correlation_on_incident": false,
+      "require_correlation_on_dashboard": false,
+      "idempotency_header": "Idempotency-Key",
+      "idempotency_key_prefix": "rootcellar-batch-alert",
+      "replay_timestamp_header": "X-RootCellar-Timestamp",
+      "replay_nonce_header": "X-RootCellar-Nonce",
+      "replay_window_header": "X-RootCellar-Replay-Window-Sec",
+      "replay_window_sec": 300,
+      "auth_scheme": "Bearer",
+      "incident_auth_configured": false,
+      "dashboard_auth_configured": false,
+      "signing_enabled": false,
+      "signature_header": null
+    },
+    "replay_route_details": [],
+    "policy_config": {
+      "max_dispatch_failed_routes": 0,
+      "max_ack_missing_routes": 0,
+      "max_correlation_mismatch_routes": 0,
+      "require_replay_metadata": true,
+      "require_ack_retention_coverage": true
+    }
+  }
+}

@@ -1,0 +1,114 @@
+{
+  "index_version": 1,
+  "generated_at": "2026-03-01T00:15:24.420714+00:00",
+  "status": "no_ack_records",
+  "source_dispatch_report": "ci-batch-alert-dispatch-v1.json",
+  "retention_policy": {
+    "retention_days": 30,
+    "anchor": "dispatch_generated_at",
+    "anchor_timestamp": "2026-02-28T23:24:20.468170+00:00"
+  },
+  "dispatch_summary": {
+    "dispatch_status": "no_routes",
+    "route_count": 2,
+    "configured_route_count": 0,
+    "delivered_route_count": 0,
+    "failed_route_count": 0,
+    "ack_required_route_count": 0,
+    "ack_received_route_count": 0,
+    "ack_missing_route_count": 0,
+    "correlation_required_route_count": 0,
+    "correlation_matched_route_count": 0,
+    "correlation_mismatch_route_count": 0
+  },
+  "record_count": 2,
+  "lookup_count": {
+    "ack_id": 0,
+    "ack_id_sha256": 0,
+    "idempotency_key": 0,
+    "correlation_id": 0
+  },
+  "records": [
+    {
+      "route": "incident",
+      "route_status": "skipped",
+      "configured": null,
+      "endpoint": null,
+      "dispatch_generated_at": "2026-02-28T23:24:20.468170+00:00",
+      "retention_expires_at": "2026-03-30T23:24:20.468170+00:00",
+      "ack": {
+        "field": null,
+        "required": false,
+        "received": false,
+        "ack_id": null,
+        "ack_id_sha256": null,
+        "parse_error": null
+      },
+      "identifiers": {
+        "idempotency_key": null,
+        "correlation_id": null,
+        "digest_sha256": null
+      },
+      "correlation": {
+        "field": null,
+        "required": false,
+        "received": false,
+        "matches": false,
+        "expected": null,
+        "actual": null
+      },
+      "delivery": {
+        "attempt_count": 0,
+        "final_http_status": null,
+        "final_duration_ms": null,
+        "final_replay_timestamp": null,
+        "final_replay_nonce": null,
+        "final_replay_window_sec": null
+      }
+    },
+    {
+      "route": "dashboard",
+      "route_status": "skipped",
+      "configured": null,
+      "endpoint": null,
+      "dispatch_generated_at": "2026-02-28T23:24:20.468170+00:00",
+      "retention_expires_at": "2026-03-30T23:24:20.468170+00:00",
+      "ack": {
+        "field": null,
+        "required": false,
+        "received": false,
+        "ack_id": null,
+        "ack_id_sha256": null,
+        "parse_error": null
+      },
+      "identifiers": {
+        "idempotency_key": null,
+        "correlation_id": null,
+        "digest_sha256": null
+      },
+      "correlation": {
+        "field": null,
+        "required": false,
+        "received": false,
+        "matches": false,
+        "expected": null,
+        "actual": null
+      },
+      "delivery": {
+        "attempt_count": 0,
+        "final_http_status": null,
+        "final_duration_ms": null,
+        "final_replay_timestamp": null,
+        "final_replay_nonce": null,
+        "final_replay_window_sec": null
+      }
+    }
+  ],
+  "lookups": {
+    "by_ack_id": [],
+    "by_ack_id_sha256": [],
+    "by_idempotency_key": [],
+    "by_correlation_id": []
+  },
+  "issues": []
+}

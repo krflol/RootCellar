@@ -1,0 +1,24 @@
+{
+  "dispatch_version": 1,
+  "generated_at": "2026-02-28T23:25:05.996205+00:00",
+  "status": "no_routes",
+  "alert_status": "pass",
+  "alert_file": "ci-batch-alert-hook-v2.json",
+  "snapshot_file": "ci-batch-throughput-snapshot-v2.json",
+  "route_count": 2,
+  "configured_route_count": 0,
+  "delivered_route_count": 0,
+  "failed_route_count": 0,
+  "routes": [
+    {
+      "route": "incident",
+      "status": "skipped",
+      "reason": "endpoint not configured"
+    },
+    {
+      "route": "dashboard",
+      "status": "skipped",
+      "reason": "endpoint not configured"
+    }
+  ]
+}

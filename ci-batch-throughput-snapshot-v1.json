@@ -1,0 +1,28 @@
+{
+  "snapshot_version": 1,
+  "generated_at": "2026-02-28T23:10:50.098185+00:00",
+  "status": "pass",
+  "source_report": "ci-batch-recalc-report-v2.json",
+  "workflow": {
+    "name": null,
+    "repository": null,
+    "ref": null,
+    "sha": null,
+    "run_id": null,
+    "run_attempt": null
+  },
+  "thresholds": {
+    "min_processed_files": 24,
+    "min_throughput_files_per_sec": 5.0,
+    "max_failure_count": 0
+  },
+  "metrics": {
+    "processed_files": 32,
+    "failure_count": 0,
+    "throughput_files_per_sec": 320.0,
+    "effective_threads": 4,
+    "wall_clock_duration_ms": 100,
+    "aggregate_file_time_ratio": 3.55
+  },
+  "breaches": []
+}

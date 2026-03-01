@@ -1,0 +1,166 @@
+{
+  "generated_at": "2026-02-28T21:50:35.591162Z",
+  "input_dir": "./.ci/batch-fixtures",
+  "report_detail_level": "diagnostic",
+  "sheet": null,
+  "max_files": null,
+  "fail_on_errors": true,
+  "summary": {
+    "discovered_files": 4,
+    "processed_files": 4,
+    "success_count": 4,
+    "failure_count": 0,
+    "configured_threads": 2,
+    "effective_threads": 2,
+    "total_sheet_count": 4,
+    "total_evaluated_cells": 1,
+    "total_cycle_count": 0,
+    "total_parse_error_count": 0,
+    "total_file_duration_ms": 39,
+    "max_file_duration_ms": 12,
+    "wall_clock_duration_ms": 21
+  },
+  "files": [
+    {
+      "path": "./.ci/batch-fixtures/dangling-edge.xlsx",
+      "duration_ms": 12,
+      "sheet_count": 1,
+      "evaluated_cells": 0,
+      "cycle_count": 0,
+      "parse_error_count": 0,
+      "value_fingerprint_fnv64": "512c4a974ef2ae54",
+      "recalc_report": {
+        "reports": [
+          {
+            "cycle_count": 0,
+            "evaluated_cells": 0,
+            "parse_error_count": 0,
+            "sheet": "Sheet1"
+          }
+        ],
+        "sheet_count": 1,
+        "totals": {
+          "cycle_count": 0,
+          "evaluated_cells": 0,
+          "parse_error_count": 0
+        },
+        "value_fingerprint_fnv64": "512c4a974ef2ae54",
+        "workbook_snapshot": {
+          "sheet_count": 1,
+          "sheets": [
+            {
+              "cell_count": 1,
+              "name": "Sheet1"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "path": "./.ci/batch-fixtures/formula.xlsx",
+      "duration_ms": 8,
+      "sheet_count": 1,
+      "evaluated_cells": 1,
+      "cycle_count": 0,
+      "parse_error_count": 0,
+      "value_fingerprint_fnv64": "a1383551f450e1bf",
+      "recalc_report": {
+        "reports": [
+          {
+            "cycle_count": 0,
+            "evaluated_cells": 1,
+            "parse_error_count": 0,
+            "sheet": "Sheet1"
+          }
+        ],
+        "sheet_count": 1,
+        "totals": {
+          "cycle_count": 0,
+          "evaluated_cells": 1,
+          "parse_error_count": 0
+        },
+        "value_fingerprint_fnv64": "a1383551f450e1bf",
+        "workbook_snapshot": {
+          "sheet_count": 1,
+          "sheets": [
+            {
+              "cell_count": 3,
+              "name": "Sheet1"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "path": "./.ci/batch-fixtures/minimal.xlsx",
+      "duration_ms": 12,
+      "sheet_count": 1,
+      "evaluated_cells": 0,
+      "cycle_count": 0,
+      "parse_error_count": 0,
+      "value_fingerprint_fnv64": "c28992a3f3be5e6a",
+      "recalc_report": {
+        "reports": [
+          {
+            "cycle_count": 0,
+            "evaluated_cells": 0,
+            "parse_error_count": 0,
+            "sheet": "Sheet1"
+          }
+        ],
+        "sheet_count": 1,
+        "totals": {
+          "cycle_count": 0,
+          "evaluated_cells": 0,
+          "parse_error_count": 0
+        },
+        "value_fingerprint_fnv64": "c28992a3f3be5e6a",
+        "workbook_snapshot": {
+          "sheet_count": 1,
+          "sheets": [
+            {
+              "cell_count": 1,
+              "name": "Sheet1"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "path": "./.ci/batch-fixtures/unknown-part.xlsx",
+      "duration_ms": 7,
+      "sheet_count": 1,
+      "evaluated_cells": 0,
+      "cycle_count": 0,
+      "parse_error_count": 0,
+      "value_fingerprint_fnv64": "2117fb446eabd5cf",
+      "recalc_report": {
+        "reports": [
+          {
+            "cycle_count": 0,
+            "evaluated_cells": 0,
+            "parse_error_count": 0,
+            "sheet": "Sheet1"
+          }
+        ],
+        "sheet_count": 1,
+        "totals": {
+          "cycle_count": 0,
+          "evaluated_cells": 0,
+          "parse_error_count": 0
+        },
+        "value_fingerprint_fnv64": "2117fb446eabd5cf",
+        "workbook_snapshot": {
+          "sheet_count": 1,
+          "sheets": [
+            {
+              "cell_count": 1,
+              "name": "Sheet1"
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "failures": []
+}

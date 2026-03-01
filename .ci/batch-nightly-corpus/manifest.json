@@ -1,0 +1,26 @@
+{
+  "generated_at": "2026-02-28T21:58:21.659336+00:00",
+  "target_files": 32,
+  "actual_files": 32,
+  "seed_file_count": 7,
+  "seed_files": [
+    ".ci/batch-nightly-corpus/fixtures/dangling-edge.xlsx",
+    ".ci/batch-nightly-corpus/fixtures/formula.xlsx",
+    ".ci/batch-nightly-corpus/fixtures/minimal.xlsx",
+    ".ci/batch-nightly-corpus/fixtures/unknown-part.xlsx",
+    "preserve-source.xlsx",
+    "sample-formula.xlsx",
+    "tx-source.xlsx"
+  ],
+  "files_dir": ".ci/batch-nightly-corpus/files",
+  "fixtures_dir": ".ci/batch-nightly-corpus/fixtures",
+  "source_distribution": {
+    "dangling-edge.xlsx": 5,
+    "formula.xlsx": 5,
+    "minimal.xlsx": 5,
+    "preserve-source.xlsx": 4,
+    "sample-formula.xlsx": 4,
+    "tx-source.xlsx": 4,
+    "unknown-part.xlsx": 5
+  }
+}

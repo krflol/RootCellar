@@ -1,0 +1,105 @@
+{
+  "policy_version": 1,
+  "generated_at": "2026-03-01T00:21:14.314969+00:00",
+  "status": "pass",
+  "highest_severity": "info",
+  "breach_count": 0,
+  "check_count": 7,
+  "policy_config": {
+    "max_dispatch_failed_routes": 0,
+    "max_ack_missing_routes": 0,
+    "max_correlation_mismatch_routes": 0,
+    "require_replay_metadata": true,
+    "require_ack_retention_coverage": true
+  },
+  "source_status": {
+    "snapshot_status": "pass",
+    "dispatch_status": "no_routes",
+    "ack_retention_index_status": "no_routes"
+  },
+  "checks": [
+    {
+      "id": "snapshot.status.pass",
+      "title": "Snapshot status is pass",
+      "severity": "p3",
+      "status": "pass",
+      "observed": "pass",
+      "expected": "pass",
+      "source": "snapshot",
+      "message": "Throughput snapshot must remain within thresholds."
+    },
+    {
+      "id": "dispatch.failed_routes.max",
+      "title": "Dispatch failed routes within threshold",
+      "severity": "p2",
+      "status": "pass",
+      "observed": 0,
+      "expected": {
+        "max": 0
+      },
+      "source": "dispatch",
+      "message": "Failed dispatch routes indicate downstream delivery reliability risk."
+    },
+    {
+      "id": "dispatch.ack_missing.max",
+      "title": "Ack-missing routes within threshold",
+      "severity": "p2",
+      "status": "pass",
+      "observed": 0,
+      "expected": {
+        "max": 0
+      },
+      "source": "dispatch",
+      "message": "Missing required acknowledgements reduce delivery traceability confidence."
+    },
+    {
+      "id": "dispatch.correlation_mismatch.max",
+      "title": "Correlation mismatch routes within threshold",
+      "severity": "p2",
+      "status": "pass",
+      "observed": 0,
+      "expected": {
+        "max": 0
+      },
+      "source": "dispatch",
+      "message": "Correlation mismatches prevent deterministic cross-system trace joins."
+    },
+    {
+      "id": "dispatch.replay_metadata.required",
+      "title": "Replay metadata present on delivered routes",
+      "severity": "p2",
+      "status": "pass",
+      "observed": 0,
+      "expected": {
+        "missing_allowed": 0
+      },
+      "source": "dispatch",
+      "message": "Replay timestamp/nonce/window fields must be present for delivered routes."
+    },
+    {
+      "id": "ack_retention.lookup_coverage.required",
+      "title": "Ack retention lookup covers acknowledged routes",
+      "severity": "p2",
+      "status": "pass",
+      "observed": {
+        "ack_received_route_count": 0,
+        "ack_lookup_count": 0
+      },
+      "expected": "ack_lookup_count >= ack_received_route_count",
+      "source": "ack_retention_index",
+      "message": "Retention lookup count should cover all acknowledged routes."
+    },
+    {
+      "id": "ack_retention.status.valid",
+      "title": "Ack retention index status valid",
+      "severity": "p2",
+      "status": "pass",
+      "observed": "no_routes",
+      "expected": "ok|no_ack_records|no_routes",
+      "source": "ack_retention_index",
+      "message": "Ack retention index should not report degraded dispatch availability when dispatch ran."
+    }
+  ],
+  "replay_route_details": [],
+  "issues": []
+}

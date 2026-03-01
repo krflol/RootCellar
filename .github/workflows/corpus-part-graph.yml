@@ -1,0 +1,91 @@
+name: corpus-part-graph
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+  schedule:
+    - cron: "17 5 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  CI_ARTIFACT_RETENTION_DAYS: "21"
+  CI_ARTIFACT_ROOT: ./ci-artifacts
+
+concurrency:
+  group: corpus-part-graph-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  validate-corpus:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Rust artifacts
+        uses: Swatinem/rust-cache@v2
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Generate corpus fixtures
+        run: |
+          python python/generate_corpus_fixtures.py --output-dir ./.ci/corpus-fixtures
+
+      - name: Run tests
+        run: |
+          cargo test --workspace --locked
+
+      - name: Validate part graph corpus
+        run: |
+          cargo run -p rootcellar-cli --locked -- part-graph-corpus ./.ci/corpus-fixtures --fail-on-errors --report ./ci-part-graph-corpus-report.json --jsonl ./ci-part-graph-corpus-events.jsonl
+
+      - name: Assemble corpus artifact bundle
+        if: always()
+        run: |
+          set -euo pipefail
+          bundle_dir="${CI_ARTIFACT_ROOT}/corpus-part-graph"
+          mkdir -p "${bundle_dir}"
+          for file in ci-part-graph-corpus-report.json ci-part-graph-corpus-events.jsonl; do
+            if [ -f "${file}" ]; then
+              cp "${file}" "${bundle_dir}/"
+            fi
+          done
+          if [ -d ./.ci/corpus-fixtures ]; then
+            rm -rf "${bundle_dir}/fixtures"
+            cp -R ./.ci/corpus-fixtures "${bundle_dir}/fixtures"
+          fi
+          generated_at="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          cat > "${bundle_dir}/manifest.json" <<EOF
+          {
+            "workflow": "corpus-part-graph",
+            "generated_at": "${generated_at}",
+            "repository": "${GITHUB_REPOSITORY}",
+            "ref": "${GITHUB_REF}",
+            "sha": "${GITHUB_SHA}",
+            "run_id": "${GITHUB_RUN_ID}",
+            "run_attempt": "${GITHUB_RUN_ATTEMPT}",
+            "retention_policy_days": ${CI_ARTIFACT_RETENTION_DAYS},
+            "artifact_kind": "corpus_part_graph"
+          }
+          EOF
+
+      - name: Upload corpus artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: rootcellar-corpus-part-graph-${{ github.run_id }}-${{ github.run_attempt }}
+          if-no-files-found: warn
+          retention-days: ${{ env.CI_ARTIFACT_RETENTION_DAYS }}
+          path: ${{ env.CI_ARTIFACT_ROOT }}/corpus-part-graph

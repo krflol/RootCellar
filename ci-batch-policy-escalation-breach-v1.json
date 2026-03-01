@@ -1,0 +1,237 @@
+{
+  "escalation_version": 1,
+  "generated_at": "2026-03-01T00:34:25.683279+00:00",
+  "policy_status": "breach",
+  "highest_severity": "p2",
+  "routing_key": "rootcellar.batch.throughput.policy",
+  "owner_policy": {
+    "owner_team_default": "rootcellar-core",
+    "owner_team_snapshot": "rootcellar-performance",
+    "owner_team_dispatch": "rootcellar-reliability",
+    "owner_team_ack_retention": "rootcellar-observability",
+    "owner_team_policy": "rootcellar-observability",
+    "owner_contact_channel": "#rootcellar-oncall",
+    "target_p1": "pagerduty://rootcellar-critical",
+    "target_p2": "pagerduty://rootcellar-high",
+    "target_p3": "slack://rootcellar-alerts",
+    "target_info": "slack://rootcellar-observability"
+  },
+  "summary": {
+    "check_count": 7,
+    "breach_count": 2,
+    "unique_owner_team_count": 3,
+    "unique_owner_teams": [
+      "rootcellar-observability",
+      "rootcellar-performance",
+      "rootcellar-reliability"
+    ],
+    "breach_count_by_team": {
+      "rootcellar-performance": 1,
+      "rootcellar-reliability": 1
+    },
+    "assigned_breach_count": 2,
+    "unassigned_breach_count": 0
+  },
+  "check_assignments": [
+    {
+      "check_id": "snapshot.status.pass",
+      "title": "Snapshot status is pass",
+      "status": "breach",
+      "severity": "p3",
+      "source": "snapshot",
+      "message": "Throughput snapshot must remain within thresholds.",
+      "observed": "breach",
+      "expected": "pass",
+      "owner": {
+        "team": "rootcellar-performance",
+        "queue": "rootcellar-performance-oncall",
+        "contact_channel": "#rootcellar-oncall"
+      },
+      "escalation": {
+        "target": "slack://rootcellar-alerts",
+        "response_sla_minutes": 240,
+        "priority": "p3"
+      }
+    },
+    {
+      "check_id": "dispatch.failed_routes.max",
+      "title": "Dispatch failed routes within threshold",
+      "status": "breach",
+      "severity": "p2",
+      "source": "dispatch",
+      "message": "Failed dispatch routes indicate downstream delivery reliability risk.",
+      "observed": 2,
+      "expected": {
+        "max": 0
+      },
+      "owner": {
+        "team": "rootcellar-reliability",
+        "queue": "rootcellar-reliability-oncall",
+        "contact_channel": "#rootcellar-oncall"
+      },
+      "escalation": {
+        "target": "pagerduty://rootcellar-high",
+        "response_sla_minutes": 60,
+        "priority": "p2"
+      }
+    },
+    {
+      "check_id": "dispatch.ack_missing.max",
+      "title": "Ack-missing routes within threshold",
+      "status": "pass",
+      "severity": "p2",
+      "source": "dispatch",
+      "message": "Missing required acknowledgements reduce delivery traceability confidence.",
+      "observed": 0,
+      "expected": {
+        "max": 0
+      },
+      "owner": {
+        "team": "rootcellar-reliability",
+        "queue": "rootcellar-reliability-oncall",
+        "contact_channel": "#rootcellar-oncall"
+      },
+      "escalation": {
+        "target": "pagerduty://rootcellar-high",
+        "response_sla_minutes": 60,
+        "priority": "p2"
+      }
+    },
+    {
+      "check_id": "dispatch.correlation_mismatch.max",
+      "title": "Correlation mismatch routes within threshold",
+      "status": "pass",
+      "severity": "p2",
+      "source": "dispatch",
+      "message": "Correlation mismatches prevent deterministic cross-system trace joins.",
+      "observed": 0,
+      "expected": {
+        "max": 0
+      },
+      "owner": {
+        "team": "rootcellar-reliability",
+        "queue": "rootcellar-reliability-oncall",
+        "contact_channel": "#rootcellar-oncall"
+      },
+      "escalation": {
+        "target": "pagerduty://rootcellar-high",
+        "response_sla_minutes": 60,
+        "priority": "p2"
+      }
+    },
+    {
+      "check_id": "dispatch.replay_metadata.required",
+      "title": "Replay metadata present on delivered routes",
+      "status": "pass",
+      "severity": "p2",
+      "source": "dispatch",
+      "message": "Replay timestamp/nonce/window fields must be present for delivered routes.",
+      "observed": 0,
+      "expected": {
+        "missing_allowed": 0
+      },
+      "owner": {
+        "team": "rootcellar-reliability",
+        "queue": "rootcellar-reliability-oncall",
+        "contact_channel": "#rootcellar-oncall"
+      },
+      "escalation": {
+        "target": "pagerduty://rootcellar-high",
+        "response_sla_minutes": 60,
+        "priority": "p2"
+      }
+    },
+    {
+      "check_id": "ack_retention.lookup_coverage.required",
+      "title": "Ack retention lookup covers acknowledged routes",
+      "status": "pass",
+      "severity": "p2",
+      "source": "ack_retention_index",
+      "message": "Retention lookup count should cover all acknowledged routes.",
+      "observed": {
+        "ack_received_route_count": 0,
+        "ack_lookup_count": 0
+      },
+      "expected": "ack_lookup_count >= ack_received_route_count",
+      "owner": {
+        "team": "rootcellar-observability",
+        "queue": "rootcellar-observability-oncall",
+        "contact_channel": "#rootcellar-oncall"
+      },
+      "escalation": {
+        "target": "pagerduty://rootcellar-high",
+        "response_sla_minutes": 60,
+        "priority": "p2"
+      }
+    },
+    {
+      "check_id": "ack_retention.status.valid",
+      "title": "Ack retention index status valid",
+      "status": "pass",
+      "severity": "p2",
+      "source": "ack_retention_index",
+      "message": "Ack retention index should not report degraded dispatch availability when dispatch ran.",
+      "observed": "no_ack_records",
+      "expected": "ok|no_ack_records|no_routes",
+      "owner": {
+        "team": "rootcellar-observability",
+        "queue": "rootcellar-observability-oncall",
+        "contact_channel": "#rootcellar-oncall"
+      },
+      "escalation": {
+        "target": "pagerduty://rootcellar-high",
+        "response_sla_minutes": 60,
+        "priority": "p2"
+      }
+    }
+  ],
+  "breach_assignments": [
+    {
+      "check_id": "snapshot.status.pass",
+      "title": "Snapshot status is pass",
+      "status": "breach",
+      "severity": "p3",
+      "source": "snapshot",
+      "message": "Throughput snapshot must remain within thresholds.",
+      "observed": "breach",
+      "expected": "pass",
+      "owner": {
+        "team": "rootcellar-performance",
+        "queue": "rootcellar-performance-oncall",
+        "contact_channel": "#rootcellar-oncall"
+      },
+      "escalation": {
+        "target": "slack://rootcellar-alerts",
+        "response_sla_minutes": 240,
+        "priority": "p3"
+      }
+    },
+    {
+      "check_id": "dispatch.failed_routes.max",
+      "title": "Dispatch failed routes within threshold",
+      "status": "breach",
+      "severity": "p2",
+      "source": "dispatch",
+      "message": "Failed dispatch routes indicate downstream delivery reliability risk.",
+      "observed": 2,
+      "expected": {
+        "max": 0
+      },
+      "owner": {
+        "team": "rootcellar-reliability",
+        "queue": "rootcellar-reliability-oncall",
+        "contact_channel": "#rootcellar-oncall"
+      },
+      "escalation": {
+        "target": "pagerduty://rootcellar-high",
+        "response_sla_minutes": 60,
+        "priority": "p2"
+      }
+    }
+  ],
+  "artifact_refs": {
+    "policy": "ci-batch-alert-policy-breach-v1.json",
+    "dashboard_pack": "ci-batch-dashboard-pack-breach-v1.json"
+  },
+  "issues": []
+}

@@ -1,0 +1,227 @@
+{
+  "artifact_contract": {
+    "schema_id": "https://rootcellar.dev/schemas/artifacts/v1/batch-dashboard-adapter-exports.schema.json",
+    "schema_version": "1.0.0",
+    "compatibility": "backward-additive"
+  },
+  "adapter_exports_version": 1,
+  "generated_at": "2026-03-01T01:02:38.003018+00:00",
+  "status": "breach",
+  "highest_severity": "p2",
+  "incident_adapter": {
+    "event_type": "rootcellar.batch.alert_policy",
+    "routing_key": "rootcellar.batch.throughput.policy",
+    "status": "breach",
+    "severity": "p2",
+    "summary": "Nightly batch policy breach detected",
+    "breach_count": 2,
+    "owner_teams": [
+      "rootcellar-performance",
+      "rootcellar-reliability"
+    ],
+    "owner_targets": [
+      "pagerduty://rootcellar-high",
+      "slack://rootcellar-alerts"
+    ],
+    "breaches": [
+      {
+        "check_id": "snapshot.status.pass",
+        "title": "Snapshot status is pass",
+        "severity": "p3",
+        "source": "snapshot",
+        "message": "Throughput snapshot must remain within thresholds.",
+        "observed": "breach",
+        "expected": "pass"
+      },
+      {
+        "check_id": "dispatch.failed_routes.max",
+        "title": "Dispatch failed routes within threshold",
+        "severity": "p2",
+        "source": "dispatch",
+        "message": "Failed dispatch routes indicate downstream delivery reliability risk.",
+        "observed": 2,
+        "expected": {
+          "max": 0
+        }
+      }
+    ],
+    "escalations": [
+      {
+        "check_id": "snapshot.status.pass",
+        "title": "Snapshot status is pass",
+        "status": "breach",
+        "severity": "p3",
+        "source": "snapshot",
+        "message": "Throughput snapshot must remain within thresholds.",
+        "observed": "breach",
+        "expected": "pass",
+        "owner": {
+          "team": "rootcellar-performance",
+          "queue": "rootcellar-performance-oncall",
+          "contact_channel": "#rootcellar-oncall"
+        },
+        "escalation": {
+          "target": "slack://rootcellar-alerts",
+          "response_sla_minutes": 240,
+          "priority": "p3"
+        }
+      },
+      {
+        "check_id": "dispatch.failed_routes.max",
+        "title": "Dispatch failed routes within threshold",
+        "status": "breach",
+        "severity": "p2",
+        "source": "dispatch",
+        "message": "Failed dispatch routes indicate downstream delivery reliability risk.",
+        "observed": 2,
+        "expected": {
+          "max": 0
+        },
+        "owner": {
+          "team": "rootcellar-reliability",
+          "queue": "rootcellar-reliability-oncall",
+          "contact_channel": "#rootcellar-oncall"
+        },
+        "escalation": {
+          "target": "pagerduty://rootcellar-high",
+          "response_sla_minutes": 60,
+          "priority": "p2"
+        }
+      }
+    ],
+    "artifact_refs": {
+      "policy": "ci-batch-alert-policy-breach-v1.json",
+      "dashboard_pack": "ci-batch-dashboard-pack-breach-v1.json",
+      "escalation": "ci-batch-policy-escalation-breach-v2.json"
+    }
+  },
+  "dashboard_adapter": {
+    "dataset": "rootcellar.batch.nightly",
+    "status": "breach",
+    "severity": "p2",
+    "headline_metrics": {
+      "processed_files": 32,
+      "failure_count": 0,
+      "throughput_files_per_sec": 320.0,
+      "dispatch_delivered_route_count": 0,
+      "dispatch_failed_route_count": 2,
+      "ack_lookup_count": 0,
+      "correlation_lookup_count": 2,
+      "policy_breach_count": 2
+    },
+    "policy_checks": [
+      {
+        "id": "snapshot.status.pass",
+        "title": "Snapshot status is pass",
+        "severity": "p3",
+        "status": "breach",
+        "observed": "breach",
+        "expected": "pass",
+        "source": "snapshot",
+        "message": "Throughput snapshot must remain within thresholds."
+      },
+      {
+        "id": "dispatch.failed_routes.max",
+        "title": "Dispatch failed routes within threshold",
+        "severity": "p2",
+        "status": "breach",
+        "observed": 2,
+        "expected": {
+          "max": 0
+        },
+        "source": "dispatch",
+        "message": "Failed dispatch routes indicate downstream delivery reliability risk."
+      },
+      {
+        "id": "dispatch.ack_missing.max",
+        "title": "Ack-missing routes within threshold",
+        "severity": "p2",
+        "status": "pass",
+        "observed": 0,
+        "expected": {
+          "max": 0
+        },
+        "source": "dispatch",
+        "message": "Missing required acknowledgements reduce delivery traceability confidence."
+      },
+      {
+        "id": "dispatch.correlation_mismatch.max",
+        "title": "Correlation mismatch routes within threshold",
+        "severity": "p2",
+        "status": "pass",
+        "observed": 0,
+        "expected": {
+          "max": 0
+        },
+        "source": "dispatch",
+        "message": "Correlation mismatches prevent deterministic cross-system trace joins."
+      },
+      {
+        "id": "dispatch.replay_metadata.required",
+        "title": "Replay metadata present on delivered routes",
+        "severity": "p2",
+        "status": "pass",
+        "observed": 0,
+        "expected": {
+          "missing_allowed": 0
+        },
+        "source": "dispatch",
+        "message": "Replay timestamp/nonce/window fields must be present for delivered routes."
+      },
+      {
+        "id": "ack_retention.lookup_coverage.required",
+        "title": "Ack retention lookup covers acknowledged routes",
+        "severity": "p2",
+        "status": "pass",
+        "observed": {
+          "ack_received_route_count": 0,
+          "ack_lookup_count": 0
+        },
+        "expected": "ack_lookup_count >= ack_received_route_count",
+        "source": "ack_retention_index",
+        "message": "Retention lookup count should cover all acknowledged routes."
+      },
+      {
+        "id": "ack_retention.status.valid",
+        "title": "Ack retention index status valid",
+        "severity": "p2",
+        "status": "pass",
+        "observed": "no_ack_records",
+        "expected": "ok|no_ack_records|no_routes",
+        "source": "ack_retention_index",
+        "message": "Ack retention index should not report degraded dispatch availability when dispatch ran."
+      }
+    ],
+    "metric_points": [
+      {
+        "metric": "processed_files",
+        "value": 32
+      },
+      {
+        "metric": "failure_count",
+        "value": 0
+      },
+      {
+        "metric": "throughput_files_per_sec",
+        "value": 320.0
+      },
+      {
+        "metric": "dispatch_failed_route_count",
+        "value": 2
+      },
+      {
+        "metric": "policy_breach_count",
+        "value": 2
+      }
+    ],
+    "dimensions": {
+      "routing_key": "rootcellar.batch.throughput.policy",
+      "owner_team_default": "rootcellar-core"
+    },
+    "artifact_refs": {
+      "dashboard_pack": "ci-batch-dashboard-pack-breach-v1.json",
+      "policy": "ci-batch-alert-policy-breach-v1.json"
+    }
+  },
+  "issues": []
+}

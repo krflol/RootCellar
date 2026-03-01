@@ -1,0 +1,40 @@
+{
+  "index_version": 1,
+  "generated_at": "2026-03-01T00:12:24.754193+00:00",
+  "status": "missing_dispatch_report",
+  "source_dispatch_report": "does-not-exist-dispatch.json",
+  "retention_policy": {
+    "retention_days": 30,
+    "anchor": "index_generated_at"
+  },
+  "dispatch_summary": {
+    "dispatch_status": "missing",
+    "route_count": 0,
+    "configured_route_count": 0,
+    "delivered_route_count": 0,
+    "failed_route_count": 0,
+    "ack_required_route_count": 0,
+    "ack_received_route_count": 0,
+    "ack_missing_route_count": 0
+  },
+  "record_count": 0,
+  "lookup_count": {
+    "ack_id": 0,
+    "ack_id_sha256": 0,
+    "idempotency_key": 0,
+    "correlation_id": 0
+  },
+  "records": [],
+  "lookups": {
+    "by_ack_id": [],
+    "by_ack_id_sha256": [],
+    "by_idempotency_key": [],
+    "by_correlation_id": []
+  },
+  "issues": [
+    {
+      "code": "dispatch_report_missing",
+      "message": "dispatch report not found; produced degraded retention index"
+    }
+  ]
+}

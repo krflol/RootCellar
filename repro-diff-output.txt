@@ -1,0 +1,10 @@
+Bundle: ./repro-bundle
+Against: ./sample-formula-mutated.xlsx
+Baseline value fingerprint: 82fa16334c2b6a32
+Against value fingerprint: 8245fc247bded3ad
+Diff summary: changed=4, added=0, removed=0
+Changed cells (up to 50):
+  - Sheet1!A1: number:40.000000000000000 -> number:111.000000000000000
+  - Sheet1!A2: number:2.000000000000000 -> number:9.000000000000000
+  - Sheet1!A3: =A1+A2|number:42.000000000000000 -> =A1+A2|number:120.000000000000000
+  - Sheet1!B1: text:Hello -> text:world

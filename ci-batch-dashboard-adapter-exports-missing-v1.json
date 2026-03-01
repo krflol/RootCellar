@@ -1,0 +1,74 @@
+{
+  "adapter_exports_version": 1,
+  "generated_at": "2026-03-01T00:34:32.453718+00:00",
+  "status": "missing",
+  "highest_severity": "info",
+  "incident_adapter": {
+    "event_type": "rootcellar.batch.alert_policy",
+    "routing_key": "rootcellar.batch.throughput.policy",
+    "status": "missing",
+    "severity": "info",
+    "summary": "Nightly batch policy checks passing",
+    "breach_count": 0,
+    "owner_teams": [],
+    "owner_targets": [],
+    "breaches": [],
+    "escalations": [],
+    "artifact_refs": {
+      "policy": "missing-policy.json",
+      "dashboard_pack": "missing-dashboard-pack.json",
+      "escalation": "ci-batch-policy-escalation-missing-v1.json"
+    }
+  },
+  "dashboard_adapter": {
+    "dataset": "rootcellar.batch.nightly",
+    "status": "missing",
+    "severity": "info",
+    "headline_metrics": {},
+    "policy_checks": [],
+    "metric_points": [
+      {
+        "metric": "processed_files",
+        "value": null
+      },
+      {
+        "metric": "failure_count",
+        "value": null
+      },
+      {
+        "metric": "throughput_files_per_sec",
+        "value": null
+      },
+      {
+        "metric": "dispatch_failed_route_count",
+        "value": null
+      },
+      {
+        "metric": "policy_breach_count",
+        "value": null
+      }
+    ],
+    "dimensions": {
+      "routing_key": "rootcellar.batch.throughput.policy",
+      "owner_team_default": "rootcellar-core"
+    },
+    "artifact_refs": {
+      "dashboard_pack": "missing-dashboard-pack.json",
+      "policy": "missing-policy.json"
+    }
+  },
+  "issues": [
+    {
+      "code": "input_missing",
+      "input": "policy",
+      "path": "missing-policy.json",
+      "message": "input file missing; generated degraded adapter metadata"
+    },
+    {
+      "code": "input_missing",
+      "input": "dashboard_pack",
+      "path": "missing-dashboard-pack.json",
+      "message": "input file missing; generated degraded adapter metadata"
+    }
+  ]
+}

@@ -1,0 +1,31 @@
+{
+  "added": [],
+  "against": "./.ci/repro-fixtures/formula-mutated.xlsx",
+  "against_value_fingerprint_fnv64": "8e64da8e2903599b",
+  "baseline_value_fingerprint_fnv64": "a1383551f450e1bf",
+  "bundle": "./ci-repro-bundle-v1",
+  "changed": [
+    {
+      "against": "number:42.000000000000000",
+      "baseline": "number:10.000000000000000",
+      "cell": "Sheet1!A1"
+    },
+    {
+      "against": "=A1+A2|number:44.000000000000000",
+      "baseline": "=A1+A2|number:12.000000000000000",
+      "cell": "Sheet1!A3"
+    }
+  ],
+  "removed": [],
+  "summary": {
+    "added": 0,
+    "changed": 2,
+    "limit": 50,
+    "removed": 0
+  },
+  "truncated": {
+    "added": false,
+    "changed": false,
+    "removed": false
+  }
+}

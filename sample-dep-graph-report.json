@@ -1,0 +1,19 @@
+{
+  "dependency_graph_report": {
+    "graphs": [
+      {
+        "cyclic_cells": [],
+        "dependency_edge_count": 2,
+        "formula_cell_count": 1,
+        "formula_edge_count": 0,
+        "parse_error_cells": [],
+        "sheet": "Sheet1",
+        "topo_order": [
+          "A3"
+        ]
+      }
+    ],
+    "sheet_count": 1
+  },
+  "generated_at": "2026-02-28T20:18:56.895150600Z"
+}

@@ -1,0 +1,77 @@
+{
+  "generated_at": "2026-02-28T20:51:12.624241100Z",
+  "recalc_dag_timing_report": {
+    "dag_timings": [
+      {
+        "changed_root_count": null,
+        "critical_path": [
+          "C1",
+          "D1"
+        ],
+        "critical_path_duration_us": 15,
+        "critical_path_truncated_by_cycles": false,
+        "evaluated_cells": 4,
+        "formula_cell_count": 4,
+        "max_fan_in": 1,
+        "max_fan_out": 1,
+        "max_node_duration_us": 13,
+        "mode": "full",
+        "node_degrees": [
+          {
+            "cell": "C1",
+            "fan_in": 0,
+            "fan_out": 1
+          },
+          {
+            "cell": "D1",
+            "fan_in": 1,
+            "fan_out": 0
+          },
+          {
+            "cell": "E1",
+            "fan_in": 0,
+            "fan_out": 0
+          },
+          {
+            "cell": "A3",
+            "fan_in": 0,
+            "fan_out": 0
+          }
+        ],
+        "node_timings": [
+          {
+            "cell": "C1",
+            "duration_us": 13,
+            "status": "ok"
+          },
+          {
+            "cell": "D1",
+            "duration_us": 2,
+            "status": "ok"
+          },
+          {
+            "cell": "E1",
+            "duration_us": 1,
+            "status": "ok"
+          },
+          {
+            "cell": "A3",
+            "duration_us": 3,
+            "status": "ok"
+          }
+        ],
+        "sheet": "Sheet1",
+        "slow_nodes": [
+          {
+            "cell": "C1",
+            "duration_us": 13,
+            "status": "ok"
+          }
+        ],
+        "slow_nodes_threshold_us": 10,
+        "total_node_duration_us": 19
+      }
+    ],
+    "sheet_count": 1
+  }
+}

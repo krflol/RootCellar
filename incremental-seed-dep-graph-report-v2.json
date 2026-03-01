@@ -1,0 +1,31 @@
+{
+  "dependency_graph_report": {
+    "graphs": [
+      {
+        "ast_node_count": 12,
+        "ast_unique_node_count": 10,
+        "cyclic_cells": [],
+        "dependency_edge_count": 6,
+        "formula_ast_ids": {
+          "A3": 10,
+          "C1": 3,
+          "D1": 6,
+          "E1": 8
+        },
+        "formula_cell_count": 4,
+        "formula_edge_count": 1,
+        "function_call_count": 0,
+        "parse_error_cells": [],
+        "sheet": "Sheet1",
+        "topo_order": [
+          "C1",
+          "D1",
+          "E1",
+          "A3"
+        ]
+      }
+    ],
+    "sheet_count": 1
+  },
+  "generated_at": "2026-02-28T20:51:12.605679700Z"
+}

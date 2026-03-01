@@ -1,0 +1,143 @@
+{
+  "dashboard_pack_version": 1,
+  "generated_at": "2026-03-01T00:21:22.640824+00:00",
+  "status": "breach",
+  "highest_severity": "p2",
+  "source_files": {
+    "snapshot": "missing-snapshot.json",
+    "dispatch_report": "missing-dispatch.json",
+    "ack_retention_index": "missing-ack-index.json",
+    "policy": "ci-batch-alert-policy-missing-v1.json"
+  },
+  "headline_metrics": {
+    "processed_files": 0,
+    "failure_count": 0,
+    "throughput_files_per_sec": 0.0,
+    "dispatch_delivered_route_count": 0,
+    "dispatch_failed_route_count": 0,
+    "ack_lookup_count": 0,
+    "correlation_lookup_count": 0,
+    "policy_breach_count": 4
+  },
+  "panels": {
+    "throughput": {
+      "snapshot_status": "missing",
+      "thresholds": {},
+      "metrics": {},
+      "breaches": []
+    },
+    "route_delivery": {
+      "dispatch_status": "missing",
+      "dispatch_counts": {
+        "route_count": 0,
+        "configured_route_count": 0,
+        "delivered_route_count": 0,
+        "failed_route_count": 0,
+        "ack_missing_route_count": 0,
+        "correlation_mismatch_route_count": 0
+      },
+      "routes": [],
+      "failed_routes": []
+    },
+    "forensics": {
+      "ack_index_status": "missing",
+      "retention_policy": {},
+      "lookup_count": {},
+      "record_count": 0
+    },
+    "policy": {
+      "status": "breach",
+      "highest_severity": "p2",
+      "breach_count": 4,
+      "checks": [
+        {
+          "id": "snapshot.status.pass",
+          "title": "Snapshot status is pass",
+          "severity": "p3",
+          "status": "breach",
+          "observed": "missing",
+          "expected": "pass",
+          "source": "snapshot",
+          "message": "Throughput snapshot must remain within thresholds."
+        },
+        {
+          "id": "dispatch.failed_routes.max",
+          "title": "Dispatch failed routes within threshold",
+          "severity": "p2",
+          "status": "pass",
+          "observed": 0,
+          "expected": {
+            "max": 0
+          },
+          "source": "dispatch",
+          "message": "Failed dispatch routes indicate downstream delivery reliability risk."
+        },
+        {
+          "id": "dispatch.ack_missing.max",
+          "title": "Ack-missing routes within threshold",
+          "severity": "p2",
+          "status": "pass",
+          "observed": 0,
+          "expected": {
+            "max": 0
+          },
+          "source": "dispatch",
+          "message": "Missing required acknowledgements reduce delivery traceability confidence."
+        },
+        {
+          "id": "dispatch.correlation_mismatch.max",
+          "title": "Correlation mismatch routes within threshold",
+          "severity": "p2",
+          "status": "pass",
+          "observed": 0,
+          "expected": {
+            "max": 0
+          },
+          "source": "dispatch",
+          "message": "Correlation mismatches prevent deterministic cross-system trace joins."
+        },
+        {
+          "id": "snapshot.file.present",
+          "title": "Snapshot file is present",
+          "severity": "p2",
+          "status": "breach",
+          "observed": false,
+          "expected": true,
+          "source": "snapshot",
+          "message": "Snapshot artifact missing in current run."
+        },
+        {
+          "id": "dispatch.file.present",
+          "title": "Dispatch report file is present",
+          "severity": "p2",
+          "status": "breach",
+          "observed": false,
+          "expected": true,
+          "source": "dispatch",
+          "message": "Dispatch artifact missing in current run."
+        },
+        {
+          "id": "ack_retention.file.present",
+          "title": "Ack retention index file is present",
+          "severity": "p2",
+          "status": "breach",
+          "observed": false,
+          "expected": true,
+          "source": "ack_retention_index",
+          "message": "Ack retention index artifact missing in current run."
+        }
+      ]
+    }
+  },
+  "drilldowns": {
+    "dispatch_policy": {},
+    "replay_route_details": [],
+    "policy_config": {
+      "max_dispatch_failed_routes": 0,
+      "max_ack_missing_routes": 0,
+      "max_correlation_mismatch_routes": 0,
+      "require_replay_metadata": false,
+      "require_ack_retention_coverage": false
+    }
+  }
+}

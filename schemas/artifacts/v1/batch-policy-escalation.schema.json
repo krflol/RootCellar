@@ -1,0 +1,161 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://rootcellar.dev/schemas/artifacts/v1/batch-policy-escalation.schema.json",
+  "title": "RootCellar Batch Policy Escalation Artifact v1",
+  "type": "object",
+  "required": [
+    "artifact_contract",
+    "escalation_version",
+    "generated_at",
+    "policy_status",
+    "highest_severity",
+    "routing_key",
+    "owner_policy",
+    "summary",
+    "check_assignments",
+    "breach_assignments",
+    "artifact_refs",
+    "issues"
+  ],
+  "properties": {
+    "artifact_contract": {
+      "type": "object",
+      "required": ["schema_id", "schema_version", "compatibility"],
+      "properties": {
+        "schema_id": { "type": "string", "const": "https://rootcellar.dev/schemas/artifacts/v1/batch-policy-escalation.schema.json" },
+        "schema_version": { "type": "string", "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$" },
+        "compatibility": { "type": "string", "enum": ["backward-additive"] }
+      },
+      "additionalProperties": true
+    },
+    "escalation_version": { "type": "integer", "const": 1 },
+    "generated_at": { "type": "string", "minLength": 1 },
+    "policy_status": { "type": "string", "enum": ["pass", "breach", "missing"] },
+    "highest_severity": { "type": "string", "enum": ["info", "p3", "p2", "p1"] },
+    "routing_key": { "type": "string", "minLength": 1 },
+    "owner_policy": {
+      "type": "object",
+      "required": [
+        "owner_team_default",
+        "owner_team_snapshot",
+        "owner_team_dispatch",
+        "owner_team_ack_retention",
+        "owner_team_policy",
+        "owner_contact_channel",
+        "target_p1",
+        "target_p2",
+        "target_p3",
+        "target_info"
+      ],
+      "properties": {
+        "owner_team_default": { "type": "string", "minLength": 1 },
+        "owner_team_snapshot": { "type": "string", "minLength": 1 },
+        "owner_team_dispatch": { "type": "string", "minLength": 1 },
+        "owner_team_ack_retention": { "type": "string", "minLength": 1 },
+        "owner_team_policy": { "type": "string", "minLength": 1 },
+        "owner_contact_channel": { "type": "string", "minLength": 1 },
+        "target_p1": { "type": "string", "minLength": 1 },
+        "target_p2": { "type": "string", "minLength": 1 },
+        "target_p3": { "type": "string", "minLength": 1 },
+        "target_info": { "type": "string", "minLength": 1 }
+      },
+      "additionalProperties": true
+    },
+    "summary": {
+      "type": "object",
+      "required": [
+        "check_count",
+        "breach_count",
+        "unique_owner_team_count",
+        "unique_owner_teams",
+        "breach_count_by_team",
+        "assigned_breach_count",
+        "unassigned_breach_count"
+      ],
+      "properties": {
+        "check_count": { "type": "integer" },
+        "breach_count": { "type": "integer" },
+        "unique_owner_team_count": { "type": "integer" },
+        "unique_owner_teams": { "type": "array", "items": { "type": "string" } },
+        "breach_count_by_team": { "type": "object" },
+        "assigned_breach_count": { "type": "integer" },
+        "unassigned_breach_count": { "type": "integer" }
+      },
+      "additionalProperties": true
+    },
+    "check_assignments": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/check_assignment" }
+    },
+    "breach_assignments": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/check_assignment" }
+    },
+    "artifact_refs": {
+      "type": "object",
+      "required": ["policy", "dashboard_pack"],
+      "properties": {
+        "policy": { "type": "string", "minLength": 1 },
+        "dashboard_pack": { "type": "string", "minLength": 1 }
+      },
+      "additionalProperties": true
+    },
+    "issues": {
+      "type": "array",
+      "items": { "type": "object" }
+    }
+  },
+  "$defs": {
+    "check_assignment": {
+      "type": "object",
+      "required": [
+        "check_id",
+        "title",
+        "status",
+        "severity",
+        "source",
+        "message",
+        "owner",
+        "escalation"
+      ],
+      "properties": {
+        "check_id": { "type": "string" },
+        "title": { "type": "string" },
+        "status": { "type": "string", "enum": ["pass", "breach"] },
+        "severity": { "type": "string", "enum": ["info", "p3", "p2", "p1"] },
+        "source": { "type": "string" },
+        "message": { "type": "string" },
+        "observed": {},
+        "expected": {},
+        "owner": {
+          "type": "object",
+          "required": ["team", "queue", "contact_channel"],
+          "properties": {
+            "team": { "type": "string", "minLength": 1 },
+            "queue": { "type": "string", "minLength": 1 },
+            "contact_channel": { "type": "string", "minLength": 1 }
+          },
+          "additionalProperties": true
+        },
+        "escalation": {
+          "type": "object",
+          "required": ["target", "response_sla_minutes", "priority"],
+          "properties": {
+            "target": { "type": "string", "minLength": 1 },
+            "response_sla_minutes": { "type": "integer", "minimum": 1 },
+            "priority": { "type": "string", "enum": ["info", "p3", "p2", "p1"] }
+          },
+          "additionalProperties": true
+        }
+      },
+      "additionalProperties": true
+    }
+  },
+  "additionalProperties": true,
+  "x-rootcellar-contract": {
+    "schema_version": "1.0.0",
+    "payload_version_field": "escalation_version",
+    "payload_version": 1,
+    "compatibility_mode": "backward-additive"
+  }
+}

@@ -1,0 +1,69 @@
+{
+  "workbook_path": "./sample-formula.xlsx",
+  "generated_at": "2026-02-28T21:10:44.275649800Z",
+  "required_parts": {
+    "content_types": true,
+    "workbook_xml": true,
+    "worksheet_count": 1,
+    "styles_xml": false,
+    "shared_strings_xml": true
+  },
+  "summary": {
+    "issue_count": 1,
+    "unknown_part_count": 0,
+    "workbook_feature_score": 88
+  },
+  "issues": [
+    {
+      "code": "XLSX_STYLES_MISSING",
+      "title": "Missing xl/styles.xml",
+      "status": "partially_supported",
+      "details": "Workbook can load values but style fidelity may degrade on round-trip save."
+    }
+  ],
+  "unknown_parts": [],
+  "part_graph": {
+    "node_count": 5,
+    "edge_count": 1,
+    "dangling_edge_count": 0,
+    "external_edge_count": 0,
+    "unknown_part_count": 0,
+    "nodes": [
+      {
+        "path": "[Content_Types].xml",
+        "known": true,
+        "synthetic": false
+      },
+      {
+        "path": "xl/_rels/workbook.xml.rels",
+        "known": true,
+        "synthetic": false
+      },
+      {
+        "path": "xl/sharedStrings.xml",
+        "known": true,
+        "synthetic": false
+      },
+      {
+        "path": "xl/workbook.xml",
+        "known": true,
+        "synthetic": false
+      },
+      {
+        "path": "xl/worksheets/sheet1.xml",
+        "known": true,
+        "synthetic": false
+      }
+    ],
+    "edges": [
+      {
+        "source": "xl/workbook.xml",
+        "relationship_id": "rId1",
+        "relationship_type": "http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet",
+        "target": "xl/worksheets/sheet1.xml",
+        "target_mode": "internal",
+        "dangling_target": false
+      }
+    ]
+  }
+}

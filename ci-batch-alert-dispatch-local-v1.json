@@ -1,0 +1,32 @@
+{
+  "dispatch_version": 1,
+  "generated_at": "2026-02-28T23:24:33.769353+00:00",
+  "status": "delivered",
+  "alert_status": "breach",
+  "alert_file": "ci-batch-alert-hook-breach-v1.json",
+  "snapshot_file": "ci-batch-throughput-snapshot-breach-v1.json",
+  "route_count": 2,
+  "configured_route_count": 2,
+  "delivered_route_count": 2,
+  "failed_route_count": 0,
+  "routes": [
+    {
+      "route": "incident",
+      "status": "delivered",
+      "endpoint": "http://127.0.0.1:8765/incident",
+      "detail": {
+        "http_status": 202,
+        "response_excerpt": "{\"accepted\":true}"
+      }
+    },
+    {
+      "route": "dashboard",
+      "status": "delivered",
+      "endpoint": "http://127.0.0.1:8765/dashboard",
+      "detail": {
+        "http_status": 202,
+        "response_excerpt": "{\"accepted\":true}"
+      }
+    }
+  ]
+}

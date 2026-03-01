@@ -1,0 +1,61 @@
+{
+  "artifact_contract": {
+    "schema_id": "https://rootcellar.dev/schemas/artifacts/v1/batch-policy-escalation.schema.json",
+    "schema_version": "1.0.0",
+    "compatibility": "backward-additive"
+  },
+  "escalation_version": 1,
+  "generated_at": "2026-03-01T01:02:37.905427+00:00",
+  "policy_status": "missing",
+  "highest_severity": "info",
+  "routing_key": "rootcellar.batch.throughput.policy",
+  "owner_policy": {
+    "owner_team_default": "rootcellar-core",
+    "owner_team_snapshot": "rootcellar-performance",
+    "owner_team_dispatch": "rootcellar-reliability",
+    "owner_team_ack_retention": "rootcellar-observability",
+    "owner_team_policy": "rootcellar-observability",
+    "owner_contact_channel": "#rootcellar-oncall",
+    "target_p1": "pagerduty://rootcellar-critical",
+    "target_p2": "pagerduty://rootcellar-high",
+    "target_p3": "slack://rootcellar-alerts",
+    "target_info": "slack://rootcellar-observability"
+  },
+  "summary": {
+    "check_count": 0,
+    "breach_count": 0,
+    "unique_owner_team_count": 0,
+    "unique_owner_teams": [],
+    "breach_count_by_team": {},
+    "assigned_breach_count": 0,
+    "unassigned_breach_count": 0
+  },
+  "check_assignments": [],
+  "breach_assignments": [],
+  "artifact_refs": {
+    "policy": "missing-policy.json",
+    "dashboard_pack": "missing-dashboard-pack.json"
+  },
+  "issues": [
+    {
+      "code": "input_missing",
+      "input": "policy",
+      "path": "missing-policy.json",
+      "message": "input file missing; generated degraded adapter metadata"
+    },
+    {
+      "code": "input_missing",
+      "input": "dashboard_pack",
+      "path": "missing-dashboard-pack.json",
+      "message": "input file missing; generated degraded adapter metadata"
+    },
+    {
+      "code": "policy_missing",
+      "message": "policy input missing; escalation assignments are empty"
+    },
+    {
+      "code": "dashboard_pack_missing",
+      "message": "dashboard pack input missing; escalation references may be incomplete"
+    }
+  ]
+}

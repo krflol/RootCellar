@@ -1,0 +1,24 @@
+{
+  "generated_at": "2026-02-28T20:33:18.729847700Z",
+  "recalc_dag_timing_report": {
+    "dag_timings": [
+      {
+        "changed_root_count": null,
+        "evaluated_cells": 1,
+        "formula_cell_count": 1,
+        "max_node_duration_us": 13,
+        "mode": "full",
+        "node_timings": [
+          {
+            "cell": "A3",
+            "duration_us": 13,
+            "status": "ok"
+          }
+        ],
+        "sheet": "Sheet1",
+        "total_node_duration_us": 13
+      }
+    ],
+    "sheet_count": 1
+  }
+}

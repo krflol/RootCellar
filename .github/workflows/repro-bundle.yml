@@ -1,0 +1,127 @@
+name: repro-bundle
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+  schedule:
+    - cron: "47 5 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  CI_ARTIFACT_RETENTION_DAYS: "21"
+  CI_ARTIFACT_ROOT: ./ci-artifacts
+
+concurrency:
+  group: repro-bundle-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  validate-repro:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Rust artifacts
+        uses: Swatinem/rust-cache@v2
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Generate fixture corpus
+        run: |
+          python python/generate_corpus_fixtures.py --output-dir ./.ci/repro-fixtures
+
+      - name: Run tests
+        run: |
+          cargo test --workspace --locked
+
+      - name: Record reproducibility bundle
+        run: |
+          cargo run -p rootcellar-cli --locked -- repro record ./.ci/repro-fixtures/formula.xlsx --bundle ./ci-repro-bundle --jsonl ./ci-repro-record-events.jsonl
+
+      - name: Check reproducibility bundle
+        run: |
+          cargo run -p rootcellar-cli --locked -- repro check ./ci-repro-bundle --jsonl ./ci-repro-check-events.jsonl
+
+      - name: Diff bundle against baseline workbook
+        run: |
+          cargo run -p rootcellar-cli --locked -- repro diff ./ci-repro-bundle --against ./.ci/repro-fixtures/formula.xlsx --output ./ci-repro-diff-same.txt --jsonl ./ci-repro-diff-same-events.jsonl
+
+      - name: Produce mutated workbook candidate
+        run: |
+          cargo run -p rootcellar-cli --locked -- tx-save ./.ci/repro-fixtures/formula.xlsx ./.ci/repro-fixtures/formula-mutated.xlsx --sheet Sheet1 --cell A1 --value 42 --mode preserve --jsonl ./ci-repro-tx-save-events.jsonl
+
+      - name: Diff bundle against mutated workbook
+        run: |
+          cargo run -p rootcellar-cli --locked -- repro diff ./ci-repro-bundle --against ./.ci/repro-fixtures/formula-mutated.xlsx --format json --output ./ci-repro-diff-mutated.json --jsonl ./ci-repro-diff-mutated-events.jsonl
+
+      - name: Assert mismatch detection on mutated workbook
+        run: |
+          if cargo run -p rootcellar-cli --locked -- repro check ./ci-repro-bundle --against ./.ci/repro-fixtures/formula-mutated.xlsx --jsonl ./ci-repro-check-mutated-events.jsonl; then
+            echo "expected mismatch was not detected"
+            exit 1
+          fi
+          echo "mutated workbook mismatch detected as expected"
+
+      - name: Assemble reproducibility artifact bundle
+        if: always()
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          bundle_dir="${CI_ARTIFACT_ROOT}/repro-bundle"
+          mkdir -p "${bundle_dir}"
+          if [ -d ./ci-repro-bundle ]; then
+            rm -rf "${bundle_dir}/bundle"
+            cp -R ./ci-repro-bundle "${bundle_dir}/bundle"
+          fi
+          for file in ci-repro-diff-same.txt ci-repro-diff-mutated.json; do
+            if [ -f "${file}" ]; then
+              cp "${file}" "${bundle_dir}/"
+            fi
+          done
+          event_files=(./ci-repro-*-events.jsonl)
+          if [ ${#event_files[@]} -gt 0 ]; then
+            mkdir -p "${bundle_dir}/events"
+            for event_file in "${event_files[@]}"; do
+              cp "${event_file}" "${bundle_dir}/events/"
+            done
+          fi
+          if [ -d ./.ci/repro-fixtures ]; then
+            rm -rf "${bundle_dir}/fixtures"
+            cp -R ./.ci/repro-fixtures "${bundle_dir}/fixtures"
+          fi
+          generated_at="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          cat > "${bundle_dir}/manifest.json" <<EOF
+          {
+            "workflow": "repro-bundle",
+            "generated_at": "${generated_at}",
+            "repository": "${GITHUB_REPOSITORY}",
+            "ref": "${GITHUB_REF}",
+            "sha": "${GITHUB_SHA}",
+            "run_id": "${GITHUB_RUN_ID}",
+            "run_attempt": "${GITHUB_RUN_ATTEMPT}",
+            "retention_policy_days": ${CI_ARTIFACT_RETENTION_DAYS},
+            "artifact_kind": "repro_bundle"
+          }
+          EOF
+
+      - name: Upload reproducibility artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: rootcellar-repro-bundle-${{ github.run_id }}-${{ github.run_attempt }}
+          if-no-files-found: warn
+          retention-days: ${{ env.CI_ARTIFACT_RETENTION_DAYS }}
+          path: ${{ env.CI_ARTIFACT_ROOT }}/repro-bundle

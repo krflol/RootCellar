@@ -1,0 +1,29 @@
+{
+  "generated_at": "2026-02-28T20:33:18.685688100Z",
+  "report": {
+    "reports": [
+      {
+        "cycle_count": 0,
+        "evaluated_cells": 1,
+        "parse_error_count": 0,
+        "sheet": "Sheet1"
+      }
+    ],
+    "sheet_count": 1,
+    "totals": {
+      "cycle_count": 0,
+      "evaluated_cells": 1,
+      "parse_error_count": 0
+    },
+    "value_fingerprint_fnv64": "82fa16334c2b6a32",
+    "workbook_snapshot": {
+      "sheet_count": 1,
+      "sheets": [
+        {
+          "cell_count": 4,
+          "name": "Sheet1"
+        }
+      ]
+    }
+  }
+}

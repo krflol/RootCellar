@@ -1,0 +1,12 @@
+{
+  "bundle_version": "1",
+  "bundle_id": "bundle-1772314471092144000",
+  "created_at": "2026-02-28T21:34:31.147359800Z",
+  "input_file": "input.xlsx",
+  "recalc_report_file": "recalc-report.json",
+  "sheet": null,
+  "hashes": {
+    "input_fnv64": "cb78fdc7f1ad2879",
+    "recalc_report_fnv64": "a9c8fd8d330847c4"
+  }
+}

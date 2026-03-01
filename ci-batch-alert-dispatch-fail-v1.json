@@ -1,0 +1,30 @@
+{
+  "dispatch_version": 1,
+  "generated_at": "2026-02-28T23:24:46.689056+00:00",
+  "status": "partial_failure",
+  "alert_status": "breach",
+  "alert_file": "ci-batch-alert-hook-breach-v1.json",
+  "snapshot_file": "ci-batch-throughput-snapshot-breach-v1.json",
+  "route_count": 2,
+  "configured_route_count": 2,
+  "delivered_route_count": 0,
+  "failed_route_count": 2,
+  "routes": [
+    {
+      "route": "incident",
+      "status": "failed",
+      "endpoint": "http://127.0.0.1:9988/incident",
+      "detail": {
+        "error": "<urlopen error [WinError 10061] No connection could be made because the target machine actively refused it>"
+      }
+    },
+    {
+      "route": "dashboard",
+      "status": "failed",
+      "endpoint": "http://127.0.0.1:9988/dashboard",
+      "detail": {
+        "error": "<urlopen error [WinError 10061] No connection could be made because the target machine actively refused it>"
+      }
+    }
+  ]
+}

@@ -1,0 +1,71 @@
+{
+  "generated_at": "2026-02-28T21:26:57.642248800Z",
+  "input_dir": "./.ci/corpus-fixtures",
+  "max_files": null,
+  "fail_on_errors": true,
+  "summary": {
+    "discovered_files": 4,
+    "processed_files": 4,
+    "success_count": 4,
+    "failure_count": 0,
+    "total_issue_count": 8,
+    "total_unknown_part_count": 1,
+    "total_nodes": 26,
+    "total_edges": 9,
+    "total_dangling_edges": 1,
+    "total_external_edges": 0,
+    "files_with_dangling_edges": 1,
+    "files_with_unknown_parts": 1
+  },
+  "files": [
+    {
+      "path": "./.ci/corpus-fixtures\\dangling-edge.xlsx",
+      "issue_count": 2,
+      "unknown_part_count": 0,
+      "part_graph": {
+        "node_count": 7,
+        "edge_count": 3,
+        "dangling_edge_count": 1,
+        "external_edge_count": 0,
+        "unknown_part_count": 0
+      }
+    },
+    {
+      "path": "./.ci/corpus-fixtures\\formula.xlsx",
+      "issue_count": 2,
+      "unknown_part_count": 0,
+      "part_graph": {
+        "node_count": 6,
+        "edge_count": 2,
+        "dangling_edge_count": 0,
+        "external_edge_count": 0,
+        "unknown_part_count": 0
+      }
+    },
+    {
+      "path": "./.ci/corpus-fixtures\\minimal.xlsx",
+      "issue_count": 2,
+      "unknown_part_count": 0,
+      "part_graph": {
+        "node_count": 6,
+        "edge_count": 2,
+        "dangling_edge_count": 0,
+        "external_edge_count": 0,
+        "unknown_part_count": 0
+      }
+    },
+    {
+      "path": "./.ci/corpus-fixtures\\unknown-part.xlsx",
+      "issue_count": 2,
+      "unknown_part_count": 1,
+      "part_graph": {
+        "node_count": 7,
+        "edge_count": 2,
+        "dangling_edge_count": 0,
+        "external_edge_count": 0,
+        "unknown_part_count": 1
+      }
+    }
+  ],
+  "failures": []
+}

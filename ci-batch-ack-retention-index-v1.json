@@ -1,0 +1,166 @@
+{
+  "index_version": 1,
+  "generated_at": "2026-03-01T00:12:17.470742+00:00",
+  "status": "ok",
+  "source_dispatch_report": "ci-batch-alert-dispatch-auth-retry-corr-v1.json",
+  "retention_policy": {
+    "retention_days": 30,
+    "anchor": "dispatch_generated_at",
+    "anchor_timestamp": "2026-03-01T00:05:04.305154+00:00"
+  },
+  "dispatch_summary": {
+    "dispatch_status": "delivered",
+    "route_count": 2,
+    "configured_route_count": 2,
+    "delivered_route_count": 2,
+    "failed_route_count": 0,
+    "ack_required_route_count": 2,
+    "ack_received_route_count": 2,
+    "ack_missing_route_count": 0,
+    "correlation_required_route_count": 2,
+    "correlation_matched_route_count": 2,
+    "correlation_mismatch_route_count": 0
+  },
+  "record_count": 2,
+  "lookup_count": {
+    "ack_id": 2,
+    "ack_id_sha256": 2,
+    "idempotency_key": 2,
+    "correlation_id": 2
+  },
+  "records": [
+    {
+      "route": "incident",
+      "route_status": "delivered",
+      "configured": true,
+      "endpoint": "http://127.0.0.1:8772/incident",
+      "dispatch_generated_at": "2026-03-01T00:05:04.305154+00:00",
+      "retention_expires_at": "2026-03-31T00:05:04.305154+00:00",
+      "ack": {
+        "field": "ack_id",
+        "required": true,
+        "received": true,
+        "ack_id": "inc-ack-1",
+        "ack_id_sha256": "5fee3f53b778ece68eadf9b7f0995b5ea6821adf2ed8d307ef7eceec0e092904",
+        "parse_error": null
+      },
+      "identifiers": {
+        "idempotency_key": "rootcellar-batch-alert-incident-6190b53b51203975e9dd39e8",
+        "correlation_id": "rc-batch-6190b53b51203975e9dd",
+        "digest_sha256": "6190b53b51203975e9dd39e8bccc4b26ffcc4f2bac21402ba46539df28916660"
+      },
+      "correlation": {
+        "field": "correlation_id",
+        "required": true,
+        "received": true,
+        "matches": true,
+        "expected": "rc-batch-6190b53b51203975e9dd",
+        "actual": "rc-batch-6190b53b51203975e9dd"
+      },
+      "delivery": {
+        "attempt_count": 1,
+        "final_http_status": 202,
+        "final_duration_ms": 11,
+        "final_replay_timestamp": null,
+        "final_replay_nonce": null,
+        "final_replay_window_sec": null
+      }
+    },
+    {
+      "route": "dashboard",
+      "route_status": "delivered",
+      "configured": true,
+      "endpoint": "http://127.0.0.1:8772/dashboard",
+      "dispatch_generated_at": "2026-03-01T00:05:04.305154+00:00",
+      "retention_expires_at": "2026-03-31T00:05:04.305154+00:00",
+      "ack": {
+        "field": "ack_id",
+        "required": true,
+        "received": true,
+        "ack_id": "dash-ack-2",
+        "ack_id_sha256": "f13e9a3ddb99536ae3c09f2be943b56e5889fbe0d168e16c04f44fd680e8de86",
+        "parse_error": null
+      },
+      "identifiers": {
+        "idempotency_key": "rootcellar-batch-alert-dashboard-c4528d476fe2cfbb3278b393",
+        "correlation_id": "rc-batch-c4528d476fe2cfbb3278",
+        "digest_sha256": "c4528d476fe2cfbb3278b3935db1f88638ef3f115c0df4a27365f3e2cea639c1"
+      },
+      "correlation": {
+        "field": "correlation_id",
+        "required": true,
+        "received": true,
+        "matches": true,
+        "expected": "rc-batch-c4528d476fe2cfbb3278",
+        "actual": "rc-batch-c4528d476fe2cfbb3278"
+      },
+      "delivery": {
+        "attempt_count": 2,
+        "final_http_status": 202,
+        "final_duration_ms": 1,
+        "final_replay_timestamp": null,
+        "final_replay_nonce": null,
+        "final_replay_window_sec": null
+      }
+    }
+  ],
+  "lookups": {
+    "by_ack_id": [
+      {
+        "value": "inc-ack-1",
+        "record_id": 0,
+        "route": "incident",
+        "route_status": "delivered"
+      },
+      {
+        "value": "dash-ack-2",
+        "record_id": 1,
+        "route": "dashboard",
+        "route_status": "delivered"
+      }
+    ],
+    "by_ack_id_sha256": [
+      {
+        "value": "5fee3f53b778ece68eadf9b7f0995b5ea6821adf2ed8d307ef7eceec0e092904",
+        "record_id": 0,
+        "route": "incident",
+        "route_status": "delivered"
+      },
+      {
+        "value": "f13e9a3ddb99536ae3c09f2be943b56e5889fbe0d168e16c04f44fd680e8de86",
+        "record_id": 1,
+        "route": "dashboard",
+        "route_status": "delivered"
+      }
+    ],
+    "by_idempotency_key": [
+      {
+        "value": "rootcellar-batch-alert-incident-6190b53b51203975e9dd39e8",
+        "record_id": 0,
+        "route": "incident",
+        "route_status": "delivered"
+      },
+      {
+        "value": "rootcellar-batch-alert-dashboard-c4528d476fe2cfbb3278b393",
+        "record_id": 1,
+        "route": "dashboard",
+        "route_status": "delivered"
+      }
+    ],
+    "by_correlation_id": [
+      {
+        "value": "rc-batch-6190b53b51203975e9dd",
+        "record_id": 0,
+        "route": "incident",
+        "route_status": "delivered"
+      },
+      {
+        "value": "rc-batch-c4528d476fe2cfbb3278",
+        "record_id": 1,
+        "route": "dashboard",
+        "route_status": "delivered"
+      }
+    ]
+  },
+  "issues": []
+}

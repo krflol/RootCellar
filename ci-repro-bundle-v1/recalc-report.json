@@ -1,0 +1,26 @@
+{
+  "reports": [
+    {
+      "cycle_count": 0,
+      "evaluated_cells": 1,
+      "parse_error_count": 0,
+      "sheet": "Sheet1"
+    }
+  ],
+  "sheet_count": 1,
+  "totals": {
+    "cycle_count": 0,
+    "evaluated_cells": 1,
+    "parse_error_count": 0
+  },
+  "value_fingerprint_fnv64": "a1383551f450e1bf",
+  "workbook_snapshot": {
+    "sheet_count": 1,
+    "sheets": [
+      {
+        "cell_count": 3,
+        "name": "Sheet1"
+      }
+    ]
+  }
+}

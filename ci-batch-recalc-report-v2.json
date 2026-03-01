@@ -1,0 +1,1148 @@
+{
+  "generated_at": "2026-02-28T21:55:02.160522400Z",
+  "input_dir": "./.ci/batch-nightly-corpus/files",
+  "report_detail_level": "diagnostic",
+  "sheet": null,
+  "max_files": null,
+  "fail_on_errors": true,
+  "summary": {
+    "discovered_files": 32,
+    "processed_files": 32,
+    "success_count": 32,
+    "failure_count": 0,
+    "configured_threads": 4,
+    "effective_threads": 4,
+    "total_sheet_count": 32,
+    "total_evaluated_cells": 9,
+    "total_cycle_count": 0,
+    "total_parse_error_count": 0,
+    "total_file_duration_ms": 355,
+    "max_file_duration_ms": 17,
+    "wall_clock_duration_ms": 100,
+    "throughput_files_per_sec": 320.0,
+    "aggregate_file_time_ratio": 3.55
+  },
+  "files": [
+    {
+      "path": "./.ci/batch-nightly-corpus/files/replica-007-dangling-edge.xlsx",
+      "duration_ms": 14,
+      "sheet_count": 1,
+      "evaluated_cells": 0,
+      "cycle_count": 0,
+      "parse_error_count": 0,
+      "value_fingerprint_fnv64": "512c4a974ef2ae54",
+      "recalc_report": {
+        "reports": [
+          {
+            "cycle_count": 0,
+            "evaluated_cells": 0,
+            "parse_error_count": 0,
+            "sheet": "Sheet1"
+          }
+        ],
+        "sheet_count": 1,
+        "totals": {
+          "cycle_count": 0,
+          "evaluated_cells": 0,
+          "parse_error_count": 0
+        },
+        "value_fingerprint_fnv64": "512c4a974ef2ae54",
+        "workbook_snapshot": {
+          "sheet_count": 1,
+          "sheets": [
+            {
+              "cell_count": 1,
+              "name": "Sheet1"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "path": "./.ci/batch-nightly-corpus/files/replica-008-formula.xlsx",
+      "duration_ms": 9,
+      "sheet_count": 1,
+      "evaluated_cells": 1,
+      "cycle_count": 0,
+      "parse_error_count": 0,
+      "value_fingerprint_fnv64": "a1383551f450e1bf",
+      "recalc_report": {
+        "reports": [
+          {
+            "cycle_count": 0,
+            "evaluated_cells": 1,
+            "parse_error_count": 0,
+            "sheet": "Sheet1"
+          }
+        ],
+        "sheet_count": 1,
+        "totals": {
+          "cycle_count": 0,
+          "evaluated_cells": 1,
+          "parse_error_count": 0
+        },
+        "value_fingerprint_fnv64": "a1383551f450e1bf",
+        "workbook_snapshot": {
+          "sheet_count": 1,
+          "sheets": [
+            {
+              "cell_count": 3,
+              "name": "Sheet1"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "path": "./.ci/batch-nightly-corpus/files/replica-009-minimal.xlsx",
+      "duration_ms": 10,
+      "sheet_count": 1,
+      "evaluated_cells": 0,
+      "cycle_count": 0,
+      "parse_error_count": 0,
+      "value_fingerprint_fnv64": "c28992a3f3be5e6a",
+      "recalc_report": {
+        "reports": [
+          {
+            "cycle_count": 0,
+            "evaluated_cells": 0,
+            "parse_error_count": 0,
+            "sheet": "Sheet1"
+          }
+        ],
+        "sheet_count": 1,
+        "totals": {
+          "cycle_count": 0,
+          "evaluated_cells": 0,
+          "parse_error_count": 0
+        },
+        "value_fingerprint_fnv64": "c28992a3f3be5e6a",
+        "workbook_snapshot": {
+          "sheet_count": 1,
+          "sheets": [
+            {
+              "cell_count": 1,
+              "name": "Sheet1"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "path": "./.ci/batch-nightly-corpus/files/replica-010-unknown-part.xlsx",
+      "duration_ms": 11,
+      "sheet_count": 1,
+      "evaluated_cells": 0,
+      "cycle_count": 0,
+      "parse_error_count": 0,
+      "value_fingerprint_fnv64": "2117fb446eabd5cf",
+      "recalc_report": {
+        "reports": [
+          {
+            "cycle_count": 0,
+            "evaluated_cells": 0,
+            "parse_error_count": 0,
+            "sheet": "Sheet1"
+          }
+        ],
+        "sheet_count": 1,
+        "totals": {
+          "cycle_count": 0,
+          "evaluated_cells": 0,
+          "parse_error_count": 0
+        },
+        "value_fingerprint_fnv64": "2117fb446eabd5cf",
+        "workbook_snapshot": {
+          "sheet_count": 1,
+          "sheets": [
+            {
+              "cell_count": 1,
+              "name": "Sheet1"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "path": "./.ci/batch-nightly-corpus/files/replica-011-preserve-source.xlsx",
+      "duration_ms": 11,
+      "sheet_count": 1,
+      "evaluated_cells": 0,
+      "cycle_count": 0,
+      "parse_error_count": 0,
+      "value_fingerprint_fnv64": "2885ce7cc9e1258e",
+      "recalc_report": {
+        "reports": [
+          {
+            "cycle_count": 0,
+            "evaluated_cells": 0,
+            "parse_error_count": 0,
+            "sheet": "Sheet1"
+          }
+        ],
+        "sheet_count": 1,
+        "totals": {
+          "cycle_count": 0,
+          "evaluated_cells": 0,
+          "parse_error_count": 0
+        },
+        "value_fingerprint_fnv64": "2885ce7cc9e1258e",
+        "workbook_snapshot": {
+          "sheet_count": 1,
+          "sheets": [
+            {
+              "cell_count": 1,
+              "name": "Sheet1"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "path": "./.ci/batch-nightly-corpus/files/replica-012-sample-formula.xlsx",
+      "duration_ms": 15,
+      "sheet_count": 1,
+      "evaluated_cells": 1,
+      "cycle_count": 0,
+      "parse_error_count": 0,
+      "value_fingerprint_fnv64": "82fa16334c2b6a32",
+      "recalc_report": {
+        "reports": [
+          {
+            "cycle_count": 0,
+            "evaluated_cells": 1,
+            "parse_error_count": 0,
+            "sheet": "Sheet1"
+          }
+        ],
+        "sheet_count": 1,
+        "totals": {
+          "cycle_count": 0,
+          "evaluated_cells": 1,
+          "parse_error_count": 0
+        },
+        "value_fingerprint_fnv64": "82fa16334c2b6a32",
+        "workbook_snapshot": {
+          "sheet_count": 1,
+          "sheets": [
+            {
+              "cell_count": 4,
+              "name": "Sheet1"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "path": "./.ci/batch-nightly-corpus/files/replica-013-tx-source.xlsx",
+      "duration_ms": 10,
+      "sheet_count": 1,
+      "evaluated_cells": 0,
+      "cycle_count": 0,
+      "parse_error_count": 0,
+      "value_fingerprint_fnv64": "2885ce7cc9e1258e",
+      "recalc_report": {
+        "reports": [
+          {
+            "cycle_count": 0,
+            "evaluated_cells": 0,
+            "parse_error_count": 0,
+            "sheet": "Sheet1"
+          }
+        ],
+        "sheet_count": 1,
+        "totals": {
+          "cycle_count": 0,
+          "evaluated_cells": 0,
+          "parse_error_count": 0
+        },
+        "value_fingerprint_fnv64": "2885ce7cc9e1258e",
+        "workbook_snapshot": {
+          "sheet_count": 1,
+          "sheets": [
+            {
+              "cell_count": 1,
+              "name": "Sheet1"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "path": "./.ci/batch-nightly-corpus/files/replica-014-dangling-edge.xlsx",
+      "duration_ms": 10,
+      "sheet_count": 1,
+      "evaluated_cells": 0,
+      "cycle_count": 0,
+      "parse_error_count": 0,
+      "value_fingerprint_fnv64": "512c4a974ef2ae54",
+      "recalc_report": {
+        "reports": [
+          {
+            "cycle_count": 0,
+            "evaluated_cells": 0,
+            "parse_error_count": 0,
+            "sheet": "Sheet1"
+          }
+        ],
+        "sheet_count": 1,
+        "totals": {
+          "cycle_count": 0,
+          "evaluated_cells": 0,
+          "parse_error_count": 0
+        },
+        "value_fingerprint_fnv64": "512c4a974ef2ae54",
+        "workbook_snapshot": {
+          "sheet_count": 1,
+          "sheets": [
+            {
+              "cell_count": 1,
+              "name": "Sheet1"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "path": "./.ci/batch-nightly-corpus/files/replica-015-formula.xlsx",
+      "duration_ms": 10,
+      "sheet_count": 1,
+      "evaluated_cells": 1,
+      "cycle_count": 0,
+      "parse_error_count": 0,
+      "value_fingerprint_fnv64": "a1383551f450e1bf",
+      "recalc_report": {
+        "reports": [
+          {
+            "cycle_count": 0,
+            "evaluated_cells": 1,
+            "parse_error_count": 0,
+            "sheet": "Sheet1"
+          }
+        ],
+        "sheet_count": 1,
+        "totals": {
+          "cycle_count": 0,
+          "evaluated_cells": 1,
+          "parse_error_count": 0
+        },
+        "value_fingerprint_fnv64": "a1383551f450e1bf",
+        "workbook_snapshot": {
+          "sheet_count": 1,
+          "sheets": [
+            {
+              "cell_count": 3,
+              "name": "Sheet1"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "path": "./.ci/batch-nightly-corpus/files/replica-016-minimal.xlsx",
+      "duration_ms": 10,
+      "sheet_count": 1,
+      "evaluated_cells": 0,
+      "cycle_count": 0,
+      "parse_error_count": 0,
+      "value_fingerprint_fnv64": "c28992a3f3be5e6a",
+      "recalc_report": {
+        "reports": [
+          {
+            "cycle_count": 0,
+            "evaluated_cells": 0,
+            "parse_error_count": 0,
+            "sheet": "Sheet1"
+          }
+        ],
+        "sheet_count": 1,
+        "totals": {
+          "cycle_count": 0,
+          "evaluated_cells": 0,
+          "parse_error_count": 0
+        },
+        "value_fingerprint_fnv64": "c28992a3f3be5e6a",
+        "workbook_snapshot": {
+          "sheet_count": 1,
+          "sheets": [
+            {
+              "cell_count": 1,
+              "name": "Sheet1"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "path": "./.ci/batch-nightly-corpus/files/replica-017-unknown-part.xlsx",
+      "duration_ms": 11,
+      "sheet_count": 1,
+      "evaluated_cells": 0,
+      "cycle_count": 0,
+      "parse_error_count": 0,
+      "value_fingerprint_fnv64": "2117fb446eabd5cf",
+      "recalc_report": {
+        "reports": [
+          {
+            "cycle_count": 0,
+            "evaluated_cells": 0,
+            "parse_error_count": 0,
+            "sheet": "Sheet1"
+          }
+        ],
+        "sheet_count": 1,
+        "totals": {
+          "cycle_count": 0,
+          "evaluated_cells": 0,
+          "parse_error_count": 0
+        },
+        "value_fingerprint_fnv64": "2117fb446eabd5cf",
+        "workbook_snapshot": {
+          "sheet_count": 1,
+          "sheets": [
+            {
+              "cell_count": 1,
+              "name": "Sheet1"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "path": "./.ci/batch-nightly-corpus/files/replica-018-preserve-source.xlsx",
+      "duration_ms": 10,
+      "sheet_count": 1,
+      "evaluated_cells": 0,
+      "cycle_count": 0,
+      "parse_error_count": 0,
+      "value_fingerprint_fnv64": "2885ce7cc9e1258e",
+      "recalc_report": {
+        "reports": [
+          {
+            "cycle_count": 0,
+            "evaluated_cells": 0,
+            "parse_error_count": 0,
+            "sheet": "Sheet1"
+          }
+        ],
+        "sheet_count": 1,
+        "totals": {
+          "cycle_count": 0,
+          "evaluated_cells": 0,
+          "parse_error_count": 0
+        },
+        "value_fingerprint_fnv64": "2885ce7cc9e1258e",
+        "workbook_snapshot": {
+          "sheet_count": 1,
+          "sheets": [
+            {
+              "cell_count": 1,
+              "name": "Sheet1"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "path": "./.ci/batch-nightly-corpus/files/replica-019-sample-formula.xlsx",
+      "duration_ms": 17,
+      "sheet_count": 1,
+      "evaluated_cells": 1,
+      "cycle_count": 0,
+      "parse_error_count": 0,
+      "value_fingerprint_fnv64": "82fa16334c2b6a32",
+      "recalc_report": {
+        "reports": [
+          {
+            "cycle_count": 0,
+            "evaluated_cells": 1,
+            "parse_error_count": 0,
+            "sheet": "Sheet1"
+          }
+        ],
+        "sheet_count": 1,
+        "totals": {
+          "cycle_count": 0,
+          "evaluated_cells": 1,
+          "parse_error_count": 0
+        },
+        "value_fingerprint_fnv64": "82fa16334c2b6a32",
+        "workbook_snapshot": {
+          "sheet_count": 1,
+          "sheets": [
+            {
+              "cell_count": 4,
+              "name": "Sheet1"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "path": "./.ci/batch-nightly-corpus/files/replica-020-tx-source.xlsx",
+      "duration_ms": 8,
+      "sheet_count": 1,
+      "evaluated_cells": 0,
+      "cycle_count": 0,
+      "parse_error_count": 0,
+      "value_fingerprint_fnv64": "2885ce7cc9e1258e",
+      "recalc_report": {
+        "reports": [
+          {
+            "cycle_count": 0,
+            "evaluated_cells": 0,
+            "parse_error_count": 0,
+            "sheet": "Sheet1"
+          }
+        ],
+        "sheet_count": 1,
+        "totals": {
+          "cycle_count": 0,
+          "evaluated_cells": 0,
+          "parse_error_count": 0
+        },
+        "value_fingerprint_fnv64": "2885ce7cc9e1258e",
+        "workbook_snapshot": {
+          "sheet_count": 1,
+          "sheets": [
+            {
+              "cell_count": 1,
+              "name": "Sheet1"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "path": "./.ci/batch-nightly-corpus/files/replica-021-dangling-edge.xlsx",
+      "duration_ms": 9,
+      "sheet_count": 1,
+      "evaluated_cells": 0,
+      "cycle_count": 0,
+      "parse_error_count": 0,
+      "value_fingerprint_fnv64": "512c4a974ef2ae54",
+      "recalc_report": {
+        "reports": [
+          {
+            "cycle_count": 0,
+            "evaluated_cells": 0,
+            "parse_error_count": 0,
+            "sheet": "Sheet1"
+          }
+        ],
+        "sheet_count": 1,
+        "totals": {
+          "cycle_count": 0,
+          "evaluated_cells": 0,
+          "parse_error_count": 0
+        },
+        "value_fingerprint_fnv64": "512c4a974ef2ae54",
+        "workbook_snapshot": {
+          "sheet_count": 1,
+          "sheets": [
+            {
+              "cell_count": 1,
+              "name": "Sheet1"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "path": "./.ci/batch-nightly-corpus/files/replica-022-formula.xlsx",
+      "duration_ms": 11,
+      "sheet_count": 1,
+      "evaluated_cells": 1,
+      "cycle_count": 0,
+      "parse_error_count": 0,
+      "value_fingerprint_fnv64": "a1383551f450e1bf",
+      "recalc_report": {
+        "reports": [
+          {
+            "cycle_count": 0,
+            "evaluated_cells": 1,
+            "parse_error_count": 0,
+            "sheet": "Sheet1"
+          }
+        ],
+        "sheet_count": 1,
+        "totals": {
+          "cycle_count": 0,
+          "evaluated_cells": 1,
+          "parse_error_count": 0
+        },
+        "value_fingerprint_fnv64": "a1383551f450e1bf",
+        "workbook_snapshot": {
+          "sheet_count": 1,
+          "sheets": [
+            {
+              "cell_count": 3,
+              "name": "Sheet1"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "path": "./.ci/batch-nightly-corpus/files/replica-023-minimal.xlsx",
+      "duration_ms": 15,
+      "sheet_count": 1,
+      "evaluated_cells": 0,
+      "cycle_count": 0,
+      "parse_error_count": 0,
+      "value_fingerprint_fnv64": "c28992a3f3be5e6a",
+      "recalc_report": {
+        "reports": [
+          {
+            "cycle_count": 0,
+            "evaluated_cells": 0,
+            "parse_error_count": 0,
+            "sheet": "Sheet1"
+          }
+        ],
+        "sheet_count": 1,
+        "totals": {
+          "cycle_count": 0,
+          "evaluated_cells": 0,
+          "parse_error_count": 0
+        },
+        "value_fingerprint_fnv64": "c28992a3f3be5e6a",
+        "workbook_snapshot": {
+          "sheet_count": 1,
+          "sheets": [
+            {
+              "cell_count": 1,
+              "name": "Sheet1"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "path": "./.ci/batch-nightly-corpus/files/replica-024-unknown-part.xlsx",
+      "duration_ms": 10,
+      "sheet_count": 1,
+      "evaluated_cells": 0,
+      "cycle_count": 0,
+      "parse_error_count": 0,
+      "value_fingerprint_fnv64": "2117fb446eabd5cf",
+      "recalc_report": {
+        "reports": [
+          {
+            "cycle_count": 0,
+            "evaluated_cells": 0,
+            "parse_error_count": 0,
+            "sheet": "Sheet1"
+          }
+        ],
+        "sheet_count": 1,
+        "totals": {
+          "cycle_count": 0,
+          "evaluated_cells": 0,
+          "parse_error_count": 0
+        },
+        "value_fingerprint_fnv64": "2117fb446eabd5cf",
+        "workbook_snapshot": {
+          "sheet_count": 1,
+          "sheets": [
+            {
+              "cell_count": 1,
+              "name": "Sheet1"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "path": "./.ci/batch-nightly-corpus/files/replica-025-preserve-source.xlsx",
+      "duration_ms": 8,
+      "sheet_count": 1,
+      "evaluated_cells": 0,
+      "cycle_count": 0,
+      "parse_error_count": 0,
+      "value_fingerprint_fnv64": "2885ce7cc9e1258e",
+      "recalc_report": {
+        "reports": [
+          {
+            "cycle_count": 0,
+            "evaluated_cells": 0,
+            "parse_error_count": 0,
+            "sheet": "Sheet1"
+          }
+        ],
+        "sheet_count": 1,
+        "totals": {
+          "cycle_count": 0,
+          "evaluated_cells": 0,
+          "parse_error_count": 0
+        },
+        "value_fingerprint_fnv64": "2885ce7cc9e1258e",
+        "workbook_snapshot": {
+          "sheet_count": 1,
+          "sheets": [
+            {
+              "cell_count": 1,
+              "name": "Sheet1"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "path": "./.ci/batch-nightly-corpus/files/replica-026-sample-formula.xlsx",
+      "duration_ms": 14,
+      "sheet_count": 1,
+      "evaluated_cells": 1,
+      "cycle_count": 0,
+      "parse_error_count": 0,
+      "value_fingerprint_fnv64": "82fa16334c2b6a32",
+      "recalc_report": {
+        "reports": [
+          {
+            "cycle_count": 0,
+            "evaluated_cells": 1,
+            "parse_error_count": 0,
+            "sheet": "Sheet1"
+          }
+        ],
+        "sheet_count": 1,
+        "totals": {
+          "cycle_count": 0,
+          "evaluated_cells": 1,
+          "parse_error_count": 0
+        },
+        "value_fingerprint_fnv64": "82fa16334c2b6a32",
+        "workbook_snapshot": {
+          "sheet_count": 1,
+          "sheets": [
+            {
+              "cell_count": 4,
+              "name": "Sheet1"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "path": "./.ci/batch-nightly-corpus/files/replica-027-tx-source.xlsx",
+      "duration_ms": 13,
+      "sheet_count": 1,
+      "evaluated_cells": 0,
+      "cycle_count": 0,
+      "parse_error_count": 0,
+      "value_fingerprint_fnv64": "2885ce7cc9e1258e",
+      "recalc_report": {
+        "reports": [
+          {
+            "cycle_count": 0,
+            "evaluated_cells": 0,
+            "parse_error_count": 0,
+            "sheet": "Sheet1"
+          }
+        ],
+        "sheet_count": 1,
+        "totals": {
+          "cycle_count": 0,
+          "evaluated_cells": 0,
+          "parse_error_count": 0
+        },
+        "value_fingerprint_fnv64": "2885ce7cc9e1258e",
+        "workbook_snapshot": {
+          "sheet_count": 1,
+          "sheets": [
+            {
+              "cell_count": 1,
+              "name": "Sheet1"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "path": "./.ci/batch-nightly-corpus/files/replica-028-dangling-edge.xlsx",
+      "duration_ms": 10,
+      "sheet_count": 1,
+      "evaluated_cells": 0,
+      "cycle_count": 0,
+      "parse_error_count": 0,
+      "value_fingerprint_fnv64": "512c4a974ef2ae54",
+      "recalc_report": {
+        "reports": [
+          {
+            "cycle_count": 0,
+            "evaluated_cells": 0,
+            "parse_error_count": 0,
+            "sheet": "Sheet1"
+          }
+        ],
+        "sheet_count": 1,
+        "totals": {
+          "cycle_count": 0,
+          "evaluated_cells": 0,
+          "parse_error_count": 0
+        },
+        "value_fingerprint_fnv64": "512c4a974ef2ae54",
+        "workbook_snapshot": {
+          "sheet_count": 1,
+          "sheets": [
+            {
+              "cell_count": 1,
+              "name": "Sheet1"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "path": "./.ci/batch-nightly-corpus/files/replica-029-formula.xlsx",
+      "duration_ms": 10,
+      "sheet_count": 1,
+      "evaluated_cells": 1,
+      "cycle_count": 0,
+      "parse_error_count": 0,
+      "value_fingerprint_fnv64": "a1383551f450e1bf",
+      "recalc_report": {
+        "reports": [
+          {
+            "cycle_count": 0,
+            "evaluated_cells": 1,
+            "parse_error_count": 0,
+            "sheet": "Sheet1"
+          }
+        ],
+        "sheet_count": 1,
+        "totals": {
+          "cycle_count": 0,
+          "evaluated_cells": 1,
+          "parse_error_count": 0
+        },
+        "value_fingerprint_fnv64": "a1383551f450e1bf",
+        "workbook_snapshot": {
+          "sheet_count": 1,
+          "sheets": [
+            {
+              "cell_count": 3,
+              "name": "Sheet1"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "path": "./.ci/batch-nightly-corpus/files/replica-030-minimal.xlsx",
+      "duration_ms": 10,
+      "sheet_count": 1,
+      "evaluated_cells": 0,
+      "cycle_count": 0,
+      "parse_error_count": 0,
+      "value_fingerprint_fnv64": "c28992a3f3be5e6a",
+      "recalc_report": {
+        "reports": [
+          {
+            "cycle_count": 0,
+            "evaluated_cells": 0,
+            "parse_error_count": 0,
+            "sheet": "Sheet1"
+          }
+        ],
+        "sheet_count": 1,
+        "totals": {
+          "cycle_count": 0,
+          "evaluated_cells": 0,
+          "parse_error_count": 0
+        },
+        "value_fingerprint_fnv64": "c28992a3f3be5e6a",
+        "workbook_snapshot": {
+          "sheet_count": 1,
+          "sheets": [
+            {
+              "cell_count": 1,
+              "name": "Sheet1"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "path": "./.ci/batch-nightly-corpus/files/replica-031-unknown-part.xlsx",
+      "duration_ms": 14,
+      "sheet_count": 1,
+      "evaluated_cells": 0,
+      "cycle_count": 0,
+      "parse_error_count": 0,
+      "value_fingerprint_fnv64": "2117fb446eabd5cf",
+      "recalc_report": {
+        "reports": [
+          {
+            "cycle_count": 0,
+            "evaluated_cells": 0,
+            "parse_error_count": 0,
+            "sheet": "Sheet1"
+          }
+        ],
+        "sheet_count": 1,
+        "totals": {
+          "cycle_count": 0,
+          "evaluated_cells": 0,
+          "parse_error_count": 0
+        },
+        "value_fingerprint_fnv64": "2117fb446eabd5cf",
+        "workbook_snapshot": {
+          "sheet_count": 1,
+          "sheets": [
+            {
+              "cell_count": 1,
+              "name": "Sheet1"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "path": "./.ci/batch-nightly-corpus/files/seed-000-dangling-edge.xlsx",
+      "duration_ms": 11,
+      "sheet_count": 1,
+      "evaluated_cells": 0,
+      "cycle_count": 0,
+      "parse_error_count": 0,
+      "value_fingerprint_fnv64": "512c4a974ef2ae54",
+      "recalc_report": {
+        "reports": [
+          {
+            "cycle_count": 0,
+            "evaluated_cells": 0,
+            "parse_error_count": 0,
+            "sheet": "Sheet1"
+          }
+        ],
+        "sheet_count": 1,
+        "totals": {
+          "cycle_count": 0,
+          "evaluated_cells": 0,
+          "parse_error_count": 0
+        },
+        "value_fingerprint_fnv64": "512c4a974ef2ae54",
+        "workbook_snapshot": {
+          "sheet_count": 1,
+          "sheets": [
+            {
+              "cell_count": 1,
+              "name": "Sheet1"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "path": "./.ci/batch-nightly-corpus/files/seed-001-formula.xlsx",
+      "duration_ms": 9,
+      "sheet_count": 1,
+      "evaluated_cells": 1,
+      "cycle_count": 0,
+      "parse_error_count": 0,
+      "value_fingerprint_fnv64": "a1383551f450e1bf",
+      "recalc_report": {
+        "reports": [
+          {
+            "cycle_count": 0,
+            "evaluated_cells": 1,
+            "parse_error_count": 0,
+            "sheet": "Sheet1"
+          }
+        ],
+        "sheet_count": 1,
+        "totals": {
+          "cycle_count": 0,
+          "evaluated_cells": 1,
+          "parse_error_count": 0
+        },
+        "value_fingerprint_fnv64": "a1383551f450e1bf",
+        "workbook_snapshot": {
+          "sheet_count": 1,
+          "sheets": [
+            {
+              "cell_count": 3,
+              "name": "Sheet1"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "path": "./.ci/batch-nightly-corpus/files/seed-002-minimal.xlsx",
+      "duration_ms": 11,
+      "sheet_count": 1,
+      "evaluated_cells": 0,
+      "cycle_count": 0,
+      "parse_error_count": 0,
+      "value_fingerprint_fnv64": "c28992a3f3be5e6a",
+      "recalc_report": {
+        "reports": [
+          {
+            "cycle_count": 0,
+            "evaluated_cells": 0,
+            "parse_error_count": 0,
+            "sheet": "Sheet1"
+          }
+        ],
+        "sheet_count": 1,
+        "totals": {
+          "cycle_count": 0,
+          "evaluated_cells": 0,
+          "parse_error_count": 0
+        },
+        "value_fingerprint_fnv64": "c28992a3f3be5e6a",
+        "workbook_snapshot": {
+          "sheet_count": 1,
+          "sheets": [
+            {
+              "cell_count": 1,
+              "name": "Sheet1"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "path": "./.ci/batch-nightly-corpus/files/seed-003-unknown-part.xlsx",
+      "duration_ms": 10,
+      "sheet_count": 1,
+      "evaluated_cells": 0,
+      "cycle_count": 0,
+      "parse_error_count": 0,
+      "value_fingerprint_fnv64": "2117fb446eabd5cf",
+      "recalc_report": {
+        "reports": [
+          {
+            "cycle_count": 0,
+            "evaluated_cells": 0,
+            "parse_error_count": 0,
+            "sheet": "Sheet1"
+          }
+        ],
+        "sheet_count": 1,
+        "totals": {
+          "cycle_count": 0,
+          "evaluated_cells": 0,
+          "parse_error_count": 0
+        },
+        "value_fingerprint_fnv64": "2117fb446eabd5cf",
+        "workbook_snapshot": {
+          "sheet_count": 1,
+          "sheets": [
+            {
+              "cell_count": 1,
+              "name": "Sheet1"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "path": "./.ci/batch-nightly-corpus/files/seed-004-preserve-source.xlsx",
+      "duration_ms": 11,
+      "sheet_count": 1,
+      "evaluated_cells": 0,
+      "cycle_count": 0,
+      "parse_error_count": 0,
+      "value_fingerprint_fnv64": "2885ce7cc9e1258e",
+      "recalc_report": {
+        "reports": [
+          {
+            "cycle_count": 0,
+            "evaluated_cells": 0,
+            "parse_error_count": 0,
+            "sheet": "Sheet1"
+          }
+        ],
+        "sheet_count": 1,
+        "totals": {
+          "cycle_count": 0,
+          "evaluated_cells": 0,
+          "parse_error_count": 0
+        },
+        "value_fingerprint_fnv64": "2885ce7cc9e1258e",
+        "workbook_snapshot": {
+          "sheet_count": 1,
+          "sheets": [
+            {
+              "cell_count": 1,
+              "name": "Sheet1"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "path": "./.ci/batch-nightly-corpus/files/seed-005-sample-formula.xlsx",
+      "duration_ms": 14,
+      "sheet_count": 1,
+      "evaluated_cells": 1,
+      "cycle_count": 0,
+      "parse_error_count": 0,
+      "value_fingerprint_fnv64": "82fa16334c2b6a32",
+      "recalc_report": {
+        "reports": [
+          {
+            "cycle_count": 0,
+            "evaluated_cells": 1,
+            "parse_error_count": 0,
+            "sheet": "Sheet1"
+          }
+        ],
+        "sheet_count": 1,
+        "totals": {
+          "cycle_count": 0,
+          "evaluated_cells": 1,
+          "parse_error_count": 0
+        },
+        "value_fingerprint_fnv64": "82fa16334c2b6a32",
+        "workbook_snapshot": {
+          "sheet_count": 1,
+          "sheets": [
+            {
+              "cell_count": 4,
+              "name": "Sheet1"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "path": "./.ci/batch-nightly-corpus/files/seed-006-tx-source.xlsx",
+      "duration_ms": 9,
+      "sheet_count": 1,
+      "evaluated_cells": 0,
+      "cycle_count": 0,
+      "parse_error_count": 0,
+      "value_fingerprint_fnv64": "2885ce7cc9e1258e",
+      "recalc_report": {
+        "reports": [
+          {
+            "cycle_count": 0,
+            "evaluated_cells": 0,
+            "parse_error_count": 0,
+            "sheet": "Sheet1"
+          }
+        ],
+        "sheet_count": 1,
+        "totals": {
+          "cycle_count": 0,
+          "evaluated_cells": 0,
+          "parse_error_count": 0
+        },
+        "value_fingerprint_fnv64": "2885ce7cc9e1258e",
+        "workbook_snapshot": {
+          "sheet_count": 1,
+          "sheets": [
+            {
+              "cell_count": 1,
+              "name": "Sheet1"
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "failures": []
+}

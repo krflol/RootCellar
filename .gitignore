@@ -1,0 +1,14 @@
+/target
+/node_modules
+/dist
+.obsidian/
+*.log
+*.jsonl
+*.rootcellar-report.json
+*.recalc-report.json
+sample*.xlsx
+normalized.xlsx
+*-output.xlsx
+preserve-source.xlsx
+tx-*.xlsx
+repro-bundle/
