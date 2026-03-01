@@ -1223,6 +1223,29 @@ fn eval_function(
                 Ok(0.0)
             }
         }
+        "IFERROR" => {
+            if args.len() != 2 {
+                return Err(EvalError::Parse);
+            }
+            match eval_expr(
+                workbook,
+                sheet_name,
+                &args[0],
+                parsed_formulas,
+                stack,
+                cache,
+            ) {
+                Ok(value) => Ok(value),
+                Err(_) => eval_expr(
+                    workbook,
+                    sheet_name,
+                    &args[1],
+                    parsed_formulas,
+                    stack,
+                    cache,
+                ),
+            }
+        }
         "CHOOSE" => {
             if args.len() < 2 {
                 return Err(EvalError::Parse);
@@ -1699,6 +1722,37 @@ fn eval_function(
                         .ok_or(EvalError::Parse)?;
                     Ok(max)
                 }
+                "MEDIAN" => {
+                    if values.is_empty() {
+                        return Err(EvalError::Parse);
+                    }
+                    let mut sorted = values;
+                    sorted.sort_by(f64::total_cmp);
+                    let len = sorted.len();
+                    if len % 2 == 1 {
+                        Ok(sorted[len / 2])
+                    } else {
+                        Ok((sorted[len / 2 - 1] + sorted[len / 2]) / 2.0)
+                    }
+                }
+                "SMALL" => {
+                    if values.len() < 2 {
+                        return Err(EvalError::Parse);
+                    }
+                    let rank = parse_rank_index(values[values.len() - 1], values.len() - 1)?;
+                    let mut candidates = values[..values.len() - 1].to_vec();
+                    candidates.sort_by(f64::total_cmp);
+                    Ok(candidates[rank])
+                }
+                "LARGE" => {
+                    if values.len() < 2 {
+                        return Err(EvalError::Parse);
+                    }
+                    let rank = parse_rank_index(values[values.len() - 1], values.len() - 1)?;
+                    let mut candidates = values[..values.len() - 1].to_vec();
+                    candidates.sort_by(f64::total_cmp);
+                    Ok(candidates[candidates.len() - 1 - rank])
+                }
                 "ABS" => {
                     if values.len() != 1 {
                         return Err(EvalError::Parse);
@@ -1762,6 +1816,32 @@ fn eval_function(
                         return Err(EvalError::Parse);
                     }
                     Ok(result)
+                }
+                "SIGN" => {
+                    if values.len() != 1 {
+                        return Err(EvalError::Parse);
+                    }
+                    Ok(if values[0] > 0.0 {
+                        1.0
+                    } else if values[0] < 0.0 {
+                        -1.0
+                    } else {
+                        0.0
+                    })
+                }
+                "CEILING" => {
+                    if values.is_empty() || values.len() > 2 {
+                        return Err(EvalError::Parse);
+                    }
+                    let significance = if values.len() == 2 { values[1] } else { 1.0 };
+                    ceiling_with_significance(values[0], significance)
+                }
+                "FLOOR" => {
+                    if values.is_empty() || values.len() > 2 {
+                        return Err(EvalError::Parse);
+                    }
+                    let significance = if values.len() == 2 { values[1] } else { 1.0 };
+                    floor_with_significance(values[0], significance)
                 }
                 "AND" => {
                     if values.is_empty() {
@@ -2353,6 +2433,47 @@ fn round_with_digits(value: f64, digits: i64, mode: RoundMode) -> Result<f64, Ev
         return Err(EvalError::Parse);
     }
     Ok(unscaled)
+}
+
+fn parse_rank_index(rank_value: f64, candidate_len: usize) -> Result<usize, EvalError> {
+    if candidate_len == 0 {
+        return Err(EvalError::Parse);
+    }
+    let rank = trunc_f64_to_i64(rank_value)?;
+    if rank < 1 || rank > candidate_len as i64 {
+        return Err(EvalError::Parse);
+    }
+    Ok((rank - 1) as usize)
+}
+
+fn ceiling_with_significance(value: f64, significance: f64) -> Result<f64, EvalError> {
+    if !value.is_finite() || !significance.is_finite() || significance == 0.0 {
+        return Err(EvalError::Parse);
+    }
+    let result = (value / significance).ceil() * significance;
+    if !result.is_finite() {
+        return Err(EvalError::Parse);
+    }
+    if result == -0.0 {
+        Ok(0.0)
+    } else {
+        Ok(result)
+    }
+}
+
+fn floor_with_significance(value: f64, significance: f64) -> Result<f64, EvalError> {
+    if !value.is_finite() || !significance.is_finite() || significance == 0.0 {
+        return Err(EvalError::Parse);
+    }
+    let result = (value / significance).floor() * significance;
+    if !result.is_finite() {
+        return Err(EvalError::Parse);
+    }
+    if result == -0.0 {
+        Ok(0.0)
+    } else {
+        Ok(result)
+    }
 }
 
 fn trunc_f64_to_i64(value: f64) -> Result<i64, EvalError> {
@@ -3750,6 +3871,628 @@ mod tests {
         assert_eq!(k2, CellValue::Number(1.0));
         assert_eq!(l2, CellValue::Number(42.0));
         assert_eq!(m2, CellValue::Error("#PARSE!".to_string()));
+    }
+
+    #[test]
+    fn evaluates_math_extension_functions() {
+        let mut wb = Workbook::new();
+        let mut sink = NoopEventSink;
+        let trace = TraceContext::root();
+
+        let mut txn = wb.begin_txn(&mut sink, &trace).expect("begin");
+        txn.apply(Mutation::SetCellValue {
+            sheet: "Sheet1".to_string(),
+            row: 1,
+            col: 1,
+            value: CellValue::Number(12.345),
+        });
+        txn.apply(Mutation::SetCellValue {
+            sheet: "Sheet1".to_string(),
+            row: 1,
+            col: 2,
+            value: CellValue::Number(-12.345),
+        });
+        txn.apply(Mutation::SetCellValue {
+            sheet: "Sheet1".to_string(),
+            row: 1,
+            col: 3,
+            value: CellValue::Number(10.0),
+        });
+        txn.apply(Mutation::SetCellValue {
+            sheet: "Sheet1".to_string(),
+            row: 1,
+            col: 4,
+            value: CellValue::Number(3.0),
+        });
+        txn.apply(Mutation::SetCellValue {
+            sheet: "Sheet1".to_string(),
+            row: 1,
+            col: 5,
+            value: CellValue::Number(123.0),
+        });
+        txn.apply(Mutation::SetCellFormula {
+            sheet: "Sheet1".to_string(),
+            row: 2,
+            col: 1,
+            formula: "=ROUND(A1,2)".to_string(),
+            cached_value: CellValue::Empty,
+        });
+        txn.apply(Mutation::SetCellFormula {
+            sheet: "Sheet1".to_string(),
+            row: 2,
+            col: 2,
+            formula: "=ROUND(B1,2)".to_string(),
+            cached_value: CellValue::Empty,
+        });
+        txn.apply(Mutation::SetCellFormula {
+            sheet: "Sheet1".to_string(),
+            row: 2,
+            col: 3,
+            formula: "=ROUND(E1,-1)".to_string(),
+            cached_value: CellValue::Empty,
+        });
+        txn.apply(Mutation::SetCellFormula {
+            sheet: "Sheet1".to_string(),
+            row: 2,
+            col: 4,
+            formula: "=ROUNDUP(B1,1)".to_string(),
+            cached_value: CellValue::Empty,
+        });
+        txn.apply(Mutation::SetCellFormula {
+            sheet: "Sheet1".to_string(),
+            row: 2,
+            col: 5,
+            formula: "=ROUNDDOWN(B1,1)".to_string(),
+            cached_value: CellValue::Empty,
+        });
+        txn.apply(Mutation::SetCellFormula {
+            sheet: "Sheet1".to_string(),
+            row: 2,
+            col: 6,
+            formula: "=INT(B1)".to_string(),
+            cached_value: CellValue::Empty,
+        });
+        txn.apply(Mutation::SetCellFormula {
+            sheet: "Sheet1".to_string(),
+            row: 2,
+            col: 7,
+            formula: "=MOD(C1,D1)".to_string(),
+            cached_value: CellValue::Empty,
+        });
+        txn.apply(Mutation::SetCellFormula {
+            sheet: "Sheet1".to_string(),
+            row: 2,
+            col: 8,
+            formula: "=MOD(B1,D1)".to_string(),
+            cached_value: CellValue::Empty,
+        });
+        txn.apply(Mutation::SetCellFormula {
+            sheet: "Sheet1".to_string(),
+            row: 2,
+            col: 9,
+            formula: "=POWER(2,10)".to_string(),
+            cached_value: CellValue::Empty,
+        });
+        txn.apply(Mutation::SetCellFormula {
+            sheet: "Sheet1".to_string(),
+            row: 2,
+            col: 10,
+            formula: "=SQRT(81)".to_string(),
+            cached_value: CellValue::Empty,
+        });
+        txn.apply(Mutation::SetCellFormula {
+            sheet: "Sheet1".to_string(),
+            row: 2,
+            col: 11,
+            formula: "=PRODUCT(C1,D1,2)".to_string(),
+            cached_value: CellValue::Empty,
+        });
+        txn.apply(Mutation::SetCellFormula {
+            sheet: "Sheet1".to_string(),
+            row: 2,
+            col: 12,
+            formula: "=ROUNDUP(E1,-1)".to_string(),
+            cached_value: CellValue::Empty,
+        });
+        txn.apply(Mutation::SetCellFormula {
+            sheet: "Sheet1".to_string(),
+            row: 2,
+            col: 13,
+            formula: "=ROUNDDOWN(E1,-1)".to_string(),
+            cached_value: CellValue::Empty,
+        });
+        txn.apply(Mutation::SetCellFormula {
+            sheet: "Sheet1".to_string(),
+            row: 2,
+            col: 14,
+            formula: "=MOD(5,0)".to_string(),
+            cached_value: CellValue::Empty,
+        });
+        txn.apply(Mutation::SetCellFormula {
+            sheet: "Sheet1".to_string(),
+            row: 2,
+            col: 15,
+            formula: "=SQRT(-1)".to_string(),
+            cached_value: CellValue::Empty,
+        });
+        txn.apply(Mutation::SetCellFormula {
+            sheet: "Sheet1".to_string(),
+            row: 2,
+            col: 16,
+            formula: "=ROUND(1,2,3)".to_string(),
+            cached_value: CellValue::Empty,
+        });
+        txn.apply(Mutation::SetCellFormula {
+            sheet: "Sheet1".to_string(),
+            row: 2,
+            col: 17,
+            formula: "=POWER(-1,0.5)".to_string(),
+            cached_value: CellValue::Empty,
+        });
+        txn.commit(&mut wb, &mut sink, &trace).expect("commit");
+
+        let report = recalc_sheet(&mut wb, "Sheet1", &mut sink, &trace).expect("recalc");
+        assert_eq!(report.parse_error_count, 4);
+
+        let a2 = wb
+            .sheets
+            .get("Sheet1")
+            .and_then(|s| s.cells.get(&CellRef { row: 2, col: 1 }))
+            .expect("a2")
+            .value
+            .clone();
+        let b2 = wb
+            .sheets
+            .get("Sheet1")
+            .and_then(|s| s.cells.get(&CellRef { row: 2, col: 2 }))
+            .expect("b2")
+            .value
+            .clone();
+        let c2 = wb
+            .sheets
+            .get("Sheet1")
+            .and_then(|s| s.cells.get(&CellRef { row: 2, col: 3 }))
+            .expect("c2")
+            .value
+            .clone();
+        let d2 = wb
+            .sheets
+            .get("Sheet1")
+            .and_then(|s| s.cells.get(&CellRef { row: 2, col: 4 }))
+            .expect("d2")
+            .value
+            .clone();
+        let e2 = wb
+            .sheets
+            .get("Sheet1")
+            .and_then(|s| s.cells.get(&CellRef { row: 2, col: 5 }))
+            .expect("e2")
+            .value
+            .clone();
+        let f2 = wb
+            .sheets
+            .get("Sheet1")
+            .and_then(|s| s.cells.get(&CellRef { row: 2, col: 6 }))
+            .expect("f2")
+            .value
+            .clone();
+        let g2 = wb
+            .sheets
+            .get("Sheet1")
+            .and_then(|s| s.cells.get(&CellRef { row: 2, col: 7 }))
+            .expect("g2")
+            .value
+            .clone();
+        let h2 = wb
+            .sheets
+            .get("Sheet1")
+            .and_then(|s| s.cells.get(&CellRef { row: 2, col: 8 }))
+            .expect("h2")
+            .value
+            .clone();
+        let i2 = wb
+            .sheets
+            .get("Sheet1")
+            .and_then(|s| s.cells.get(&CellRef { row: 2, col: 9 }))
+            .expect("i2")
+            .value
+            .clone();
+        let j2 = wb
+            .sheets
+            .get("Sheet1")
+            .and_then(|s| s.cells.get(&CellRef { row: 2, col: 10 }))
+            .expect("j2")
+            .value
+            .clone();
+        let k2 = wb
+            .sheets
+            .get("Sheet1")
+            .and_then(|s| s.cells.get(&CellRef { row: 2, col: 11 }))
+            .expect("k2")
+            .value
+            .clone();
+        let l2 = wb
+            .sheets
+            .get("Sheet1")
+            .and_then(|s| s.cells.get(&CellRef { row: 2, col: 12 }))
+            .expect("l2")
+            .value
+            .clone();
+        let m2 = wb
+            .sheets
+            .get("Sheet1")
+            .and_then(|s| s.cells.get(&CellRef { row: 2, col: 13 }))
+            .expect("m2")
+            .value
+            .clone();
+        let n2 = wb
+            .sheets
+            .get("Sheet1")
+            .and_then(|s| s.cells.get(&CellRef { row: 2, col: 14 }))
+            .expect("n2")
+            .value
+            .clone();
+        let o2 = wb
+            .sheets
+            .get("Sheet1")
+            .and_then(|s| s.cells.get(&CellRef { row: 2, col: 15 }))
+            .expect("o2")
+            .value
+            .clone();
+        let p2 = wb
+            .sheets
+            .get("Sheet1")
+            .and_then(|s| s.cells.get(&CellRef { row: 2, col: 16 }))
+            .expect("p2")
+            .value
+            .clone();
+        let q2 = wb
+            .sheets
+            .get("Sheet1")
+            .and_then(|s| s.cells.get(&CellRef { row: 2, col: 17 }))
+            .expect("q2")
+            .value
+            .clone();
+
+        assert_eq!(a2, CellValue::Number(12.35));
+        assert_eq!(b2, CellValue::Number(-12.35));
+        assert_eq!(c2, CellValue::Number(120.0));
+        assert_eq!(d2, CellValue::Number(-12.4));
+        assert_eq!(e2, CellValue::Number(-12.3));
+        assert_eq!(f2, CellValue::Number(-13.0));
+        assert_eq!(g2, CellValue::Number(1.0));
+        assert_eq!(i2, CellValue::Number(1024.0));
+        assert_eq!(j2, CellValue::Number(9.0));
+        assert_eq!(k2, CellValue::Number(60.0));
+        assert_eq!(l2, CellValue::Number(130.0));
+        assert_eq!(m2, CellValue::Number(120.0));
+        assert_eq!(n2, CellValue::Error("#PARSE!".to_string()));
+        assert_eq!(o2, CellValue::Error("#PARSE!".to_string()));
+        assert_eq!(p2, CellValue::Error("#PARSE!".to_string()));
+        assert_eq!(q2, CellValue::Error("#PARSE!".to_string()));
+
+        let expected_mod_negative = -12.345_f64 - 3.0_f64 * (-12.345_f64 / 3.0_f64).floor();
+        match h2 {
+            CellValue::Number(value) => {
+                assert!((value - expected_mod_negative).abs() < 1e-12);
+            }
+            other => panic!("expected numeric H2 value, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn evaluates_stat_and_error_extension_functions() {
+        let mut wb = Workbook::new();
+        let mut sink = NoopEventSink;
+        let trace = TraceContext::root();
+
+        let mut txn = wb.begin_txn(&mut sink, &trace).expect("begin");
+        txn.apply(Mutation::SetCellValue {
+            sheet: "Sheet1".to_string(),
+            row: 1,
+            col: 1,
+            value: CellValue::Number(10.0),
+        });
+        txn.apply(Mutation::SetCellValue {
+            sheet: "Sheet1".to_string(),
+            row: 1,
+            col: 2,
+            value: CellValue::Number(20.0),
+        });
+        txn.apply(Mutation::SetCellValue {
+            sheet: "Sheet1".to_string(),
+            row: 1,
+            col: 3,
+            value: CellValue::Number(30.0),
+        });
+        txn.apply(Mutation::SetCellValue {
+            sheet: "Sheet1".to_string(),
+            row: 1,
+            col: 4,
+            value: CellValue::Number(-3.2),
+        });
+        txn.apply(Mutation::SetCellValue {
+            sheet: "Sheet1".to_string(),
+            row: 1,
+            col: 5,
+            value: CellValue::Number(3.0),
+        });
+        txn.apply(Mutation::SetCellFormula {
+            sheet: "Sheet1".to_string(),
+            row: 2,
+            col: 1,
+            formula: "=IFERROR(1/0,99)".to_string(),
+            cached_value: CellValue::Empty,
+        });
+        txn.apply(Mutation::SetCellFormula {
+            sheet: "Sheet1".to_string(),
+            row: 2,
+            col: 2,
+            formula: "=IFERROR(A1/2,99)".to_string(),
+            cached_value: CellValue::Empty,
+        });
+        txn.apply(Mutation::SetCellFormula {
+            sheet: "Sheet1".to_string(),
+            row: 2,
+            col: 3,
+            formula: "=MEDIAN(A1,B1,C1,40)".to_string(),
+            cached_value: CellValue::Empty,
+        });
+        txn.apply(Mutation::SetCellFormula {
+            sheet: "Sheet1".to_string(),
+            row: 2,
+            col: 4,
+            formula: "=SMALL(A1,B1,C1,2)".to_string(),
+            cached_value: CellValue::Empty,
+        });
+        txn.apply(Mutation::SetCellFormula {
+            sheet: "Sheet1".to_string(),
+            row: 2,
+            col: 5,
+            formula: "=LARGE(A1,B1,C1,2)".to_string(),
+            cached_value: CellValue::Empty,
+        });
+        txn.apply(Mutation::SetCellFormula {
+            sheet: "Sheet1".to_string(),
+            row: 2,
+            col: 6,
+            formula: "=SIGN(D1)".to_string(),
+            cached_value: CellValue::Empty,
+        });
+        txn.apply(Mutation::SetCellFormula {
+            sheet: "Sheet1".to_string(),
+            row: 2,
+            col: 7,
+            formula: "=SIGN(0)".to_string(),
+            cached_value: CellValue::Empty,
+        });
+        txn.apply(Mutation::SetCellFormula {
+            sheet: "Sheet1".to_string(),
+            row: 2,
+            col: 8,
+            formula: "=CEILING(D1,E1)".to_string(),
+            cached_value: CellValue::Empty,
+        });
+        txn.apply(Mutation::SetCellFormula {
+            sheet: "Sheet1".to_string(),
+            row: 2,
+            col: 9,
+            formula: "=FLOOR(D1,E1)".to_string(),
+            cached_value: CellValue::Empty,
+        });
+        txn.apply(Mutation::SetCellFormula {
+            sheet: "Sheet1".to_string(),
+            row: 2,
+            col: 10,
+            formula: "=CEILING(7.1,2)".to_string(),
+            cached_value: CellValue::Empty,
+        });
+        txn.apply(Mutation::SetCellFormula {
+            sheet: "Sheet1".to_string(),
+            row: 2,
+            col: 11,
+            formula: "=FLOOR(7.9,2)".to_string(),
+            cached_value: CellValue::Empty,
+        });
+        txn.apply(Mutation::SetCellFormula {
+            sheet: "Sheet1".to_string(),
+            row: 2,
+            col: 12,
+            formula: "=MEDIAN(A1)".to_string(),
+            cached_value: CellValue::Empty,
+        });
+        txn.apply(Mutation::SetCellFormula {
+            sheet: "Sheet1".to_string(),
+            row: 2,
+            col: 13,
+            formula: "=SMALL(A1,B1,0)".to_string(),
+            cached_value: CellValue::Empty,
+        });
+        txn.apply(Mutation::SetCellFormula {
+            sheet: "Sheet1".to_string(),
+            row: 2,
+            col: 14,
+            formula: "=LARGE(A1,B1,3)".to_string(),
+            cached_value: CellValue::Empty,
+        });
+        txn.apply(Mutation::SetCellFormula {
+            sheet: "Sheet1".to_string(),
+            row: 2,
+            col: 15,
+            formula: "=CEILING(5,0)".to_string(),
+            cached_value: CellValue::Empty,
+        });
+        txn.apply(Mutation::SetCellFormula {
+            sheet: "Sheet1".to_string(),
+            row: 2,
+            col: 16,
+            formula: "=IFERROR(NOPE(1),A1)".to_string(),
+            cached_value: CellValue::Empty,
+        });
+        txn.apply(Mutation::SetCellFormula {
+            sheet: "Sheet1".to_string(),
+            row: 2,
+            col: 17,
+            formula: "=IFERROR(A1,1/0)".to_string(),
+            cached_value: CellValue::Empty,
+        });
+        txn.apply(Mutation::SetCellFormula {
+            sheet: "Sheet1".to_string(),
+            row: 2,
+            col: 18,
+            formula: "=CEILING(2.2)".to_string(),
+            cached_value: CellValue::Empty,
+        });
+        txn.commit(&mut wb, &mut sink, &trace).expect("commit");
+
+        let report = recalc_sheet(&mut wb, "Sheet1", &mut sink, &trace).expect("recalc");
+        assert_eq!(report.parse_error_count, 3);
+
+        let a2 = wb
+            .sheets
+            .get("Sheet1")
+            .and_then(|s| s.cells.get(&CellRef { row: 2, col: 1 }))
+            .expect("a2")
+            .value
+            .clone();
+        let b2 = wb
+            .sheets
+            .get("Sheet1")
+            .and_then(|s| s.cells.get(&CellRef { row: 2, col: 2 }))
+            .expect("b2")
+            .value
+            .clone();
+        let c2 = wb
+            .sheets
+            .get("Sheet1")
+            .and_then(|s| s.cells.get(&CellRef { row: 2, col: 3 }))
+            .expect("c2")
+            .value
+            .clone();
+        let d2 = wb
+            .sheets
+            .get("Sheet1")
+            .and_then(|s| s.cells.get(&CellRef { row: 2, col: 4 }))
+            .expect("d2")
+            .value
+            .clone();
+        let e2 = wb
+            .sheets
+            .get("Sheet1")
+            .and_then(|s| s.cells.get(&CellRef { row: 2, col: 5 }))
+            .expect("e2")
+            .value
+            .clone();
+        let f2 = wb
+            .sheets
+            .get("Sheet1")
+            .and_then(|s| s.cells.get(&CellRef { row: 2, col: 6 }))
+            .expect("f2")
+            .value
+            .clone();
+        let g2 = wb
+            .sheets
+            .get("Sheet1")
+            .and_then(|s| s.cells.get(&CellRef { row: 2, col: 7 }))
+            .expect("g2")
+            .value
+            .clone();
+        let h2 = wb
+            .sheets
+            .get("Sheet1")
+            .and_then(|s| s.cells.get(&CellRef { row: 2, col: 8 }))
+            .expect("h2")
+            .value
+            .clone();
+        let i2 = wb
+            .sheets
+            .get("Sheet1")
+            .and_then(|s| s.cells.get(&CellRef { row: 2, col: 9 }))
+            .expect("i2")
+            .value
+            .clone();
+        let j2 = wb
+            .sheets
+            .get("Sheet1")
+            .and_then(|s| s.cells.get(&CellRef { row: 2, col: 10 }))
+            .expect("j2")
+            .value
+            .clone();
+        let k2 = wb
+            .sheets
+            .get("Sheet1")
+            .and_then(|s| s.cells.get(&CellRef { row: 2, col: 11 }))
+            .expect("k2")
+            .value
+            .clone();
+        let l2 = wb
+            .sheets
+            .get("Sheet1")
+            .and_then(|s| s.cells.get(&CellRef { row: 2, col: 12 }))
+            .expect("l2")
+            .value
+            .clone();
+        let m2 = wb
+            .sheets
+            .get("Sheet1")
+            .and_then(|s| s.cells.get(&CellRef { row: 2, col: 13 }))
+            .expect("m2")
+            .value
+            .clone();
+        let n2 = wb
+            .sheets
+            .get("Sheet1")
+            .and_then(|s| s.cells.get(&CellRef { row: 2, col: 14 }))
+            .expect("n2")
+            .value
+            .clone();
+        let o2 = wb
+            .sheets
+            .get("Sheet1")
+            .and_then(|s| s.cells.get(&CellRef { row: 2, col: 15 }))
+            .expect("o2")
+            .value
+            .clone();
+        let p2 = wb
+            .sheets
+            .get("Sheet1")
+            .and_then(|s| s.cells.get(&CellRef { row: 2, col: 16 }))
+            .expect("p2")
+            .value
+            .clone();
+        let q2 = wb
+            .sheets
+            .get("Sheet1")
+            .and_then(|s| s.cells.get(&CellRef { row: 2, col: 17 }))
+            .expect("q2")
+            .value
+            .clone();
+        let r2 = wb
+            .sheets
+            .get("Sheet1")
+            .and_then(|s| s.cells.get(&CellRef { row: 2, col: 18 }))
+            .expect("r2")
+            .value
+            .clone();
+
+        assert_eq!(a2, CellValue::Number(99.0));
+        assert_eq!(b2, CellValue::Number(5.0));
+        assert_eq!(c2, CellValue::Number(25.0));
+        assert_eq!(d2, CellValue::Number(20.0));
+        assert_eq!(e2, CellValue::Number(20.0));
+        assert_eq!(f2, CellValue::Number(-1.0));
+        assert_eq!(g2, CellValue::Number(0.0));
+        assert_eq!(h2, CellValue::Number(-3.0));
+        assert_eq!(i2, CellValue::Number(-6.0));
+        assert_eq!(j2, CellValue::Number(8.0));
+        assert_eq!(k2, CellValue::Number(6.0));
+        assert_eq!(l2, CellValue::Number(10.0));
+        assert_eq!(m2, CellValue::Error("#PARSE!".to_string()));
+        assert_eq!(n2, CellValue::Error("#PARSE!".to_string()));
+        assert_eq!(o2, CellValue::Error("#PARSE!".to_string()));
+        assert_eq!(p2, CellValue::Number(10.0));
+        assert_eq!(q2, CellValue::Number(10.0));
+        assert_eq!(r2, CellValue::Number(3.0));
     }
 
     #[test]
