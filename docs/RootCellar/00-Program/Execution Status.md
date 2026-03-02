@@ -12,12 +12,12 @@ Last updated: March 1, 2026
 - Why this is on track:
   - Engine/CLI/telemetry and deterministic artifact publication paths are already in place and stable.
   - Calc baseline has broad starter coverage and passing offline workspace tests.
-  - Remaining M0 scope is concentrated in UI shell startup and trace propagation, not core engine uncertainty.
+  - Remaining M0 scope is concentrated in richer UI interactions and CI smoke coverage, not core engine uncertainty.
 - Critical path to protect:
   - Keep bidirectional workbook compatibility (`Excel/openpyxl <-> RootCellar`) as a standing gate for every interop-affecting change.
-  - Land minimal Tauri shell startup with one engine round-trip command.
+  - Keep desktop save defaults interop-first (`preserve`) with compatibility findings visible before write.
   - Propagate and emit trace context across UI->engine command paths.
-  - Add a lightweight UI smoke check in CI so M0 readiness has an executable guardrail.
+  - Keep desktop UI smoke CI green so M0 readiness has an executable guardrail.
   - Continue scheduler hot-path optimization with benchmark-backed validation so larger dependency graphs stay predictable.
 
 ## Execution Plan Linkage
@@ -223,8 +223,69 @@ Last updated: March 1, 2026
    - Curated corpus manifest now includes five approved seeded samples (`internal-formula-baseline`, `internal-styles-baseline`, `internal-comments-baseline`, `internal-chart-baseline`, `internal-defined-names-baseline`) under `corpus/excel-authored/files`.
    - Interop CI policy now enforces `EXCEL_INTEROP_MIN_EXCEL_AUTHORED_SAMPLES=5` plus comma-separated required curated feature coverage (`EXCEL_INTEROP_REQUIRED_CURATED_FEATURES=formulas,styles,comments,charts,defined_names`).
    - Assembled corpus and interop validation now pass with `excel_authored_sample_count=5`, `required_curated_features=['charts','comments','defined_names','formulas','styles']`, and no missing required curated features.
+40. Curated provenance-aware policy scaffold delivered:
+   - `python/assemble_excel_interop_corpus.py` now supports `provenance` metadata (`interim_openpyxl`, `verified_excel`) per curated sample, captures detected workbook application metadata, and enforces optional verified-Excel minimums (`--min-verified-excel-samples`).
+   - `verified_excel` provenance now requires workbook metadata detection containing `Microsoft Excel`, preventing false verification labels in curated manifest entries.
+   - Interop CI workflow now exposes `EXCEL_INTEROP_MIN_VERIFIED_EXCEL_SAMPLES` and records `excel_authored_min_verified_required` in artifact bundle manifest metadata.
+   - Policy floor is now enforced in CI with `EXCEL_INTEROP_MIN_VERIFIED_EXCEL_SAMPLES=17`.
+41. Verified Microsoft Excel-authored curated baseline landed and expanded:
+   - Added `python/generate_excel_authored_curated_samples.ps1` to generate curated workbooks via Excel COM automation for formulas/styles/comments/charts/defined names plus tables/merged-cells/data-validation/conditional-formatting coverage.
+   - Curated manifest entries now set `provenance=verified_excel` and `authoring_app=Microsoft Excel 16.0 (COM-authored)` for nine seeded samples.
+   - Interop assembly + gate validation passed at that phase with `excel_authored_sample_count=9` and `excel_authored_verified_count=9` under policy floor `EXCEL_INTEROP_MIN_VERIFIED_EXCEL_SAMPLES=9`.
+42. Verified Excel-authored interop corpus expanded with external-link and pivot coverage:
+   - `python/generate_excel_authored_curated_samples.ps1` now generates `internal-external-links-baseline.xlsx` and `internal-pivot-table-baseline.xlsx` in addition to the prior nine baseline samples.
+   - Curated manifest now includes `external_links` and `pivot_tables` tags, bringing verified seeded sample coverage to `11`.
+   - Interop CI policy floors and required curated features are raised to `11` / `11` with `EXCEL_INTEROP_REQUIRED_CURATED_FEATURES=formulas,styles,comments,charts,defined_names,tables,merged_cells,data_validation,conditional_formatting,external_links,pivot_tables`.
+43. Verified Excel-authored interop corpus expanded with query-connections and sheet-protection coverage:
+   - `python/generate_excel_authored_curated_samples.ps1` now generates `internal-query-connection-baseline.xlsx` and `internal-sheet-protection-baseline.xlsx` in addition to the prior eleven baseline samples.
+   - Curated manifest now includes `query_connections` and `sheet_protection` tags, bringing verified seeded sample coverage to `13`.
+   - Interop CI policy floors and required curated features are raised to `13` / `13` with `EXCEL_INTEROP_REQUIRED_CURATED_FEATURES=formulas,styles,comments,charts,defined_names,tables,merged_cells,data_validation,conditional_formatting,external_links,pivot_tables,query_connections,sheet_protection`.
+44. Verified Excel-authored interop corpus expanded with hyperlinks and workbook-protection coverage:
+   - `python/generate_excel_authored_curated_samples.ps1` now generates `internal-hyperlinks-baseline.xlsx` and `internal-workbook-protection-baseline.xlsx` in addition to the prior thirteen baseline samples.
+   - Curated manifest now includes `hyperlinks` and `workbook_protection` tags, bringing verified seeded sample coverage to `15`.
+   - Interop CI policy floors and required curated features are raised to `15` / `15` with `EXCEL_INTEROP_REQUIRED_CURATED_FEATURES=formulas,styles,comments,charts,defined_names,tables,merged_cells,data_validation,conditional_formatting,external_links,pivot_tables,query_connections,sheet_protection,hyperlinks,workbook_protection`.
+45. Verified Excel-authored interop corpus expanded with print-settings and calc-chain coverage:
+   - `python/generate_excel_authored_curated_samples.ps1` now generates `internal-print-settings-baseline.xlsx` and `internal-calc-chain-baseline.xlsx` in addition to the prior fifteen baseline samples.
+   - Curated manifest now includes `print_settings` and `calc_chain` tags, bringing verified seeded sample coverage to `17`.
+   - Interop CI policy floors and required curated features are raised to `17` / `17` with `EXCEL_INTEROP_REQUIRED_CURATED_FEATURES=formulas,styles,comments,charts,defined_names,tables,merged_cells,data_validation,conditional_formatting,external_links,pivot_tables,query_connections,sheet_protection,hyperlinks,workbook_protection,print_settings,calc_chain`.
+46. Desktop UI shell now exercises compatibility-first interop flows in-app:
+   - Tauri backend now exposes `interop_open_workbook`, `interop_session_status`, `interop_recalc_loaded`, and `interop_save_workbook` (preserve/normalize).
+   - UI now includes path-based workbook open/inspect, compatibility summary panel, loaded-workbook recalc, and save mode controls.
+   - Desktop packaging setup now includes Tauri icons/metadata so local Windows builds compile without manual resource fixes.
+   - Core interop extension validation now accepts `.xlsx` case-insensitively (`.xlsx`/`.XLSX`).
+47. Desktop interop workflow now includes native file dialogs and first edit-to-save path:
+   - Added Tauri dialog plugin wiring (`@tauri-apps/plugin-dialog`, `tauri-plugin-dialog`) with desktop capability permissions.
+   - UI now supports native file-picker/open and save-as dialogs for `.xlsx` workflows.
+   - Added first in-app cell edit command (`interop_apply_cell_edit`) for value/formula mutations.
+   - Preserve-mode save now routes through sheet-overrides whenever dirty sheets exist, keeping unknown Excel parts while persisting edited worksheets.
+48. Desktop UI smoke CI baseline added:
+   - Added workflow `.github/workflows/desktop-ui-smoke.yml` (PR/push/workflow_dispatch) on `windows-latest`.
+   - Workflow gates desktop path with `npm ci`, `npm run build`, Tauri backend `cargo check`, and interop extension compatibility test (`accepts_uppercase_xlsx_extension`).
+49. Desktop UI now exposes first inspectable grid-like preview + save-source continuation controls:
+   - Added `interop_sheet_preview` backend command with bounded cell sampling for loaded sheets.
+   - UI now renders a sheet preview table (row/column headers + value/formula cells) and supports preview refresh by sheet.
+   - Save flow now supports optional output-path promotion as the active session source after successful save.
+50. Desktop preview workflow now supports edit navigation and clipboard helpers:
+   - Preview table now tracks last edited cell and supports one-click jump back to that cell.
+   - Preview cells are selectable, with visual selected/last-edited highlights.
+   - Added clipboard actions for selected cell A1 reference, rendered value, and formula text (when present).
+51. Desktop preview keyboard controls delivered:
+   - Arrow-key navigation now moves selection across previewed populated cells.
+   - Pressing `Enter` in focused preview applies the current edit-form input to the selected cell.
+   - Preview container now exposes keyboard focus styling for discoverability.
+52. Desktop edit UX now aligns range edits with preview-first workflow:
+   - Edit panel now explicitly accepts A1 ranges (`A1:B3`) in addition to single-cell references.
+   - `interop_apply_cell_edit` responses are now surfaced with `anchorCell` + `appliedCellCount` in UI output, and preview focus/jump-last-edited now tracks the anchor cell.
+   - Formula bar is now fully wired (`Apply From Bar` + `Enter`) and syncs mode/input to the edit panel so preview, formula bar, and edit actions stay aligned.
+53. Desktop range-edit regression coverage now guards anchor-cell semantics:
+   - Extracted desktop backend edit logic into a testable helper (`apply_cell_edit_to_workbook`) while keeping command behavior unchanged.
+   - Added range regression unit tests covering value and formula range edits (`B2:A1`, `C1:C2`) with assertions for `anchorCell`, `appliedCellCount`, and applied workbook mutations.
+   - Desktop smoke CI now runs targeted range-edit regression tests (`cargo test --manifest-path apps/desktop/src-tauri/Cargo.toml --locked apply_cell_edit_range`).
 
 ## Verification
+- `npm run build` (from `apps/desktop`): pass.
+- `cargo check --manifest-path apps/desktop/src-tauri/Cargo.toml -j 1`: pass.
+- `cargo test --manifest-path apps/desktop/src-tauri/Cargo.toml --locked apply_cell_edit_range`: pass.
 - `cargo fmt --all`: pass.
 - `cargo test --workspace --offline`: pass.
 - `cargo run -p rootcellar-cli --offline -- --help`: pass.
@@ -264,6 +325,10 @@ Last updated: March 1, 2026
 - `python python/assemble_excel_interop_corpus.py --repo-root . --output-dir ./target/excel-interop-corpus-v4-missing-feature --excel-authored-manifest ./corpus/excel-authored/manifest.json --min-excel-authored-samples 5 --required-curated-feature pivot_tables`: expected fail (curated feature policy gate trips as designed when required feature tag coverage is absent: `missing=['pivot_tables']`; coverage includes `formulas/styles/comments/charts/defined_names`).
 - `python python/verify_excel_interop.py --workspace . --workdir ./target/excel-interop-gate-v8 --corpus-dir ./target/excel-interop-corpus-v4 --corpus-manifest ./target/excel-interop-corpus-v4/manifest.json --max-corpus-files 32 --require-corpus-fixture minimal.xlsx --require-corpus-fixture formula.xlsx --require-corpus-fixture dangling-edge.xlsx --require-corpus-fixture unknown-part.xlsx --require-corpus-fixture styles.xlsx --require-corpus-fixture comments.xlsx --require-corpus-fixture chart.xlsx --require-corpus-fixture defined-names.xlsx --report ./target/excel-interop-gate-report-v8.json`: pass (status=`pass`; 14 total cases = primary + 13 corpus workbooks; `excel_authored_sample_count=5`; required curated features and generated fixture requirements satisfied).
 - `cargo run -p rootcellar-cli --offline -- part-graph-corpus ./target/excel-interop-corpus-v4 --fail-on-errors --report ./target/part-graph-corpus-report-v7.json --jsonl ./target/part-graph-corpus-events-v7.jsonl`: pass (`discovered=13`, `processed=13`, `failures=0`; expanded curated corpus remains compatibility/load safe).
+- `python python/assemble_excel_interop_corpus.py --repo-root . --output-dir ./target/excel-interop-corpus-v5 --excel-authored-manifest ./corpus/excel-authored/manifest.json --min-excel-authored-samples 5 --min-verified-excel-samples 0 --required-curated-feature formulas --required-curated-feature styles --required-curated-feature comments --required-curated-feature charts --required-curated-feature defined_names`: pass (provenance-aware assembled corpus generated with `excel_authored_sample_count=5`, `excel_authored_verified_count=0`, `excel_authored_min_verified_required=0`).
+- `python python/assemble_excel_interop_corpus.py --repo-root . --output-dir ./target/excel-interop-corpus-v5-verified-required --excel-authored-manifest ./corpus/excel-authored/manifest.json --min-excel-authored-samples 5 --min-verified-excel-samples 1 --required-curated-feature formulas --required-curated-feature styles --required-curated-feature comments --required-curated-feature charts --required-curated-feature defined_names`: expected fail (verified-Excel policy gate trips as designed when verified sample floor exceeds current curated provenance count: `required=1`, `found=0`).
+- `python python/verify_excel_interop.py --workspace . --workdir ./target/excel-interop-gate-v9 --corpus-dir ./target/excel-interop-corpus-v5 --corpus-manifest ./target/excel-interop-corpus-v5/manifest.json --max-corpus-files 32 --require-corpus-fixture minimal.xlsx --require-corpus-fixture formula.xlsx --require-corpus-fixture dangling-edge.xlsx --require-corpus-fixture unknown-part.xlsx --require-corpus-fixture styles.xlsx --require-corpus-fixture comments.xlsx --require-corpus-fixture chart.xlsx --require-corpus-fixture defined-names.xlsx --report ./target/excel-interop-gate-report-v9.json`: pass (status=`pass`; 14 total cases; assembled manifest captures provenance-aware policy fields with no missing curated features).
+- `cargo run -p rootcellar-cli --offline -- part-graph-corpus ./target/excel-interop-corpus-v5 --fail-on-errors --report ./target/part-graph-corpus-report-v8.json --jsonl ./target/part-graph-corpus-events-v8.jsonl`: pass (`discovered=13`, `processed=13`, `failures=0`; provenance-aware assembled corpus remains compatibility/load safe).
 - `cargo run -p rootcellar-cli --offline -- tx-save ./sample-formula.xlsx ./sample-formula-mutated.xlsx --sheet Sheet1 --set A1=111 --set A2=9 --set B1=world --mode preserve --jsonl ./tx-multiset-events.jsonl`: pass.
 - `cargo run -p rootcellar-cli --offline -- tx-save ./sample-formula.xlsx ./sample-formula-formulaedit.xlsx --sheet Sheet1 --set A1=50 --set A2=4 --setf A3==A1+A2 --mode preserve --jsonl ./tx-formula-events.jsonl`: pass.
 - `cargo run -p rootcellar-cli --offline -- repro check ./repro-bundle --against ./sample-formula.xlsx --jsonl ./repro-check-against-same-events.jsonl`: pass.
@@ -393,13 +458,20 @@ Last updated: March 1, 2026
 - `rg -n "BATCH_BENCH_RECALC_SYNTHETIC_ENABLED|BATCH_BENCH_CHAINS|BATCH_BENCH_CHAIN_LENGTH|BATCH_BENCH_ITERATIONS|BATCH_BENCH_CHANGED_CHAIN|BATCH_BENCH_MIN_DURATION_SPEEDUP_RATIO|BATCH_BENCH_MAX_EVALUATED_CELLS_RATIO|Run synthetic recalc benchmark|ci-batch-bench-recalc-synthetic.json|ci-batch-bench-events.jsonl|benchmark_recalc_synthetic_enabled|benchmark_report_generated" .github/workflows/batch-recalc-nightly.yml`: pass (nightly synthetic benchmark execution/gate and artifact/manifest integration markers present).
 - `rg -n "name: excel-interop|verify_excel_interop.py|requirements-interop.txt|Upload interop artifacts|rootcellar-excel-interop" .github/workflows/excel-interop.yml`: pass (compatibility-first interop CI gate wiring markers present).
 - `rg -n "EXCEL_INTEROP_MIN_EXCEL_AUTHORED_SAMPLES|assemble_excel_interop_corpus.py|excel-authored/manifest.json|excel-interop-corpus|excel_authored_min_required|require-corpus-fixture" .github/workflows/excel-interop.yml`: pass (interop CI workflow now assembles generated + curated corpus, exposes minimum curated-sample policy knob, and enforces required fixture coverage).
-- `rg -n "EXCEL_INTEROP_MIN_EXCEL_AUTHORED_SAMPLES: \"1\"|internal-formula-baseline" .github/workflows/excel-interop.yml ./corpus/excel-authored/manifest.json`: pass (non-zero curated sample policy and seeded curated sample metadata markers present).
+- `rg -n "EXCEL_INTEROP_MIN_EXCEL_AUTHORED_SAMPLES: \"17\"|EXCEL_INTEROP_MIN_VERIFIED_EXCEL_SAMPLES: \"17\"|internal-formula-baseline|internal-styles-baseline|internal-comments-baseline|internal-chart-baseline|internal-defined-names-baseline|internal-table-baseline|internal-merged-cells-baseline|internal-data-validation-baseline|internal-conditional-formatting-baseline|internal-external-links-baseline|internal-pivot-table-baseline|internal-query-connection-baseline|internal-sheet-protection-baseline|internal-hyperlinks-baseline|internal-workbook-protection-baseline|internal-print-settings-baseline|internal-calc-chain-baseline" .github/workflows/excel-interop.yml ./corpus/excel-authored/manifest.json`: pass (interop CI floor policy and seventeen curated verified baseline sample markers present).
 - `rg -n --hidden "EXCEL_INTEROP_REQUIRED_CURATED_FEATURES|required-curated-feature|excel_authored_required_features" .github/workflows/excel-interop.yml`: pass (interop CI workflow now enforces curated feature coverage and publishes policy metadata in bundle manifest output).
 - `rg -n --hidden "EXCEL_INTEROP_MIN_EXCEL_AUTHORED_SAMPLES|EXCEL_INTEROP_REQUIRED_CURATED_FEATURES|required_feature_args|excel_authored_required_features" .github/workflows/excel-interop.yml`: pass (interop CI workflow now enforces expanded curated baseline sample floor + multi-feature coverage policy and publishes policy metadata in bundle manifest output).
+- `rg -n --hidden "EXCEL_INTEROP_MIN_VERIFIED_EXCEL_SAMPLES|--min-verified-excel-samples|excel_authored_min_verified_required" .github/workflows/excel-interop.yml python/assemble_excel_interop_corpus.py`: pass (provenance-aware verified-Excel minimum policy is wired from workflow env to corpus assembly and artifact manifest metadata).
 - `rg -n "corpus-manifest|require-corpus-fixture|styles.xlsx|comments.xlsx|chart.xlsx|defined-names.xlsx" .github/workflows/excel-interop.yml`: pass (interop CI workflow enforces required rich-feature corpus fixtures + manifest wiring).
 - `rg -n "Install fixture Python dependencies|requirements-interop.txt" .github/workflows/corpus-part-graph.yml .github/workflows/repro-bundle.yml .github/workflows/batch-recalc-nightly.yml`: pass (fixture-consuming workflows now install shared interop dependency baseline before corpus generation).
+- `powershell -NoProfile -ExecutionPolicy Bypass -File ./python/generate_excel_authored_curated_samples.ps1`: pass (seventeen curated samples regenerated through Microsoft Excel COM authoring path).
+- Inline Python zip-inspection check over curated files: pass (`internal-external-links-baseline.xlsx` contains `xl/externalLinks/*`; `internal-pivot-table-baseline.xlsx` contains `xl/pivotTables/*` + `xl/pivotCache/*`; `internal-query-connection-baseline.xlsx` contains `xl/connections.xml` + `xl/queryTables/*`; `internal-sheet-protection-baseline.xlsx` contains worksheet `sheetProtection` metadata; `internal-hyperlinks-baseline.xlsx` contains worksheet hyperlink rels + hyperlink tags; `internal-workbook-protection-baseline.xlsx` contains workbook `workbookProtection` metadata; `internal-print-settings-baseline.xlsx` contains page setup/margins metadata; `internal-calc-chain-baseline.xlsx` contains `xl/calcChain.xml` with entries; all curated files report `Application=Microsoft Excel` and load in openpyxl).
+- `python python/assemble_excel_interop_corpus.py --repo-root . --output-dir ./target/excel-interop-corpus-v15 --excel-authored-manifest ./corpus/excel-authored/manifest.json --min-excel-authored-samples 17 --min-verified-excel-samples 17 --required-curated-feature formulas --required-curated-feature styles --required-curated-feature comments --required-curated-feature charts --required-curated-feature defined_names --required-curated-feature tables --required-curated-feature merged_cells --required-curated-feature data_validation --required-curated-feature conditional_formatting --required-curated-feature external_links --required-curated-feature pivot_tables --required-curated-feature query_connections --required-curated-feature sheet_protection --required-curated-feature hyperlinks --required-curated-feature workbook_protection --required-curated-feature print_settings --required-curated-feature calc_chain`: pass (assembled manifest reports `excel_authored_sample_count=17`, `excel_authored_verified_count=17`, and no missing required curated features).
+- `python python/assemble_excel_interop_corpus.py --repo-root . --output-dir ./target/excel-interop-corpus-v15-verified-too-high --excel-authored-manifest ./corpus/excel-authored/manifest.json --min-excel-authored-samples 17 --min-verified-excel-samples 18 --required-curated-feature formulas --required-curated-feature styles --required-curated-feature comments --required-curated-feature charts --required-curated-feature defined_names --required-curated-feature tables --required-curated-feature merged_cells --required-curated-feature data_validation --required-curated-feature conditional_formatting --required-curated-feature external_links --required-curated-feature pivot_tables --required-curated-feature query_connections --required-curated-feature sheet_protection --required-curated-feature hyperlinks --required-curated-feature workbook_protection --required-curated-feature print_settings --required-curated-feature calc_chain`: expected fail (verified-Excel policy gate trips as designed when required verified floor exceeds curated verified count: `required=18`, `found=17`).
+- `python python/verify_excel_interop.py --workspace . --workdir ./target/excel-interop-gate-v15 --corpus-dir ./target/excel-interop-corpus-v15 --corpus-manifest ./target/excel-interop-corpus-v15/manifest.json --max-corpus-files 32 --require-corpus-fixture minimal.xlsx --require-corpus-fixture formula.xlsx --require-corpus-fixture dangling-edge.xlsx --require-corpus-fixture unknown-part.xlsx --require-corpus-fixture styles.xlsx --require-corpus-fixture comments.xlsx --require-corpus-fixture chart.xlsx --require-corpus-fixture defined-names.xlsx --report ./target/excel-interop-gate-report-v15.json`: pass (status=`pass`; 26 total cases; assembled manifest captures `excel_authored_verified_count=17` and `excel_authored_min_verified_required=17`).
+- `cargo run -p rootcellar-cli --offline -- part-graph-corpus ./target/excel-interop-corpus-v15 --fail-on-errors --report ./target/part-graph-corpus-report-v14.json --jsonl ./target/part-graph-corpus-events-v14.jsonl`: pass (`discovered=25`, `processed=25`, `failures=0`; expanded verified curated corpus remains compatibility/load safe, with `external_edges=4` captured).
 
 ## Next Execution Slice
-1. Replace interim OpenPyXL-seeded curated samples with verified Microsoft Excel-authored workbook variants (styles/charts/comments/defined names) under `corpus/excel-authored/files` while keeping the expanded curated policy floor (`min=5`, required features: formulas/styles/comments/charts/defined_names) green.
-2. Continue incremental scheduler/perf hardening for larger dependency graphs, with benchmark-backed validation of hot-path changes.
-3. Unblock M0 UI critical path: land Tauri shell bootstrap, wire UI->engine trace context propagation, and add a CI smoke check for startup plus one command round-trip.
+1. Expand in-app editing ergonomics (range fill presets and clearer recalc visibility) while preserving interop-first save defaults.
+2. Add lightweight desktop preview interaction tests for selection navigation and formula-bar enter/apply behavior.
+3. Expand verified Microsoft Excel-authored curated corpus coverage beyond the current seventeen-sample baseline (for example rich chart-layout and scenario-manager variants) while keeping `EXCEL_INTEROP_MIN_EXCEL_AUTHORED_SAMPLES=17` and `EXCEL_INTEROP_MIN_VERIFIED_EXCEL_SAMPLES=17` green.

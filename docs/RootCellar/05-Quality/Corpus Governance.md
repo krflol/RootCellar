@@ -25,19 +25,24 @@ Parent: [[Test Strategy]]
 ## Curated Excel-Authored Segment
 - Location: `corpus/excel-authored/`.
 - Metadata source: `corpus/excel-authored/manifest.json`.
-- Current seeded sample count: `5` (`internal-formula-baseline`, `internal-styles-baseline`, `internal-comments-baseline`, `internal-chart-baseline`, `internal-defined-names-baseline`).
+- Current seeded sample count: `17` (`internal-formula-baseline`, `internal-styles-baseline`, `internal-comments-baseline`, `internal-chart-baseline`, `internal-defined-names-baseline`, `internal-table-baseline`, `internal-merged-cells-baseline`, `internal-data-validation-baseline`, `internal-conditional-formatting-baseline`, `internal-external-links-baseline`, `internal-pivot-table-baseline`, `internal-query-connection-baseline`, `internal-sheet-protection-baseline`, `internal-hyperlinks-baseline`, `internal-workbook-protection-baseline`, `internal-print-settings-baseline`, `internal-calc-chain-baseline`).
+- Current verified provenance count: `17` (`provenance=verified_excel` for all seeded samples).
 - Required manifest fields per sample:
-  - `id`, `path`, `authoring_app`, `source_category`, `legal_clearance`, `features`.
+  - `id`, `path`, `authoring_app`, `source_category`, `legal_clearance`, `provenance`, `features`.
 - Allowed legal-clearance values:
   - `approved`, `restricted_internal`, `restricted_partner`.
+- Allowed provenance values:
+  - `interim_openpyxl`, `verified_excel`.
 - CI assembly utility:
-  - `python/assemble_excel_interop_corpus.py` merges generated fixtures with curated samples and enforces `--min-excel-authored-samples` policy.
-  - Curated feature coverage can be enforced with repeated `--required-curated-feature` flags (current CI baseline: `formulas`, `styles`, `comments`, `charts`, `defined_names`).
+  - `python/assemble_excel_interop_corpus.py` merges generated fixtures with curated samples and enforces `--min-excel-authored-samples` plus `--min-verified-excel-samples` policy.
+  - Curated feature coverage can be enforced with repeated `--required-curated-feature` flags (current CI baseline: `formulas`, `styles`, `comments`, `charts`, `defined_names`, `tables`, `merged_cells`, `data_validation`, `conditional_formatting`, `external_links`, `pivot_tables`, `query_connections`, `sheet_protection`, `hyperlinks`, `workbook_protection`, `print_settings`, `calc_chain`).
+  - Windows regeneration utility for verified baseline files: `python/generate_excel_authored_curated_samples.ps1` (Excel COM automation).
 
 ## Update Process
 - New files require metadata + risk review.
 - Rebaseline changes require approval from compatibility owner.
 - Deprecated files archived with reason and timestamp.
+- Any regenerated verified sample set must be followed by assembled-corpus + interop-gate verification and manifest provenance review before merge.
 
 ## Metrics
 - No-repair rate.

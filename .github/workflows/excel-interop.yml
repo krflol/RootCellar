@@ -15,8 +15,9 @@ permissions:
 env:
   CI_ARTIFACT_RETENTION_DAYS: "21"
   CI_ARTIFACT_ROOT: ./ci-artifacts
-  EXCEL_INTEROP_MIN_EXCEL_AUTHORED_SAMPLES: "5"
-  EXCEL_INTEROP_REQUIRED_CURATED_FEATURES: "formulas,styles,comments,charts,defined_names"
+  EXCEL_INTEROP_MIN_EXCEL_AUTHORED_SAMPLES: "17"
+  EXCEL_INTEROP_MIN_VERIFIED_EXCEL_SAMPLES: "17"
+  EXCEL_INTEROP_REQUIRED_CURATED_FEATURES: "formulas,styles,comments,charts,defined_names,tables,merged_cells,data_validation,conditional_formatting,external_links,pivot_tables,query_connections,sheet_protection,hyperlinks,workbook_protection,print_settings,calc_chain"
 
 concurrency:
   group: excel-interop-${{ github.ref }}
@@ -64,6 +65,7 @@ jobs:
             --output-dir ./.ci/excel-interop-corpus \
             --excel-authored-manifest ./corpus/excel-authored/manifest.json \
             --min-excel-authored-samples "${EXCEL_INTEROP_MIN_EXCEL_AUTHORED_SAMPLES}" \
+            --min-verified-excel-samples "${EXCEL_INTEROP_MIN_VERIFIED_EXCEL_SAMPLES}" \
             "${required_feature_args[@]}"
 
       - name: Run bidirectional Excel interop gate
@@ -112,6 +114,7 @@ jobs:
             "run_id": "${GITHUB_RUN_ID}",
             "run_attempt": "${GITHUB_RUN_ATTEMPT}",
             "excel_authored_min_required": ${EXCEL_INTEROP_MIN_EXCEL_AUTHORED_SAMPLES},
+            "excel_authored_min_verified_required": ${EXCEL_INTEROP_MIN_VERIFIED_EXCEL_SAMPLES},
             "excel_authored_required_features": "${EXCEL_INTEROP_REQUIRED_CURATED_FEATURES}",
             "retention_policy_days": ${CI_ARTIFACT_RETENTION_DAYS},
             "artifact_kind": "excel_interop_gate"

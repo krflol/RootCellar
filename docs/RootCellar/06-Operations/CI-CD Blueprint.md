@@ -47,15 +47,23 @@ Parent: [[Environment Matrix]]
   - Triggers: `pull_request`, `push` to `main`, nightly `schedule`, and `workflow_dispatch`.
   - Policy env knobs:
     - `EXCEL_INTEROP_MIN_EXCEL_AUTHORED_SAMPLES` (minimum curated real Excel-authored samples required in assembled interop corpus).
+    - `EXCEL_INTEROP_MIN_VERIFIED_EXCEL_SAMPLES` (minimum curated samples that must be provenance-marked and metadata-validated as `verified_excel`).
     - `EXCEL_INTEROP_REQUIRED_CURATED_FEATURES` (comma-separated curated feature tags required in assembled corpus).
-    - Current default in workflow: `5`.
-    - Current required curated feature defaults: `formulas,styles,comments,charts,defined_names`.
+    - Current default sample floors in workflow: `min curated=17`, `min verified=17`.
+    - Current required curated feature defaults: `formulas,styles,comments,charts,defined_names,tables,merged_cells,data_validation,conditional_formatting,external_links,pivot_tables,query_connections,sheet_protection,hyperlinks,workbook_protection,print_settings,calc_chain`.
   - Steps:
     1. Install interoperability Python dependencies (`python/requirements-interop.txt`).
     2. Assemble deterministic interop corpus (`python/assemble_excel_interop_corpus.py`) from generated fixtures plus curated `corpus/excel-authored/manifest.json` samples, including legal-clearance metadata and minimum-sample policy enforcement.
     3. Run bidirectional interop harness (`python/verify_excel_interop.py`) with corpus sweep, manifest capture, and required-fixture assertions (`--require-corpus-fixture`).
     4. Upload interop report + workdir + assembled corpus as run artifacts.
     5. Assemble standardized artifact bundle directory + manifest prior to upload.
+- Workflow: `.github/workflows/desktop-ui-smoke.yml`.
+  - Triggers: `pull_request`, `push` to `main`, and `workflow_dispatch`.
+  - Steps:
+    1. Install desktop Node dependencies (`apps/desktop`, `npm ci`).
+    2. Build desktop frontend (`npm run build`).
+    3. Run Tauri desktop backend compile check (`cargo check --manifest-path apps/desktop/src-tauri/Cargo.toml`).
+    4. Run targeted interop extension compatibility test (`cargo test -p rootcellar-core --locked accepts_uppercase_xlsx_extension`).
 - Workflow: `.github/workflows/batch-recalc-nightly.yml`.
   - Triggers: nightly `schedule` and `workflow_dispatch`.
   - Benchmark env knobs:

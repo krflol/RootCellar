@@ -5,60 +5,209 @@
     {
       "id": "internal-formula-baseline",
       "path": "files/internal-formula-baseline.xlsx",
-      "authoring_app": "RootCellar internal baseline workbook",
+      "authoring_app": "Microsoft Excel 16.0 (COM-authored)",
       "source_category": "internal_template",
       "legal_clearance": "approved",
+      "provenance": "verified_excel",
       "features": [
         "formulas",
         "arithmetic",
         "recalc_baseline"
       ],
-      "notes": "Initial curated corpus seed for formula/recalc coverage. Replace/add with verified Excel-authored sample files as they are approved."
+      "notes": "Verified Microsoft Excel-authored baseline for formula/recalc coverage."
     },
     {
       "id": "internal-styles-baseline",
       "path": "files/internal-styles-baseline.xlsx",
-      "authoring_app": "OpenPyXL deterministic baseline (interim)",
+      "authoring_app": "Microsoft Excel 16.0 (COM-authored)",
       "source_category": "internal_template",
       "legal_clearance": "approved",
+      "provenance": "verified_excel",
       "features": [
         "styles",
         "formatting"
       ],
-      "notes": "Interim curated baseline for style/formatting interop coverage."
+      "notes": "Verified Microsoft Excel-authored baseline for style/formatting interop coverage."
     },
     {
       "id": "internal-comments-baseline",
       "path": "files/internal-comments-baseline.xlsx",
-      "authoring_app": "OpenPyXL deterministic baseline (interim)",
+      "authoring_app": "Microsoft Excel 16.0 (COM-authored)",
       "source_category": "internal_template",
       "legal_clearance": "approved",
+      "provenance": "verified_excel",
       "features": [
         "comments"
       ],
-      "notes": "Interim curated baseline for comment-preservation interop coverage."
+      "notes": "Verified Microsoft Excel-authored baseline for comment-preservation interop coverage."
     },
     {
       "id": "internal-chart-baseline",
       "path": "files/internal-chart-baseline.xlsx",
-      "authoring_app": "OpenPyXL deterministic baseline (interim)",
+      "authoring_app": "Microsoft Excel 16.0 (COM-authored)",
       "source_category": "internal_template",
       "legal_clearance": "approved",
+      "provenance": "verified_excel",
       "features": [
         "charts"
       ],
-      "notes": "Interim curated baseline for chart part-graph/round-trip interop coverage."
+      "notes": "Verified Microsoft Excel-authored baseline for chart part-graph/round-trip interop coverage."
     },
     {
       "id": "internal-defined-names-baseline",
       "path": "files/internal-defined-names-baseline.xlsx",
-      "authoring_app": "OpenPyXL deterministic baseline (interim)",
+      "authoring_app": "Microsoft Excel 16.0 (COM-authored)",
       "source_category": "internal_template",
       "legal_clearance": "approved",
+      "provenance": "verified_excel",
       "features": [
         "defined_names"
       ],
-      "notes": "Interim curated baseline for defined-name and formula-reference interop coverage."
+      "notes": "Verified Microsoft Excel-authored baseline for defined-name and formula-reference interop coverage."
+    },
+    {
+      "id": "internal-table-baseline",
+      "path": "files/internal-table-baseline.xlsx",
+      "authoring_app": "Microsoft Excel 16.0 (COM-authored)",
+      "source_category": "internal_template",
+      "legal_clearance": "approved",
+      "provenance": "verified_excel",
+      "features": [
+        "tables"
+      ],
+      "notes": "Verified Microsoft Excel-authored baseline for structured table interop coverage."
+    },
+    {
+      "id": "internal-merged-cells-baseline",
+      "path": "files/internal-merged-cells-baseline.xlsx",
+      "authoring_app": "Microsoft Excel 16.0 (COM-authored)",
+      "source_category": "internal_template",
+      "legal_clearance": "approved",
+      "provenance": "verified_excel",
+      "features": [
+        "merged_cells"
+      ],
+      "notes": "Verified Microsoft Excel-authored baseline for merged-cell layout and round-trip interop coverage."
+    },
+    {
+      "id": "internal-data-validation-baseline",
+      "path": "files/internal-data-validation-baseline.xlsx",
+      "authoring_app": "Microsoft Excel 16.0 (COM-authored)",
+      "source_category": "internal_template",
+      "legal_clearance": "approved",
+      "provenance": "verified_excel",
+      "features": [
+        "data_validation"
+      ],
+      "notes": "Verified Microsoft Excel-authored baseline for data-validation rule interop coverage."
+    },
+    {
+      "id": "internal-conditional-formatting-baseline",
+      "path": "files/internal-conditional-formatting-baseline.xlsx",
+      "authoring_app": "Microsoft Excel 16.0 (COM-authored)",
+      "source_category": "internal_template",
+      "legal_clearance": "approved",
+      "provenance": "verified_excel",
+      "features": [
+        "conditional_formatting"
+      ],
+      "notes": "Verified Microsoft Excel-authored baseline for conditional-formatting rule interop coverage."
+    },
+    {
+      "id": "internal-external-links-baseline",
+      "path": "files/internal-external-links-baseline.xlsx",
+      "authoring_app": "Microsoft Excel 16.0 (COM-authored)",
+      "source_category": "internal_template",
+      "legal_clearance": "approved",
+      "provenance": "verified_excel",
+      "features": [
+        "external_links"
+      ],
+      "notes": "Verified Microsoft Excel-authored baseline for external-link part and formula-reference interop coverage."
+    },
+    {
+      "id": "internal-pivot-table-baseline",
+      "path": "files/internal-pivot-table-baseline.xlsx",
+      "authoring_app": "Microsoft Excel 16.0 (COM-authored)",
+      "source_category": "internal_template",
+      "legal_clearance": "approved",
+      "provenance": "verified_excel",
+      "features": [
+        "pivot_tables"
+      ],
+      "notes": "Verified Microsoft Excel-authored baseline for pivot-cache and pivot-table part interop coverage."
+    },
+    {
+      "id": "internal-query-connection-baseline",
+      "path": "files/internal-query-connection-baseline.xlsx",
+      "authoring_app": "Microsoft Excel 16.0 (COM-authored)",
+      "source_category": "internal_template",
+      "legal_clearance": "approved",
+      "provenance": "verified_excel",
+      "features": [
+        "query_connections"
+      ],
+      "notes": "Verified Microsoft Excel-authored baseline for workbook connection and query-table interop coverage."
+    },
+    {
+      "id": "internal-sheet-protection-baseline",
+      "path": "files/internal-sheet-protection-baseline.xlsx",
+      "authoring_app": "Microsoft Excel 16.0 (COM-authored)",
+      "source_category": "internal_template",
+      "legal_clearance": "approved",
+      "provenance": "verified_excel",
+      "features": [
+        "sheet_protection"
+      ],
+      "notes": "Verified Microsoft Excel-authored baseline for sheet-protection metadata interop coverage."
+    },
+    {
+      "id": "internal-hyperlinks-baseline",
+      "path": "files/internal-hyperlinks-baseline.xlsx",
+      "authoring_app": "Microsoft Excel 16.0 (COM-authored)",
+      "source_category": "internal_template",
+      "legal_clearance": "approved",
+      "provenance": "verified_excel",
+      "features": [
+        "hyperlinks"
+      ],
+      "notes": "Verified Microsoft Excel-authored baseline for internal/external hyperlink relationship interop coverage."
+    },
+    {
+      "id": "internal-workbook-protection-baseline",
+      "path": "files/internal-workbook-protection-baseline.xlsx",
+      "authoring_app": "Microsoft Excel 16.0 (COM-authored)",
+      "source_category": "internal_template",
+      "legal_clearance": "approved",
+      "provenance": "verified_excel",
+      "features": [
+        "workbook_protection"
+      ],
+      "notes": "Verified Microsoft Excel-authored baseline for workbook-structure protection metadata interop coverage."
+    },
+    {
+      "id": "internal-print-settings-baseline",
+      "path": "files/internal-print-settings-baseline.xlsx",
+      "authoring_app": "Microsoft Excel 16.0 (COM-authored)",
+      "source_category": "internal_template",
+      "legal_clearance": "approved",
+      "provenance": "verified_excel",
+      "features": [
+        "print_settings"
+      ],
+      "notes": "Verified Microsoft Excel-authored baseline for page-setup and print-area metadata interop coverage."
+    },
+    {
+      "id": "internal-calc-chain-baseline",
+      "path": "files/internal-calc-chain-baseline.xlsx",
+      "authoring_app": "Microsoft Excel 16.0 (COM-authored)",
+      "source_category": "internal_template",
+      "legal_clearance": "approved",
+      "provenance": "verified_excel",
+      "features": [
+        "calc_chain"
+      ],
+      "notes": "Verified Microsoft Excel-authored baseline for cross-sheet formula dependency and calc-chain metadata interop coverage."
     }
   ]
 }

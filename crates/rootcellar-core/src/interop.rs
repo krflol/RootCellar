@@ -739,7 +739,11 @@ pub fn preserve_xlsx_with_sheet_overrides(
 }
 
 fn ensure_xlsx_extension(path: &Path) -> Result<(), InteropError> {
-    if path.extension().and_then(|x| x.to_str()) != Some("xlsx") {
+    if !path
+        .extension()
+        .and_then(|x| x.to_str())
+        .is_some_and(|ext| ext.eq_ignore_ascii_case("xlsx"))
+    {
         return Err(InteropError::InvalidExtension);
     }
     Ok(())
@@ -1962,5 +1966,12 @@ mod tests {
             .edges
             .iter()
             .any(|edge| edge.dangling_target));
+    }
+
+    #[test]
+    fn accepts_uppercase_xlsx_extension() {
+        let path = Path::new("BOOK.XLSX");
+        let result = ensure_xlsx_extension(path);
+        assert!(result.is_ok());
     }
 }

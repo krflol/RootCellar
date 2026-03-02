@@ -12,7 +12,9 @@ from __future__ import annotations
 import argparse
 import json
 import pathlib
+import re
 import shutil
+import zipfile
 from datetime import datetime, timezone
 
 import generate_corpus_fixtures
@@ -22,6 +24,11 @@ ALLOWED_LEGAL_CLEARANCE = {
     "approved",
     "restricted_internal",
     "restricted_partner",
+}
+
+ALLOWED_PROVENANCE = {
+    "interim_openpyxl",
+    "verified_excel",
 }
 
 
@@ -67,6 +74,15 @@ def parse_args() -> argparse.Namespace:
             "curated sample. May be supplied multiple times."
         ),
     )
+    parser.add_argument(
+        "--min-verified-excel-samples",
+        type=int,
+        default=0,
+        help=(
+            "Minimum curated samples that must be marked as verified Excel-authored "
+            "(provenance=verified_excel)."
+        ),
+    )
     return parser.parse_args()
 
 
@@ -93,6 +109,22 @@ def normalize_sample_features(value: object, *, sample_id: str) -> list[str]:
     if not deduped:
         raise RuntimeError(f"sample {sample_id} must include at least one feature tag")
     return deduped
+
+
+def detect_application_name(xlsx_path: pathlib.Path) -> str | None:
+    try:
+        with zipfile.ZipFile(xlsx_path, "r") as archive:
+            if "docProps/app.xml" not in archive.namelist():
+                return None
+            payload = archive.read("docProps/app.xml").decode("utf-8", "ignore")
+    except Exception:
+        return None
+
+    match = re.search(r"<Application>(.*?)</Application>", payload, re.IGNORECASE | re.DOTALL)
+    if not match:
+        return None
+    value = match.group(1).strip()
+    return value or None
 
 
 def resolve_curated_path(
@@ -181,12 +213,26 @@ def load_curated_samples(
             sample.get("features", []),
             sample_id=sample_id,
         )
+        provenance = str(sample.get("provenance", "interim_openpyxl")).strip().lower()
+        if provenance not in ALLOWED_PROVENANCE:
+            raise RuntimeError(
+                f"sample {sample_id} provenance must be one of {sorted(ALLOWED_PROVENANCE)}"
+            )
+
         resolved_path = resolve_curated_path(
             sample_id=sample_id,
             path_value=path_value,
             manifest_dir=manifest_dir,
             repo_root=repo_root,
         )
+        detected_application = detect_application_name(resolved_path)
+        if provenance == "verified_excel":
+            app_text = (detected_application or "").lower()
+            if "microsoft excel" not in app_text:
+                raise RuntimeError(
+                    f"sample {sample_id} marked verified_excel but detected application "
+                    f"is not Microsoft Excel (detected={detected_application!r})"
+                )
 
         curated_samples.append(
             {
@@ -197,6 +243,8 @@ def load_curated_samples(
                 "legal_clearance": legal_clearance,
                 "source_category": source_category,
                 "features": features,
+                "provenance": provenance,
+                "detected_application": detected_application,
                 "notes": str(sample.get("notes", "")).strip(),
             }
         )
@@ -216,11 +264,14 @@ def assemble_corpus(
     repo_root: pathlib.Path,
     curated_manifest_path: pathlib.Path,
     min_excel_authored_samples: int,
+    min_verified_excel_samples: int,
     strict_manifest: bool,
     required_curated_features: list[str],
 ) -> dict:
     if min_excel_authored_samples < 0:
         raise RuntimeError("--min-excel-authored-samples must be >= 0")
+    if min_verified_excel_samples < 0:
+        raise RuntimeError("--min-verified-excel-samples must be >= 0")
 
     if output_dir.exists():
         shutil.rmtree(output_dir)
@@ -247,6 +298,15 @@ def assemble_corpus(
         raise RuntimeError(
             "insufficient curated Excel-authored samples: "
             f"required={min_excel_authored_samples}, found={len(curated_samples)}"
+        )
+
+    verified_excel_count = sum(
+        1 for sample in curated_samples if sample["provenance"] == "verified_excel"
+    )
+    if verified_excel_count < min_verified_excel_samples:
+        raise RuntimeError(
+            "insufficient verified Excel-authored curated samples: "
+            f"required={min_verified_excel_samples}, found={verified_excel_count}"
         )
 
     normalized_required_features = sorted(
@@ -285,6 +345,8 @@ def assemble_corpus(
                 "legal_clearance": sample["legal_clearance"],
                 "source_category": sample["source_category"],
                 "features": sample["features"],
+                "provenance": sample["provenance"],
+                "detected_application": sample["detected_application"],
                 "notes": sample["notes"],
             }
         )
@@ -297,6 +359,8 @@ def assemble_corpus(
         "generated_fixture_dir": str(generated_dir.resolve()),
         "excel_authored_sample_count": len(copied_curated),
         "excel_authored_min_required": min_excel_authored_samples,
+        "excel_authored_verified_count": verified_excel_count,
+        "excel_authored_min_verified_required": min_verified_excel_samples,
         "required_curated_features": normalized_required_features,
         "covered_curated_features": curated_feature_coverage,
         "missing_required_curated_features": missing_required_curated_features,
@@ -323,6 +387,7 @@ def main() -> None:
         repo_root=repo_root,
         curated_manifest_path=curated_manifest_path,
         min_excel_authored_samples=args.min_excel_authored_samples,
+        min_verified_excel_samples=args.min_verified_excel_samples,
         strict_manifest=args.strict_manifest,
         required_curated_features=args.required_curated_feature,
     )

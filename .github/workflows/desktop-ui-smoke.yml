@@ -1,0 +1,53 @@
+name: desktop-ui-smoke
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: desktop-ui-smoke-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  desktop-ui-smoke:
+    runs-on: windows-latest
+    timeout-minutes: 25
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Rust artifacts
+        uses: Swatinem/rust-cache@v2
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+          cache-dependency-path: apps/desktop/package-lock.json
+
+      - name: Install desktop dependencies
+        working-directory: apps/desktop
+        run: npm ci
+
+      - name: Build desktop frontend
+        working-directory: apps/desktop
+        run: npm run build
+
+      - name: Check Tauri desktop backend
+        run: cargo check --manifest-path apps/desktop/src-tauri/Cargo.toml -j 1
+
+      - name: Check desktop range-edit regressions
+        run: cargo test --manifest-path apps/desktop/src-tauri/Cargo.toml --locked apply_cell_edit_range
+
+      - name: Check interop extension compatibility test
+        run: cargo test -p rootcellar-core --locked accepts_uppercase_xlsx_extension
