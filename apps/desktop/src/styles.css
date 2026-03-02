@@ -63,6 +63,12 @@ body {
   max-width: 68ch;
 }
 
+.summary.hint {
+  margin-top: 8px;
+  font-size: 0.82rem;
+  max-width: 80ch;
+}
+
 code {
   font-family: "JetBrains Mono", "Cascadia Code", Consolas, monospace;
   font-size: 0.9em;
@@ -73,6 +79,10 @@ code {
   flex-wrap: wrap;
   gap: 10px;
   margin-top: 16px;
+}
+
+.actions.compact-actions {
+  margin-top: 10px;
 }
 
 .btn {

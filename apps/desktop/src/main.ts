@@ -166,6 +166,13 @@ type SelectedPreviewCell = {
 
 type EditActionSource = "edit-form" | "formula-bar";
 
+type RecalcStatusState = {
+  runCount: number;
+  pendingEditsSinceLastRun: boolean;
+  lastScope: string | null;
+  lastAtIso: string | null;
+};
+
 function formatCellValue(value: CellValue): string {
   if (typeof value === "string") {
     return value;
@@ -365,6 +372,15 @@ app.innerHTML = `
         <span>Input</span>
         <input id="edit-input" placeholder="10, true, text, or =A1+B1" />
       </label>
+      <div class="actions compact-actions">
+        <button id="preset-row-3" class="btn secondary">Preset Row x3</button>
+        <button id="preset-col-3" class="btn secondary">Preset Col x3</button>
+        <button id="preset-block-2x2" class="btn secondary">Preset Block 2x2</button>
+      </div>
+      <p class="summary hint">
+        Presets anchor at the selected preview cell when available; otherwise they use the current
+        edit cell.
+      </p>
       <div class="actions">
         <button id="apply-edit" class="btn primary">Apply Cell Edit</button>
       </div>
@@ -400,6 +416,7 @@ app.innerHTML = `
         <button id="recalc-loaded" class="btn secondary">Recalc Loaded Workbook</button>
       </div>
       <pre id="save-output" class="output">No save/recalc run yet.</pre>
+      <pre id="recalc-status" class="output compact">No recalc run yet for this workbook.</pre>
     </section>
 
     <section class="panel">
@@ -444,6 +461,9 @@ const editSheetSelect = document.querySelector<HTMLSelectElement>("#edit-sheet")
 const editCellInput = document.querySelector<HTMLInputElement>("#edit-cell");
 const editModeSelect = document.querySelector<HTMLSelectElement>("#edit-mode");
 const editInput = document.querySelector<HTMLInputElement>("#edit-input");
+const presetRow3Button = document.querySelector<HTMLButtonElement>("#preset-row-3");
+const presetCol3Button = document.querySelector<HTMLButtonElement>("#preset-col-3");
+const presetBlock2x2Button = document.querySelector<HTMLButtonElement>("#preset-block-2x2");
 const applyEditButton = document.querySelector<HTMLButtonElement>("#apply-edit");
 const editOutput = document.querySelector<HTMLPreElement>("#edit-output");
 const savePathInput = document.querySelector<HTMLInputElement>("#save-path");
@@ -454,6 +474,7 @@ const saveWorkbookButton = document.querySelector<HTMLButtonElement>("#save-work
 const recalcSheetInput = document.querySelector<HTMLInputElement>("#recalc-sheet");
 const recalcLoadedButton = document.querySelector<HTMLButtonElement>("#recalc-loaded");
 const saveOutput = document.querySelector<HTMLPreElement>("#save-output");
+const recalcStatusOutput = document.querySelector<HTMLPreElement>("#recalc-status");
 
 if (
   !statusOutput ||
@@ -486,6 +507,9 @@ if (
   !editCellInput ||
   !editModeSelect ||
   !editInput ||
+  !presetRow3Button ||
+  !presetCol3Button ||
+  !presetBlock2x2Button ||
   !applyEditButton ||
   !editOutput ||
   !savePathInput ||
@@ -495,7 +519,8 @@ if (
   !saveWorkbookButton ||
   !recalcSheetInput ||
   !recalcLoadedButton ||
-  !saveOutput
+  !saveOutput ||
+  !recalcStatusOutput
 ) {
   throw new Error("missing required UI elements");
 }
@@ -530,6 +555,9 @@ const editSheetSelectEl = editSheetSelect;
 const editCellInputEl = editCellInput;
 const editModeSelectEl = editModeSelect;
 const editInputEl = editInput;
+const presetRow3ButtonEl = presetRow3Button;
+const presetCol3ButtonEl = presetCol3Button;
+const presetBlock2x2ButtonEl = presetBlock2x2Button;
 const applyEditButtonEl = applyEditButton;
 const editOutputEl = editOutput;
 const savePathInputEl = savePathInput;
@@ -540,11 +568,18 @@ const saveWorkbookButtonEl = saveWorkbookButton;
 const recalcSheetInputEl = recalcSheetInput;
 const recalcLoadedButtonEl = recalcLoadedButton;
 const saveOutputEl = saveOutput;
+const recalcStatusOutputEl = recalcStatusOutput;
 
 let currentSession: InteropSessionStatusResponse | null = null;
 let currentPreview: InteropSheetPreviewResponse | null = null;
 let selectedPreviewCell: SelectedPreviewCell | null = null;
 let lastEditedCell: { sheet: string; cell: string } | null = null;
+let recalcStatusState: RecalcStatusState = {
+  runCount: 0,
+  pendingEditsSinceLastRun: false,
+  lastScope: null,
+  lastAtIso: null,
+};
 
 function fillSheetSelect(select: HTMLSelectElement, sheets: string[]): void {
   const currentValue = select.value;
@@ -581,6 +616,35 @@ function setSheetOptions(sheets: string[]): void {
 
 function normalizeA1(value: string): string {
   return value.trim().toUpperCase();
+}
+
+function parseSingleA1Cell(value: string): { row: number; col: number } | null {
+  const normalized = normalizeA1(value);
+  if (normalized.length === 0 || normalized.includes(":")) {
+    return null;
+  }
+
+  const match = normalized.match(/^([A-Z]+)([1-9][0-9]*)$/);
+  if (!match) {
+    return null;
+  }
+
+  const [, colPart, rowPart] = match;
+  let col = 0;
+  for (const ch of colPart) {
+    col = col * 26 + (ch.charCodeAt(0) - 64);
+  }
+
+  const row = Number.parseInt(rowPart, 10);
+  if (!Number.isFinite(row) || row <= 0 || col <= 0) {
+    return null;
+  }
+
+  return { row, col };
+}
+
+function formatA1Cell(row: number, col: number): string {
+  return `${columnToA1(col)}${row}`;
 }
 
 function updatePreviewCopyButtons(): void {
@@ -673,6 +737,90 @@ function setSelectedPreviewCell(selection: SelectedPreviewCell | null): void {
 
 function updateJumpLastEditedButton(): void {
   jumpLastEditedButtonEl.disabled = !lastEditedCell;
+}
+
+function renderRecalcStatus(): void {
+  if (recalcStatusState.runCount === 0) {
+    recalcStatusOutputEl.textContent = recalcStatusState.pendingEditsSinceLastRun
+      ? "Recalc pending: edits were applied since workbook load. Run \"Recalc Loaded Workbook\" to refresh dependent formulas."
+      : "No recalc run yet for this workbook.";
+    return;
+  }
+
+  const lines = [
+    `Recalc runs: ${recalcStatusState.runCount}`,
+    `Last scope: ${recalcStatusState.lastScope ?? "all loaded sheets"}`,
+    `Last run: ${recalcStatusState.lastAtIso ? new Date(recalcStatusState.lastAtIso).toLocaleString() : "unknown"}`,
+    `Freshness: ${
+      recalcStatusState.pendingEditsSinceLastRun
+        ? "stale (edits after last recalc)"
+        : "fresh (no edits since last recalc)"
+    }`,
+  ];
+  recalcStatusOutputEl.textContent = lines.join("\n");
+}
+
+function resetRecalcStatus(): void {
+  recalcStatusState = {
+    runCount: 0,
+    pendingEditsSinceLastRun: false,
+    lastScope: null,
+    lastAtIso: null,
+  };
+  renderRecalcStatus();
+}
+
+function markRecalcPending(): void {
+  recalcStatusState.pendingEditsSinceLastRun = true;
+  renderRecalcStatus();
+}
+
+function markRecalcCompleted(scope: string | null): void {
+  recalcStatusState.runCount += 1;
+  recalcStatusState.pendingEditsSinceLastRun = false;
+  recalcStatusState.lastScope = scope;
+  recalcStatusState.lastAtIso = new Date().toISOString();
+  renderRecalcStatus();
+}
+
+function applyRangePreset(rowSpan: number, colSpan: number, label: string): void {
+  if (!currentSession?.loaded) {
+    editOutputEl.textContent = "open a workbook first";
+    return;
+  }
+
+  const anchorSheet = selectedPreviewCell?.sheet ?? editSheetSelectEl.value.trim();
+  const anchorA1 = selectedPreviewCell?.cell.cell ?? editCellInputEl.value.trim();
+  if (!anchorSheet) {
+    editOutputEl.textContent = "select a sheet before applying a preset";
+    return;
+  }
+
+  const anchor = parseSingleA1Cell(anchorA1);
+  if (!anchor) {
+    editOutputEl.textContent = "preset anchor must be a single A1 cell (not a range)";
+    return;
+  }
+
+  const endRow = anchor.row + rowSpan - 1;
+  const endCol = anchor.col + colSpan - 1;
+  const maxExcelRow = 1_048_576;
+  const maxExcelCol = 16_384;
+  if (endRow > maxExcelRow || endCol > maxExcelCol) {
+    editOutputEl.textContent = "preset range exceeds Excel bounds";
+    return;
+  }
+
+  const startA1 = formatA1Cell(anchor.row, anchor.col);
+  const endA1 = formatA1Cell(endRow, endCol);
+  const range = rowSpan === 1 && colSpan === 1 ? startA1 : `${startA1}:${endA1}`;
+
+  if (!editSheetSelectEl.disabled) {
+    editSheetSelectEl.value = anchorSheet;
+  }
+  editCellInputEl.value = range;
+  previewCopyStatusEl.textContent = `Preset ${label} selected ${anchorSheet}!${range}.`;
+  editOutputEl.textContent = `Preset ${label} applied to range ${anchorSheet}!${range}.`;
 }
 
 type PreviewIndex = {
@@ -837,6 +985,7 @@ function renderSessionStatus(payload: InteropSessionStatusResponse): void {
   if (!payload.loaded) {
     currentPreview = null;
     lastEditedCell = null;
+    resetRecalcStatus();
     updateJumpLastEditedButton();
     setSelectedPreviewCell(null);
     compatOutputEl.textContent = "No workbook loaded.";
@@ -1040,6 +1189,7 @@ async function openWorkbook(): Promise<void> {
     renderSessionStatus(statusPayload);
     compatOutputEl.textContent = formatCompatibility(payload);
     lastEditedCell = null;
+    resetRecalcStatus();
     updateJumpLastEditedButton();
     setSelectedPreviewCell(null);
     previewCopyStatusEl.textContent = "No copy action yet.";
@@ -1119,6 +1269,7 @@ async function applyCellEdit(overrides?: {
     } else {
       previewCopyStatusEl.textContent = `Last edited cell set to ${payload.sheet}!${payload.anchorCell}.`;
     }
+    markRecalcPending();
     await loadInteropSessionStatus();
     await loadSheetPreview(payload.sheet, payload.anchorCell, true);
   } catch (error) {
@@ -1207,6 +1358,13 @@ async function recalcLoadedWorkbook(): Promise<void> {
       trace: newTrace(),
     });
     saveOutputEl.textContent = JSON.stringify(payload, null, 2);
+    const resolvedScope =
+      sheet.length > 0
+        ? sheet
+        : payload.reports.length === 1
+          ? payload.reports[0].sheet
+          : null;
+    markRecalcCompleted(resolvedScope);
     await loadInteropSessionStatus();
     await loadSheetPreview(sheet.length > 0 ? sheet : undefined);
   } catch (error) {
@@ -1365,6 +1523,18 @@ applyEditButtonEl.addEventListener("click", () => {
   void applyCellEdit();
 });
 
+presetRow3ButtonEl.addEventListener("click", () => {
+  applyRangePreset(1, 3, "Row x3");
+});
+
+presetCol3ButtonEl.addEventListener("click", () => {
+  applyRangePreset(3, 1, "Col x3");
+});
+
+presetBlock2x2ButtonEl.addEventListener("click", () => {
+  applyRangePreset(2, 2, "Block 2x2");
+});
+
 pickSavePathButtonEl.addEventListener("click", () => {
   void pickSavePath();
 });
@@ -1391,3 +1561,4 @@ clearPreviewTable("Open a workbook to render sheet preview.");
 setSelectedPreviewCell(null);
 previewCopyStatusEl.textContent = "No copy action yet.";
 updateJumpLastEditedButton();
+renderRecalcStatus();

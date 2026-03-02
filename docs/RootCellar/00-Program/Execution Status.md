@@ -281,6 +281,10 @@ Last updated: March 1, 2026
    - Extracted desktop backend edit logic into a testable helper (`apply_cell_edit_to_workbook`) while keeping command behavior unchanged.
    - Added range regression unit tests covering value and formula range edits (`B2:A1`, `C1:C2`) with assertions for `anchorCell`, `appliedCellCount`, and applied workbook mutations.
    - Desktop smoke CI now runs targeted range-edit regression tests (`cargo test --manifest-path apps/desktop/src-tauri/Cargo.toml --locked apply_cell_edit_range`).
+54. Desktop editing ergonomics now include preset range scaffolds and recalc freshness visibility:
+   - Edit panel now provides one-click range presets (`Row x3`, `Col x3`, `Block 2x2`) anchored to selected preview cell when available (or current edit cell fallback).
+   - Preset selection now writes normalized A1/A1-range targets directly into edit controls to speed repeat range operations.
+   - Save + Recalc panel now exposes persistent recalc freshness status (pending/stale/fresh with last scope/time) so formula refresh intent is explicit before save.
 
 ## Verification
 - `npm run build` (from `apps/desktop`): pass.
@@ -472,6 +476,6 @@ Last updated: March 1, 2026
 - `cargo run -p rootcellar-cli --offline -- part-graph-corpus ./target/excel-interop-corpus-v15 --fail-on-errors --report ./target/part-graph-corpus-report-v14.json --jsonl ./target/part-graph-corpus-events-v14.jsonl`: pass (`discovered=25`, `processed=25`, `failures=0`; expanded verified curated corpus remains compatibility/load safe, with `external_edges=4` captured).
 
 ## Next Execution Slice
-1. Expand in-app editing ergonomics (range fill presets and clearer recalc visibility) while preserving interop-first save defaults.
-2. Add lightweight desktop preview interaction tests for selection navigation and formula-bar enter/apply behavior.
+1. Add lightweight desktop preview interaction tests for selection navigation and formula-bar enter/apply behavior.
+2. Expand desktop edit UX with configurable preset dimensions (for example N x 1, 1 x N, N x M) while preserving explicit A1 range visibility.
 3. Expand verified Microsoft Excel-authored curated corpus coverage beyond the current seventeen-sample baseline (for example rich chart-layout and scenario-manager variants) while keeping `EXCEL_INTEROP_MIN_EXCEL_AUTHORED_SAMPLES=17` and `EXCEL_INTEROP_MIN_VERIFIED_EXCEL_SAMPLES=17` green.

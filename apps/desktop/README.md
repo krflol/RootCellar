@@ -9,10 +9,12 @@ Tauri + TypeScript desktop shell with a compatibility-first interop workflow.
 - Render sheet preview table for loaded workbook cells.
 - Apply in-app value/formula edits to single cells or A1 ranges (for example `A1` or `A1:B3`).
 - Formula bar supports selected-cell edits directly from preview (`Apply From Bar` or `Enter`).
+- One-click range presets are available in Edit Cell (`Row x3`, `Col x3`, `Block 2x2`) and anchor from selected preview cell when available.
 - Jump-to-last-edited helper and visual highlight in preview.
 - Copy selected preview cell A1/value/formula to clipboard.
 - Arrow-key navigation in preview; `Enter` applies the current edit input to the selected cell.
 - Recalculate loaded workbook sheets through `rootcellar-core`.
+- Save/Recalc panel shows recalc freshness so stale-after-edit state is visible before save.
 - Save loaded workbook in either:
   - `preserve` mode (passthrough when clean, sheet-overrides when dirty; interop-first)
   - `normalize` mode (model-driven rewrite)
