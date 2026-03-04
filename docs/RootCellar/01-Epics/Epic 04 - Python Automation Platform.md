@@ -28,9 +28,9 @@ Replace VBA workflows with secure, versioned, and observable Python automation.
 5. Add signed package verification.
 
 ## Acceptance Criteria
-- No script execution path bypasses capability checks.
-- Audit logs capture all privileged script operations.
-- Macro/event/UDF examples run in desktop and CLI modes.
+- No script execution path bypasses capability checks (CLI `run-macro` path currently includes explicit permission checks; desktop enforcement is next).
+- Audit logs capture all privileged script operations for the implemented macro run path.
+- Macro examples run in CLI now; desktop and event/UDF coverage are pending in-scope follow-up.
 
 ## Dependencies
 - [[Epic 01 - XLSX Fidelity and Workbook Model]]

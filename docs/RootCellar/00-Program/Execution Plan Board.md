@@ -144,18 +144,23 @@ Last updated: March 4, 2026
   Plan links: [[docs/RootCellar/02-Sprints/Sprint 03 - Grid Editing Loop]], [[docs/RootCellar/01-Epics/Epic 03 - Desktop Grid UX and Productivity]], [[docs/RootCellar/03-Implementation/UI-to-Engine Trace Bridge]], [[apps/desktop/src/main.ts]]
   Evidence: [[Execution Status#Completed In Code]], [[apps/desktop/src/previewInteractions.test.ts]], [[apps/desktop/src/editRangePresets.test.ts]], [[apps/desktop/src/presetReuse.ts]], [[apps/desktop/src/presetReuse.test.ts]], [[apps/desktop/src/presetReuseView.ts]], [[apps/desktop/src/recalcFreshness.ts]], [[apps/desktop/src/recalcFreshness.test.ts]]
 
+- [x] Sprint 03 interaction acceptance now includes clipboard paste + undo/redo history baseline.
+  Plan links: [[docs/RootCellar/02-Sprints/Sprint 03 - Grid Editing Loop]], [[docs/RootCellar/01-Epics/Epic 03 - Desktop Grid UX and Productivity]], [[docs/RootCellar/03-Implementation/UI-to-Engine Trace Bridge]], [[apps/desktop/src-tauri/src/main.rs]], [[apps/desktop/src/main.ts]]
+  Evidence: [[Execution Status#Completed In Code]], [[Execution Status#Verification]]
+- [x] Sprint 03 accessibility and edit-lifecycle telemetry hardening is complete.
+  Plan links: [[docs/RootCellar/02-Sprints/Sprint 03 - Grid Editing Loop]], [[docs/RootCellar/01-Epics/Epic 03 - Desktop Grid UX and Productivity]], [[docs/RootCellar/03-Implementation/UI Grid and Interaction Design]], [[apps/desktop/src/main.ts]], [[apps/desktop/src/main.accessibility.test.ts]]
+  Evidence: [[Execution Status#Completed In Code]], [[Execution Status#Verification]]
+
 ## In Progress Items
 - [ ] Sprint 02 parser/dependency-graph core is in progress.
   Plan links: [[docs/RootCellar/02-Sprints/Sprint 02 - Calc Baseline and Dependency Graph]], [[docs/RootCellar/01-Epics/Epic 02 - Calculation Engine and Determinism]]
   Current state: parser, dependency graph, incremental invalidation, DAG timing + analysis artifacts, expanded starter function set (including lookup/text/date/time + counting/stat/math/finance increment: `LEN`, `LOWER`, `UPPER`, `TRIM`, `LEFT`, `RIGHT`, `MID`, `SUBSTITUTE`, `REPLACE`, `CONCAT`, `TEXTJOIN`, `CHOOSE`, `MATCH`, `INDEX`, `XMATCH`, `EXACT`, `FIND`, `SEARCH`, `CODE`, `N`, `VALUE`, `DATEVALUE`, `TIMEVALUE`, `ISNUMBER`, `ISTEXT`, `ISBLANK`, `ISLOGICAL`, `ISERROR`, `COUNT`, `COUNTA`, `COUNTBLANK`, `SUM`, `SUMSQ`, `PRODUCT`, `MIN`, `MAX`, `MEDIAN`, `SMALL`, `LARGE`, `GEOMEAN`, `HARMEAN`, `VARP`, `VAR`/`VARS`, `STDEVP`, `STDEV`/`STDEVS`, `IF`, `IFERROR`, `IFS`, `SWITCH`, `AVERAGE`/`AVG`, `ABS`, `INT`, `FACT`, `FACTDOUBLE`, `COMBIN`, `PERMUT`, `GCD`, `LCM`, `QUOTIENT`, `MOD`, `ROUND`, `ROUNDUP`, `ROUNDDOWN`, `TRUNC`, `MROUND`, `POWER`, `SQRT`, `SIGN`, `EVEN`, `ODD`, `ISEVEN`, `ISODD`, `CEILING`, `FLOOR`, `PI`, `EXP`, `LN`, `LOG`, `LOG10`, `SIN`, `COS`, `TAN`, `SINH`, `COSH`, `TANH`, `ASINH`, `ACOSH`, `ATANH`, `ASIN`, `ACOS`, `ATAN`, `ATAN2`, `RADIANS`, `DEGREES`, `PV`, `FV`, `NPV`, `PMT`, `BITAND`, `BITOR`, `BITXOR`, `BITLSHIFT`, `BITRSHIFT`, `AND`, `OR`, `XOR`, `NOT`, `DATE`, `YEAR`, `MONTH`, `DAY`, `DAYS`, `TIME`, `HOUR`, `MINUTE`, `SECOND`, `EDATE`, `EOMONTH`, `WEEKDAY`, `WEEKNUM`, `ISOWEEKNUM`), reverse-dependency index reuse and topological-position index reuse for incremental scheduler/perf hardening, AST interning scaffold, configurable slow-node thresholds, text-returning formula evaluation, typed branch-preserving conditional/selector evaluation (`IF`, `IFERROR`, `IFS`, `SWITCH`, `CHOOSE`, `INDEX`), and formula-language literals (quoted text + `TRUE`/`FALSE`) are implemented; deeper function parity expansion and further scheduler/perf hardening are pending.
   Evidence: [[Execution Status#Current Execution Slice]], [[Execution Status#Next Execution Slice]]
-- [ ] Sprint 03 editing-loop acceptance pass is active.
-  Plan links: [[docs/RootCellar/02-Sprints/Sprint 03 - Grid Editing Loop]], [[docs/RootCellar/01-Epics/Epic 03 - Desktop Grid UX and Productivity]], [[docs/RootCellar/03-Implementation/UI-to-Engine Trace Bridge]], [[apps/desktop/src/main.ts]]
-  Current state: selection rendering and formula-bar/apply paths are complete and traceable (`Selection`, `Range Presets`, `Recalc Freshness`, `Preset Restore`, `Trace Join`); remaining scope is undo/redo + accessibility semantics + clipboard copy/paste baseline.
-  Evidence: [[Execution Status#Completed In Code]]
-
-- [ ] Sprint 04 Python macro platform foundation planning is ready to start.
-  Plan links: [[docs/RootCellar/02-Sprints/Sprint 04 - Python Macros Alpha]], [[docs/RootCellar/01-Epics/Epic 04 - Python Automation Platform]], [[docs/RootCellar/01-Epics/Epic 08 - Enterprise Trust and Distribution]]
+- [ ] Sprint 04 Python macro platform foundation is in progress (`run-macro` alpha path live in CLI).
+  Plan links: [[docs/RootCellar/02-Sprints/Sprint 04 - Python Macros Alpha]], [[docs/RootCellar/01-Epics/Epic 04 - Python Automation Platform]], [[docs/RootCellar/03-Implementation/Python Scripting Host Design]], [[crates/rootcellar-cli/src/main.rs]], [[crates/rootcellar-cli/src/script.rs]], [[python/worker_stub.py]]
+  Current state: CLI command surface, worker process protocol, mutation desugaring, permission event emission, end-to-end CLI integration tests, and post-mutation recalc are implemented; remaining work is desktop command integration, permission UX/state policy, trust policy enforcement, and UDF/event coverage.
+  Evidence: [[Execution Status#Completed In Code]], [[Execution Status#Verification]]
+  Next testable deliverable: `interop_run_macro` Tauri command + desktop trust-prompt UX bound to command artifacts.
 
 - [ ] Cross-surface event lookup assertions for desktop trace continuity are now validated in tests and CI command invocation.
   Plan links: [[docs/RootCellar/04-Observability/Execution Traceability Atlas]], [[docs/RootCellar/04-Observability/AI Introspection Runbook]], [[apps/desktop/scripts/capture-ui.mjs]], [[apps/desktop/src-tauri/src/main.rs]]
@@ -163,8 +168,7 @@ Last updated: March 4, 2026
 
 ## Next Planned Items
  1. Stabilize next-phase calc edge-case compatibility in Sprint 02 while extending function parity in compatibility-stressed fixtures.
- 2. Implement Sprint 03 undo/redo baseline and clipboard accessibility behavior with deterministic interaction tests.
- 3. Deliver `Sprint 04 - Python Macros Alpha` foundation stories for sandboxed runtime lifecycle and permission model.
- 4. Expand curated Excel-authored corpus with scenario-manager and layout-rich variants, while preserving policy gates (`EXCEL_INTEROP_MIN_EXCEL_AUTHORED_SAMPLES=17` and `EXCEL_INTEROP_MIN_VERIFIED_EXCEL_SAMPLES=17`).
+2. Expand `Sprint 04 - Python Macros Alpha` into CLI + desktop policy, permission UX, and trust-policy enforcement.
+3. Expand curated Excel-authored corpus with scenario-manager and layout-rich variants, while preserving policy gates (`EXCEL_INTEROP_MIN_EXCEL_AUTHORED_SAMPLES=17` and `EXCEL_INTEROP_MIN_VERIFIED_EXCEL_SAMPLES=17`).
 
 

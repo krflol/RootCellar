@@ -261,6 +261,21 @@ type SelectedPreviewCell = {
 type EditActionSource = "edit-form" | "formula-bar";
 type UiCaptureRecalcState = "pending" | "fresh" | "stale";
 type UiCaptureSection = "default" | "edit-cell" | "save-recalc";
+type EditLifecyclePhase = "start" | "success" | "error";
+type EditLifecycleEntry = {
+  ts: string;
+  command: string;
+  phase: EditLifecyclePhase;
+  message: string;
+  durationMs?: number;
+  traceId?: string;
+  uiCommandId?: string;
+  commandStatus?: string;
+  eventLogPath?: string;
+  artifactIndexPath?: string;
+  linkedArtifactIds?: string[];
+  error?: string;
+};
 
 function formatCellValue(value: CellValue): string {
   if (typeof value === "string") {
@@ -295,6 +310,101 @@ function startUiCommand(commandName: string): UiCommandTrace {
     commandId: crypto.randomUUID(),
     commandName,
   };
+}
+
+const LIFECYCLE_LOG_LIMIT = 24;
+const editLifecycleEntries: EditLifecycleEntry[] = [];
+
+export function getEditLifecycleEntriesForTests(): EditLifecycleEntry[] {
+  return [...editLifecycleEntries];
+}
+
+export function clearEditLifecycleEntriesForTests(): void {
+  editLifecycleEntries.length = 0;
+  renderEditLifecycleOutput();
+}
+
+export function logEditLifecycleEvent(
+  command: string,
+  phase: EditLifecyclePhase,
+  message: string,
+  options?: {
+    trace?: TraceEcho;
+    error?: unknown;
+  },
+): void {
+  const now = new Date().toISOString();
+  const trace = options?.trace;
+  const errorText = options?.error ? String(options.error) : undefined;
+  const entry: EditLifecycleEntry = {
+    ts: now,
+    command,
+    phase,
+    message,
+    durationMs: trace?.durationMs,
+    traceId: trace?.traceId,
+    uiCommandId: trace?.uiCommandId,
+    commandStatus: trace?.commandStatus,
+    eventLogPath: trace?.eventLogPath ?? undefined,
+    artifactIndexPath: trace?.artifactIndexPath ?? undefined,
+    linkedArtifactIds: trace?.linkedArtifactIds,
+    error: errorText,
+  };
+  editLifecycleEntries.unshift(entry);
+  if (editLifecycleEntries.length > LIFECYCLE_LOG_LIMIT) {
+    editLifecycleEntries.length = LIFECYCLE_LOG_LIMIT;
+  }
+
+  renderEditLifecycleOutput();
+
+  if (phase === "error") {
+    announceToScreenReader(`${command} failed: ${message}`, true);
+  } else if (phase === "success") {
+    announceToScreenReader(`${command} ${message}`);
+  }
+}
+
+function renderEditLifecycleOutput(): void {
+  if (editLifecycleEntries.length === 0) {
+    editLifecycleOutputEl.textContent = "No edit lifecycle events yet.";
+    return;
+  }
+
+  editLifecycleOutputEl.textContent = editLifecycleEntries
+    .slice(0, LIFECYCLE_LOG_LIMIT)
+    .map((entry) =>
+      JSON.stringify(
+        {
+          ts: entry.ts,
+          command: entry.command,
+          phase: entry.phase,
+          message: entry.message,
+          durationMs: entry.durationMs,
+          traceId: entry.traceId,
+          uiCommandId: entry.uiCommandId,
+          commandStatus: entry.commandStatus,
+          eventLogPath: entry.eventLogPath,
+          artifactIndexPath: entry.artifactIndexPath,
+          linkedArtifactIds: entry.linkedArtifactIds,
+          error: entry.error,
+        },
+        null,
+        2,
+      ),
+    )
+    .join("\n\n");
+}
+
+function announceToScreenReader(message: string, assertive = false): void {
+  const live = assertive ? srAnnouncerAssertiveEl : srAnnouncerEl;
+  if (!live) {
+    return;
+  }
+  // Reset first so screen readers re-read repeated strings.
+  live.textContent = "";
+  requestAnimationFrame(() => {
+    live.textContent = message;
+  });
 }
 
 function normalizeMode(value: string): InteropSaveMode {
@@ -404,6 +514,8 @@ if (!app) {
 
 app.innerHTML = `
   <main class="shell">
+    <div id="sr-announcer" class="sr-only" role="status" aria-live="polite" aria-atomic="true"></div>
+    <div id="sr-announcer-assertive" class="sr-only" role="status" aria-live="assertive" aria-atomic="true"></div>
     <section class="panel hero">
       <p class="eyebrow">RootCellar Desktop Shell</p>
       <h1>UI + Engine Vertical Slice</h1>
@@ -481,7 +593,7 @@ app.innerHTML = `
       <pre id="preview-selected-output" class="output compact" role="status" aria-live="polite">No cell selected.</pre>
       <pre id="preview-copy-status" class="output compact" role="status" aria-live="polite">No copy action yet.</pre>
       <div id="preview-wrap" class="table-wrap" tabindex="0">
-        <table id="preview-table" class="preview-table"></table>
+        <table id="preview-table" class="preview-table" role="grid" aria-label="Spreadsheet preview grid"></table>
       </div>
     </section>
 
@@ -538,6 +650,14 @@ app.innerHTML = `
         <button id="apply-edit" class="btn primary">Apply Cell Edit</button>
       </div>
       <pre id="edit-output" class="output">No edits yet.</pre>
+    </section>
+
+    <section class="panel" id="capture-section-lifecycle">
+      <h2>Edit Lifecycle Telemetry</h2>
+      <p class="summary hint">
+        Command-level trace, latency, and error visibility for open/edit/paste/undo/redo/save/recalc flows.
+      </p>
+      <pre id="edit-lifecycle-output" class="output compact" role="status" aria-live="polite">No edit lifecycle events yet.</pre>
     </section>
 
     <section class="panel" id="capture-section-save-recalc">
@@ -610,11 +730,14 @@ const formulaBarCellInput = document.querySelector<HTMLInputElement>("#formula-b
 const formulaBarModeSelect = document.querySelector<HTMLSelectElement>("#formula-bar-mode");
 const formulaBarInput = document.querySelector<HTMLInputElement>("#formula-bar-input");
 const formulaBarApplyButton = document.querySelector<HTMLButtonElement>("#formula-bar-apply");
+const srAnnouncer = document.querySelector<HTMLDivElement>("#sr-announcer");
+const srAnnouncerAssertive = document.querySelector<HTMLDivElement>("#sr-announcer-assertive");
 const previewOutput = document.querySelector<HTMLPreElement>("#preview-output");
 const previewSelectedOutput = document.querySelector<HTMLPreElement>("#preview-selected-output");
 const previewCopyStatus = document.querySelector<HTMLPreElement>("#preview-copy-status");
 const previewWrap = document.querySelector<HTMLDivElement>("#preview-wrap");
 const previewTable = document.querySelector<HTMLTableElement>("#preview-table");
+const editLifecycleOutput = document.querySelector<HTMLPreElement>("#edit-lifecycle-output");
 const editSheetSelect = document.querySelector<HTMLSelectElement>("#edit-sheet");
 const editCellInput = document.querySelector<HTMLInputElement>("#edit-cell");
 const editModeSelect = document.querySelector<HTMLSelectElement>("#edit-mode");
@@ -664,11 +787,14 @@ if (
   !formulaBarModeSelect ||
   !formulaBarInput ||
   !formulaBarApplyButton ||
+  !srAnnouncer ||
+  !srAnnouncerAssertive ||
   !previewOutput ||
   !previewSelectedOutput ||
   !previewCopyStatus ||
   !previewWrap ||
   !previewTable ||
+  !editLifecycleOutput ||
   !editSheetSelect ||
   !editCellInput ||
   !editModeSelect ||
@@ -720,11 +846,14 @@ const formulaBarCellInputEl = formulaBarCellInput;
 const formulaBarModeSelectEl = formulaBarModeSelect;
 const formulaBarInputEl = formulaBarInput;
 const formulaBarApplyButtonEl = formulaBarApplyButton;
+const srAnnouncerEl = srAnnouncer;
+const srAnnouncerAssertiveEl = srAnnouncerAssertive;
 const previewOutputEl = previewOutput;
 const previewSelectedOutputEl = previewSelectedOutput;
 const previewCopyStatusEl = previewCopyStatus;
 const previewWrapEl = previewWrap;
 const previewTableEl = previewTable;
+const editLifecycleOutputEl = editLifecycleOutput;
 const editSheetSelectEl = editSheetSelect;
 const editCellInputEl = editCellInput;
 const editModeSelectEl = editModeSelect;
@@ -868,6 +997,19 @@ function syncEditFormFromFormulaBarSelectionInput(): void {
   editInputEl.value = formulaBarInputEl.value;
 }
 
+function announcePreviewSelection(selection: SelectedPreviewCell | null): void {
+  if (!selection) {
+    announceToScreenReader("No preview cell selected.");
+    return;
+  }
+
+  const detail = `${selection.sheet}!${selection.cell.cell}`;
+  const formatHint = selection.cell.formula
+    ? `formula ${selection.cell.formula}`
+    : `value ${cellValueToInputValue(selection.cell.value)}`;
+  announceToScreenReader(`Selected ${detail}. ${formatHint}`);
+}
+
 function setSelectedPreviewCell(selection: SelectedPreviewCell | null): void {
   selectedPreviewCell = selection;
   updatePreviewCopyButtons();
@@ -889,6 +1031,7 @@ function setSelectedPreviewCell(selection: SelectedPreviewCell | null): void {
     formula: selection.cell.formula,
   };
   previewSelectedOutputEl.textContent = JSON.stringify(detail, null, 2);
+  announcePreviewSelection(selection);
 }
 
 function updateJumpLastEditedButton(): void {
@@ -1222,8 +1365,8 @@ function renderPreviewTable(payload: InteropSheetPreviewResponse): void {
   const cellMap = new Map(payload.cells.map((cell) => [`${cell.row}:${cell.col}`, cell]));
 
   const thead = [
-    "<thead><tr><th class=\"corner\">#</th>",
-    ...cols.map((col) => `<th>${columnToA1(col)}</th>`),
+    "<thead><tr><th class=\"corner\" role=\"columnheader\">#</th>",
+    ...cols.map((col) => `<th role=\"columnheader\">${columnToA1(col)}</th>`),
     "</tr></thead>",
   ].join("");
 
@@ -1234,12 +1377,12 @@ function renderPreviewTable(payload: InteropSheetPreviewResponse): void {
       if (!cell) {
         return "<td></td>";
       }
-      const classes = ["preview-cell"];
-      if (
-        selectedPreviewCell &&
+      const isSelected =
+        selectedPreviewCell !== null &&
         selectedPreviewCell.sheet === payload.sheet &&
-        selectedPreviewCell.cell.cell === cell.cell
-      ) {
+        selectedPreviewCell.cell.cell === cell.cell;
+      const classes = ["preview-cell"];
+      if (isSelected) {
         classes.push("selected");
       }
       if (
@@ -1250,9 +1393,9 @@ function renderPreviewTable(payload: InteropSheetPreviewResponse): void {
         classes.push("last-edited");
       }
 
-      return `<td class="${classes.join(" ")}" data-cell="${escapeHtml(cell.cell)}" data-row="${cell.row}" data-col="${cell.col}" title="${escapeHtml(cell.cell)}">${escapeHtml(formatPreviewCell(cell))}</td>`;
+      return `<td role="gridcell" aria-selected="${isSelected ? "true" : "false"}" tabindex="${isSelected ? "0" : "-1"}" class="${classes.join(" ")}" data-cell="${escapeHtml(cell.cell)}" data-row="${cell.row}" data-col="${cell.col}" title="${escapeHtml(cell.cell)}">${escapeHtml(formatPreviewCell(cell))}</td>`;
     });
-    return `<tr><th>${row}</th>${cells.join("")}</tr>`;
+    return `<tr><th role="rowheader">${row}</th>${cells.join("")}</tr>`;
   });
 
   previewTableEl.innerHTML = `${thead}<tbody>${tbodyRows.join("")}</tbody>`;
@@ -1321,10 +1464,17 @@ async function loadSheetPreview(
   const limitRaw = Number.parseInt(previewLimitInputEl.value.trim(), 10);
   const limit = Number.isFinite(limitRaw) ? Math.min(Math.max(limitRaw, 1), 400) : 120;
   const selectedSheet = (sheetOverride ?? previewSheetSelectEl.value).trim();
-  const trace = toTraceInput(traceContext ?? newTrace());
+  const commandContext = startUiCommand("interop_sheet_preview");
+  const trace = toTraceInput(traceContext ?? commandContext);
 
   refreshPreviewButtonEl.disabled = true;
   previewOutputEl.textContent = "Loading sheet preview...";
+  logEditLifecycleEvent(
+    "interop_sheet_preview",
+    "start",
+    `loading preview for ${selectedSheet || "current sheet"}`,
+    { trace },
+  );
   try {
     const payload = await invoke<InteropSheetPreviewResponse>("interop_sheet_preview", {
       sheet: selectedSheet.length > 0 ? selectedSheet : null,
@@ -1367,6 +1517,9 @@ async function loadSheetPreview(
     ];
     previewOutputEl.textContent = summary.join("\n");
     renderPreviewTable(payload);
+    logEditLifecycleEvent("interop_sheet_preview", "success", `loaded sheet ${payload.sheet}`, {
+      trace: payload.trace,
+    });
     if (normalizedFocusCell && scrollToFocus) {
       const focusEl = previewTableEl.querySelector<HTMLTableCellElement>(
         `td[data-cell="${normalizedFocusCell}"]`,
@@ -1380,6 +1533,10 @@ async function loadSheetPreview(
     setSelectedPreviewCell(null);
     previewOutputEl.textContent = `preview error: ${String(error)}`;
     previewCopyStatusEl.textContent = "Preview unavailable.";
+    logEditLifecycleEvent("interop_sheet_preview", "error", `preview load failed: ${String(error)}`, {
+      trace,
+      error,
+    });
     clearPreviewTable("Preview unavailable.");
   } finally {
     refreshPreviewButtonEl.disabled = false;
@@ -1430,14 +1587,25 @@ function detectClipboardMode(raw: string): InteropEditMode {
 async function pasteFromClipboardIntoSelection(): Promise<void> {
   if (!selectedPreviewCell) {
     previewCopyStatusEl.textContent = "Select a preview cell first.";
+    logEditLifecycleEvent("interop_apply_cell_edit", "error", "paste failed: no selection");
     return;
   }
+  logEditLifecycleEvent(
+    "interop_apply_cell_edit",
+    "start",
+    `pasting into ${selectedPreviewCell.sheet}!${selectedPreviewCell.cell.cell}`,
+  );
 
   try {
     const clipboardText = await navigator.clipboard.readText();
     const trimmed = clipboardText.trim();
     if (!trimmed) {
       previewCopyStatusEl.textContent = "Clipboard is empty.";
+      logEditLifecycleEvent(
+        "interop_apply_cell_edit",
+        "error",
+        `paste failed: clipboard empty in ${selectedPreviewCell.sheet}!${selectedPreviewCell.cell.cell}`,
+      );
       return;
     }
 
@@ -1450,6 +1618,9 @@ async function pasteFromClipboardIntoSelection(): Promise<void> {
     });
   } catch (error) {
     previewCopyStatusEl.textContent = `paste failed: ${String(error)}`;
+    logEditLifecycleEvent("interop_apply_cell_edit", "error", `paste failed: ${String(error)}`, {
+      error,
+    });
   }
 }
 
@@ -1487,6 +1658,7 @@ async function openWorkbook(): Promise<void> {
   const path = openPathInputEl.value.trim();
   if (!path) {
     sessionOutputEl.textContent = "enter a workbook path first";
+    logEditLifecycleEvent("interop_open_workbook", "error", "open failed: workbook path missing");
     return;
   }
 
@@ -1494,6 +1666,9 @@ async function openWorkbook(): Promise<void> {
   sessionOutputEl.textContent = "Opening workbook...";
   compatOutputEl.textContent = "Inspecting compatibility...";
   const commandContext = startUiCommand("interop_open_workbook");
+  logEditLifecycleEvent("interop_open_workbook", "start", `open requested for ${path}`, {
+    trace: commandContext,
+  });
 
   try {
     const payload = await invoke<InteropOpenResponse>("interop_open_workbook", {
@@ -1530,6 +1705,9 @@ async function openWorkbook(): Promise<void> {
       formatCompatibility(payload),
       commandContext.commandId,
     );
+    logEditLifecycleEvent("interop_open_workbook", "success", `opened ${payload.inputPath}`, {
+      trace: payload.trace,
+    });
     lastEditedCell = null;
     resetRecalcStatus();
     updateJumpLastEditedButton();
@@ -1543,6 +1721,10 @@ async function openWorkbook(): Promise<void> {
     compatOutputEl.textContent = message;
     previewCopyStatusEl.textContent = message;
     previewOutputEl.textContent = message;
+    logEditLifecycleEvent("interop_open_workbook", "error", `open failed: ${String(error)}`, {
+      trace: commandContext,
+      error,
+    });
     clearPreviewTable("Preview unavailable.");
   } finally {
     openWorkbookButtonEl.disabled = false;
@@ -1558,6 +1740,7 @@ async function applyCellEdit(overrides?: {
 }): Promise<void> {
   if (!currentSession?.loaded) {
     editOutputEl.textContent = "open a workbook first";
+    logEditLifecycleEvent("interop_apply_cell_edit", "error", "edit failed: open a workbook first");
     return;
   }
 
@@ -1569,16 +1752,28 @@ async function applyCellEdit(overrides?: {
 
   if (!sheet) {
     editOutputEl.textContent = "select a sheet";
+    logEditLifecycleEvent("interop_apply_cell_edit", "error", "edit failed: select a sheet");
     return;
   }
   if (!cell) {
     editOutputEl.textContent = "enter an A1 cell or range reference";
+    logEditLifecycleEvent(
+      "interop_apply_cell_edit",
+      "error",
+      `edit failed: missing target cell in ${sheet}`,
+    );
     return;
   }
 
   applyEditButtonEl.disabled = true;
   formulaBarApplyButtonEl.disabled = true;
   const commandContext = startUiCommand("interop_apply_cell_edit");
+  logEditLifecycleEvent(
+    "interop_apply_cell_edit",
+    "start",
+    `editing ${sheet}!${cell} from ${source}`,
+    { trace: commandContext },
+  );
   editOutputEl.textContent =
     source === "formula-bar" ? "Applying edit from formula bar..." : "Applying edit...";
   try {
@@ -1613,14 +1808,28 @@ async function applyCellEdit(overrides?: {
       previewCopyStatusEl.textContent =
         `Last edit: ${payload.sheet}!${payload.cell} ` +
         `(${payload.appliedCellCount} cells; anchor ${payload.anchorCell}).`;
+      announceToScreenReader(
+        `Edited ${payload.appliedCellCount} cells starting at ${payload.sheet}!${payload.anchorCell}`,
+      );
     } else {
       previewCopyStatusEl.textContent = `Last edited cell set to ${payload.sheet}!${payload.anchorCell}.`;
+      announceToScreenReader(`Edited ${payload.sheet}!${payload.anchorCell}.`);
     }
+    logEditLifecycleEvent(
+      "interop_apply_cell_edit",
+      "success",
+      `edited ${payload.sheet}!${payload.anchorCell}`,
+      { trace: payload.trace },
+    );
     markRecalcPending();
     await loadInteropSessionStatus();
     await loadSheetPreview(payload.sheet, payload.anchorCell, true, payload.trace);
   } catch (error) {
     editOutputEl.textContent = `edit error: ${String(error)}`;
+    logEditLifecycleEvent("interop_apply_cell_edit", "error", `edit failed: ${String(error)}`, {
+      trace: commandContext,
+      error,
+    });
   } finally {
     applyEditButtonEl.disabled = false;
     updatePreviewCopyButtons();
@@ -1646,10 +1855,18 @@ async function applyFormulaBarEdit(): Promise<void> {
 async function applyHistoryAction(action: "undo" | "redo"): Promise<void> {
   if (!currentSession?.loaded) {
     previewCopyStatusEl.textContent = "open a workbook first";
+    logEditLifecycleEvent(
+      `interop_${action}_edit`,
+      "error",
+      `${action} failed: no active workbook session`,
+    );
     return;
   }
 
   const commandContext = startUiCommand(`interop_${action}_edit`);
+  logEditLifecycleEvent(`interop_${action}_edit`, "start", `${action} requested`, {
+    trace: commandContext,
+  });
   try {
     const payload = await invoke<InteropUndoRedoResponse>(`interop_${action}_edit`, {
       trace: commandContext,
@@ -1657,6 +1874,8 @@ async function applyHistoryAction(action: "undo" | "redo"): Promise<void> {
 
     const summary = `${payload.action} complete`;
     previewCopyStatusEl.textContent = summary;
+    announceToScreenReader(summary);
+    logEditLifecycleEvent(`interop_${action}_edit`, "success", summary, { trace: payload.trace });
     if (currentSession) {
       currentSession.undoCount = payload.undoCount;
       currentSession.redoCount = payload.redoCount;
@@ -1670,6 +1889,10 @@ async function applyHistoryAction(action: "undo" | "redo"): Promise<void> {
     }
   } catch (error) {
     previewCopyStatusEl.textContent = `${action} failed: ${String(error)}`;
+    logEditLifecycleEvent(`interop_${action}_edit`, "error", `${action} failed: ${String(error)}`, {
+      trace: commandContext,
+      error,
+    });
     await loadInteropSessionStatus();
   }
 }
@@ -1698,6 +1921,7 @@ async function saveWorkbook(): Promise<void> {
   const outputPath = savePathInputEl.value.trim();
   if (!outputPath) {
     saveOutputEl.textContent = "enter an output path first";
+    logEditLifecycleEvent("interop_save_workbook", "error", "save failed: missing output path");
     return;
   }
 
@@ -1706,6 +1930,9 @@ async function saveWorkbook(): Promise<void> {
   saveWorkbookButtonEl.disabled = true;
   saveOutputEl.textContent = "Saving workbook...";
   const commandContext = startUiCommand("interop_save_workbook");
+  logEditLifecycleEvent("interop_save_workbook", "start", `saving workbook to ${outputPath}`, {
+    trace: commandContext,
+  });
 
   try {
     const payload = await invoke<InteropSaveResponse>("interop_save_workbook", {
@@ -1722,9 +1949,16 @@ async function saveWorkbook(): Promise<void> {
     if (promoteOutputAsInput) {
       openPathInputEl.value = payload.outputPath;
     }
+    logEditLifecycleEvent("interop_save_workbook", "success", `saved ${payload.outputPath}`, {
+      trace: payload.trace,
+    });
     await loadInteropSessionStatus();
   } catch (error) {
     saveOutputEl.textContent = `save workbook error: ${String(error)}`;
+    logEditLifecycleEvent("interop_save_workbook", "error", `save failed: ${String(error)}`, {
+      trace: commandContext,
+      error,
+    });
   } finally {
     saveWorkbookButtonEl.disabled = false;
   }
@@ -1735,6 +1969,12 @@ async function recalcLoadedWorkbook(): Promise<void> {
   recalcLoadedButtonEl.disabled = true;
   saveOutputEl.textContent = "Recalculating loaded workbook...";
   const commandContext = startUiCommand("interop_recalc_loaded");
+  logEditLifecycleEvent(
+    "interop_recalc_loaded",
+    "start",
+    sheet.length > 0 ? `recalculating ${sheet}` : "recalculating loaded workbook",
+    { trace: commandContext },
+  );
 
   try {
     const payload = await invoke<InteropRecalcResponse>("interop_recalc_loaded", {
@@ -1753,10 +1993,20 @@ async function recalcLoadedWorkbook(): Promise<void> {
           ? payload.reports[0].sheet
           : null;
     markRecalcCompleted(resolvedScope);
+    logEditLifecycleEvent(
+      "interop_recalc_loaded",
+      "success",
+      `recalc complete for ${resolvedScope ?? "all loaded sheets"}`,
+      { trace: payload.trace },
+    );
     await loadInteropSessionStatus();
     await loadSheetPreview(sheet.length > 0 ? sheet : undefined, undefined, false, payload.trace);
   } catch (error) {
     saveOutputEl.textContent = `recalc error: ${String(error)}`;
+    logEditLifecycleEvent("interop_recalc_loaded", "error", `recalc failed: ${String(error)}`, {
+      trace: commandContext,
+      error,
+    });
   } finally {
     recalcLoadedButtonEl.disabled = false;
   }
@@ -1766,6 +2016,9 @@ async function runEngineRoundTrip(): Promise<void> {
   runRoundTripButtonEl.disabled = true;
   roundTripOutputEl.textContent = "Running engine round-trip...";
   const commandContext = startUiCommand("engine_round_trip");
+  logEditLifecycleEvent("engine_round_trip", "start", "running engine round-trip", {
+    trace: commandContext,
+  });
 
   try {
     const payload = await invoke<EngineRoundTripResponse>("engine_round_trip", {
@@ -1787,8 +2040,15 @@ async function runEngineRoundTrip(): Promise<void> {
       JSON.stringify(view, null, 2),
       commandContext.commandId,
     );
+    logEditLifecycleEvent("engine_round_trip", "success", "engine round-trip complete", {
+      trace: payload.trace,
+    });
   } catch (error) {
     roundTripOutputEl.textContent = `round-trip error: ${String(error)}`;
+    logEditLifecycleEvent("engine_round_trip", "error", `engine round-trip failed: ${String(error)}`, {
+      trace: commandContext,
+      error,
+    });
   } finally {
     runRoundTripButtonEl.disabled = false;
   }
@@ -2049,6 +2309,7 @@ saveModeSelectEl.addEventListener("change", () => {
 clearPreviewTable("Open a workbook to render sheet preview.");
 setSelectedPreviewCell(null);
 previewCopyStatusEl.textContent = "No copy action yet.";
+renderEditLifecycleOutput();
 updateJumpLastEditedButton();
 renderRecalcStatus();
 lastCustomPreset = loadLastCustomPresetFromStorage();

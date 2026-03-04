@@ -1,4 +1,5 @@
 use clap::{Parser, Subcommand, ValueEnum};
+mod script;
 use rayon::prelude::*;
 use rootcellar_core::model::CellRef;
 use rootcellar_core::{
@@ -13,6 +14,7 @@ use serde_json::{json, to_string_pretty};
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::str::FromStr;
 use std::time::Instant;
 use thiserror::Error;
 
@@ -140,6 +142,29 @@ enum Commands {
     Repro {
         #[command(subcommand)]
         command: ReproCommands,
+    },
+    /// Run a macro script with explicit permission grants and emit mutation trace.
+    RunMacro {
+        /// Source .xlsx workbook.
+        input: PathBuf,
+        /// Destination .xlsx workbook.
+        output: PathBuf,
+        /// Python script file path.
+        #[arg(long)]
+        macro_script: PathBuf,
+        /// Optional macro function name exported by the script.
+        #[arg(long, default_value = "main")]
+        macro_name: String,
+        /// Allowed permissions (repeat or comma-delimited).
+        /// Example: --allow fs.read --allow fs.write
+        #[arg(long, value_parser = script::ScriptPermission::from_str, value_delimiter = ',')]
+        allow: Vec<script::ScriptPermission>,
+        /// Key-value arguments forwarded to macro as strings (key=value).
+        #[arg(long = "arg")]
+        macro_args: Vec<String>,
+        /// Optional telemetry JSONL output path.
+        #[arg(long)]
+        jsonl: Option<PathBuf>,
     },
 }
 
@@ -341,6 +366,12 @@ enum CliError {
     MissingBundleFile(String),
     #[error("repro check failed: {0}")]
     ReproMismatch(String),
+    #[error("macro runtime error: {0}")]
+    Script(#[from] script::ScriptError),
+    #[error("invalid macro argument: {0}")]
+    InvalidMacroArg(String),
+    #[error("invalid macro mutation: {0}")]
+    InvalidMacroMutation(String),
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -638,6 +669,23 @@ fn run() -> Result<(), CliError> {
                 jsonl.as_ref(),
             ),
         },
+        Commands::RunMacro {
+            input,
+            output,
+            macro_script,
+            macro_name,
+            allow,
+            macro_args,
+            jsonl,
+        } => run_run_macro(
+            input.as_path(),
+            output.as_path(),
+            macro_script.as_path(),
+            &macro_name,
+            &allow,
+            &macro_args,
+            jsonl.as_ref(),
+        ),
     }
 }
 
@@ -1720,6 +1768,279 @@ fn run_tx_save(
     Ok(())
 }
 
+fn run_run_macro(
+    input: &Path,
+    output: &Path,
+    macro_script: &Path,
+    macro_name: &str,
+    allow: &[script::ScriptPermission],
+    macro_args: &[String],
+    jsonl_path: Option<&PathBuf>,
+) -> Result<(), CliError> {
+    let trace = TraceContext::root();
+    let mut sink = make_sink(jsonl_path)?;
+    let request_args = parse_macro_args(macro_args)?;
+    let request = script::MacroRunRequest::new(
+        trace.trace_id.to_string(),
+        macro_script,
+        macro_name.to_string(),
+        input,
+        allow.to_vec(),
+        request_args,
+    );
+
+    sink.emit(
+        EventEnvelope::info("script.session.start", &trace)
+            .with_context(json!({
+                "macro_script": macro_script.display().to_string(),
+                "macro_name": macro_name,
+                "input": input.display().to_string(),
+                "output": output.display().to_string(),
+                "requested_permissions": allow.iter().map(|permission| permission.to_string()).collect::<Vec<_>>(),
+            }))
+            .with_metrics(json!({
+                "requested_permission_count": allow.len(),
+                "macro_arg_count": macro_args.len(),
+            })),
+    )?;
+
+    let invocation_start = Instant::now();
+    let response = match script::run_macro(&request) {
+        Ok(response) => response,
+        Err(error) => {
+            sink.emit(
+                EventEnvelope::info("script.rpc.error", &trace)
+                    .with_context(json!({
+                        "operation": "script.macro.run",
+                        "macro_script": macro_script.display().to_string(),
+                        "macro_name": macro_name,
+                        "input": input.display().to_string(),
+                    }))
+                    .with_payload(json!({
+                        "status": "error",
+                        "message": error.to_string(),
+                    }))
+                    .with_metrics(json!({
+                        "duration_ms": invocation_start.elapsed().as_secs_f64() * 1000.0,
+                    })),
+            )?;
+
+            return Err(error.into());
+        }
+    };
+
+    let permission_granted = response
+        .permission_events
+        .iter()
+        .filter(|event| event.allowed)
+        .count();
+    let permission_denied = response.permission_events.len() - permission_granted;
+    for event in &response.permission_events {
+        let permission_event = if event.allowed {
+            "script.permission.granted"
+        } else {
+            "script.permission.denied"
+        };
+        sink.emit(
+            EventEnvelope::info(permission_event, &trace)
+                .with_context(json!({
+                    "permission": event.permission,
+                    "allowed": event.allowed,
+                    "macro_script": macro_script.display().to_string(),
+                    "macro_name": macro_name,
+                    "reason": event.reason,
+                }))
+                .with_payload(json!({
+                    "status": if event.allowed { "granted" } else { "denied" }
+                })),
+        )?;
+    }
+
+    if response.status.to_lowercase() != "ok" {
+        return Err(CliError::Script(script::ScriptError::ExecutionFailed {
+            status: Some(response.status),
+            message: response
+                .message
+                .unwrap_or_else(|| "script execution status was not ok".to_string()),
+            permission_events: response.permission_events,
+            stdout: response.stdout,
+            stderr: response.stderr,
+        }));
+    }
+
+    let invocation_ms = invocation_start.elapsed().as_secs_f64() * 1000.0;
+    let mut workbook = load_workbook_model(input, sink.as_mut(), &trace)?;
+    let mut txn = workbook.begin_txn(sink.as_mut(), &trace)?;
+    let mut assignments = Vec::<MacroMutationAssignment>::new();
+
+    for mutation in &response.mutations {
+        assignments.extend(desugar_script_mutation(mutation)?);
+    }
+
+    for assignment in &assignments {
+        match &assignment.kind {
+            MacroMutationValue::Value { value } => txn.apply(Mutation::SetCellValue {
+                sheet: assignment.sheet.clone(),
+                row: assignment.row,
+                col: assignment.col,
+                value: value.clone(),
+            }),
+            MacroMutationValue::Formula { formula } => txn.apply(Mutation::SetCellFormula {
+                sheet: assignment.sheet.clone(),
+                row: assignment.row,
+                col: assignment.col,
+                formula: formula.clone(),
+                cached_value: CellValue::Empty,
+            }),
+        }
+    }
+
+    let commit = txn.commit(&mut workbook, sink.as_mut(), &trace)?;
+    let changed_sheets = commit
+        .changed_cells
+        .iter()
+        .map(|(name, _cells)| name.to_string())
+        .collect::<Vec<_>>();
+
+    let mut recalc_totals = RecalcReport {
+        sheet: "macro_mutation".to_string(),
+        evaluated_cells: 0,
+        cycle_count: 0,
+        parse_error_count: 0,
+    };
+    for changed_sheet in &changed_sheets {
+        let changed_roots = commit
+            .changed_cells
+            .get(changed_sheet)
+            .map(|cells| cells.as_slice())
+            .unwrap_or(&[]);
+        let report = recalc_sheet_from_roots(
+            &mut workbook,
+            changed_sheet,
+            changed_roots,
+            sink.as_mut(),
+            &trace,
+        )?;
+        recalc_totals.evaluated_cells += report.evaluated_cells;
+        recalc_totals.cycle_count += report.cycle_count;
+        recalc_totals.parse_error_count += report.parse_error_count;
+    }
+
+    let mut report_written = None::<PathBuf>;
+    if !changed_sheets.is_empty() || output != input {
+        let report = if changed_sheets.is_empty() {
+            preserve_xlsx_passthrough(input, output, &workbook, sink.as_mut(), &trace)?
+        } else {
+            preserve_xlsx_with_sheet_overrides(
+                input,
+                output,
+                &workbook,
+                &changed_sheets,
+                sink.as_mut(),
+                &trace,
+            )?
+        };
+        report_written = Some(report.output_path.clone());
+        if report.mode == SaveMode::Preserve {
+            sink.emit(
+                EventEnvelope::info("artifact.macro.output", &trace)
+                    .with_context(json!({
+                        "operation": "run_macro",
+                        "input": input.display().to_string(),
+                        "output": report.output_path.display().to_string(),
+                    }))
+                    .with_metrics(json!({
+                        "mutations": commit.mutation_count,
+                        "changed_sheet_count": changed_sheets.len(),
+                    })),
+            )?;
+        }
+    }
+
+    sink.emit(
+        EventEnvelope::info("script.macro.run", &trace)
+            .with_context(json!({
+                "macro_script": macro_script.display().to_string(),
+                "macro_name": macro_name,
+                "input": input.display().to_string(),
+                "output": output.display().to_string(),
+                "status": "ok",
+                "result": response.result,
+                "stdout": response.stdout,
+                "stderr": response.stderr,
+            }))
+            .with_metrics(json!({
+                "macro_invocation_ms": invocation_ms,
+                "macro_mutation_count": commit.mutation_count,
+                "changed_sheet_count": changed_sheets.len(),
+                "permission_granted": permission_granted,
+                "permission_denied": permission_denied,
+                "permission_event_count": response.permission_events.len(),
+            })),
+    )?;
+
+    sink.emit(
+        EventEnvelope::info("script.session.end", &trace)
+            .with_context(json!({
+                "macro_script": macro_script.display().to_string(),
+                "macro_name": macro_name,
+                "status": "ok",
+            }))
+            .with_metrics(json!({
+                "mutations": assignments.len(),
+                "changed_sheet_count": changed_sheets.len(),
+                "macro_invocation_ms": invocation_ms,
+            })),
+    )?;
+
+    println!("Macro: {} (script: {})", macro_name, macro_script.display());
+    println!("Input: {}", input.display());
+    if let Some(path) = report_written.as_ref() {
+        println!("Output: {}", path.display());
+    } else {
+        println!("Output: unchanged (in-place macro read-only run)");
+    }
+    println!("Mutation count: {}", assignments.len());
+    for assignment in assignments.iter().take(5) {
+        match &assignment.kind {
+            MacroMutationValue::Value { value } => {
+                println!(
+                    "  - {}!{} = {:?}",
+                    assignment.sheet, assignment.cell_ref, value
+                );
+            }
+            MacroMutationValue::Formula { formula } => {
+                println!(
+                    "  - {}!{} = {}",
+                    assignment.sheet, assignment.cell_ref, formula
+                );
+            }
+        }
+    }
+    if assignments.len() > 5 {
+        println!("  - ... {} additional mutations", assignments.len() - 5);
+    }
+    if commit.mutation_count == 0 {
+        println!("Mutation commit: none (macro is read-only)");
+    } else {
+        println!(
+            "Transaction: {} (changed sheets: {})",
+            commit.txn_id,
+            changed_sheets.len()
+        );
+    }
+    println!(
+        "Recalculated cells: {}, cycles: {}, parse errors: {}",
+        recalc_totals.evaluated_cells, recalc_totals.cycle_count, recalc_totals.parse_error_count
+    );
+    println!(
+        "Script permissions: granted={}, denied={}",
+        permission_granted, permission_denied
+    );
+
+    Ok(())
+}
+
 fn run_recalc(
     file: &Path,
     sheet: Option<&String>,
@@ -2386,6 +2707,163 @@ fn parse_set_assignment(input: &str) -> Result<(String, String), CliError> {
     Ok((cell, value.to_string()))
 }
 
+fn parse_macro_arg(input: &str) -> Result<(String, String), CliError> {
+    let (name, value) = input
+        .split_once('=')
+        .ok_or_else(|| CliError::InvalidMacroArg(format!("expected key=value: {input}")))?;
+    let name = name.trim().to_string();
+    if name.is_empty() {
+        return Err(CliError::InvalidMacroArg(format!(
+            "macro arg key cannot be empty: {input}"
+        )));
+    }
+    Ok((name, value.to_string()))
+}
+
+fn parse_macro_args(args: &[String]) -> Result<BTreeMap<String, String>, CliError> {
+    let mut parsed = BTreeMap::<String, String>::new();
+    for arg in args {
+        let (name, value) = parse_macro_arg(arg)?;
+        if parsed.insert(name.clone(), value.clone()).is_some() {
+            return Err(CliError::InvalidMacroArg(format!(
+                "duplicate macro arg key: {name}"
+            )));
+        }
+    }
+    Ok(parsed)
+}
+
+#[derive(Debug)]
+enum MacroMutationValue {
+    Value { value: CellValue },
+    Formula { formula: String },
+}
+
+#[derive(Debug)]
+struct MacroMutationAssignment {
+    sheet: String,
+    cell_ref: String,
+    row: u32,
+    col: u32,
+    kind: MacroMutationValue,
+}
+
+fn script_cell_value_to_core_value(value: &script::ScriptCellValue) -> CellValue {
+    match value {
+        script::ScriptCellValue::Number(n) => CellValue::Number(*n),
+        script::ScriptCellValue::Text(text) => CellValue::Text(text.clone()),
+        script::ScriptCellValue::Bool(value) => CellValue::Bool(*value),
+        script::ScriptCellValue::Error(err) => CellValue::Error(err.clone()),
+        script::ScriptCellValue::Empty => CellValue::Empty,
+    }
+}
+
+fn normalize_macro_formula(formula: &str) -> String {
+    if formula.trim_start().starts_with('=') {
+        formula.to_string()
+    } else {
+        format!("={formula}")
+    }
+}
+
+fn desugar_script_mutation(
+    mutation: &script::ScriptMutation,
+) -> Result<Vec<MacroMutationAssignment>, CliError> {
+    let mut output = Vec::<MacroMutationAssignment>::new();
+    match mutation {
+        script::ScriptMutation::SetCellValue { sheet, cell, value } => {
+            let (row, col) = parse_a1_cell_ref(cell).ok_or_else(|| {
+                CliError::InvalidMacroMutation(format!(
+                    "invalid cell reference '{cell}' in script mutation"
+                ))
+            })?;
+            output.push(MacroMutationAssignment {
+                sheet: sheet.to_string(),
+                cell_ref: to_a1(row, col),
+                row,
+                col,
+                kind: MacroMutationValue::Value {
+                    value: script_cell_value_to_core_value(value),
+                },
+            });
+        }
+        script::ScriptMutation::SetCellFormula {
+            sheet,
+            cell,
+            formula,
+        } => {
+            let (row, col) = parse_a1_cell_ref(cell).ok_or_else(|| {
+                CliError::InvalidMacroMutation(format!(
+                    "invalid cell reference '{cell}' in script mutation"
+                ))
+            })?;
+            output.push(MacroMutationAssignment {
+                sheet: sheet.to_string(),
+                cell_ref: to_a1(row, col),
+                row,
+                col,
+                kind: MacroMutationValue::Formula {
+                    formula: normalize_macro_formula(formula),
+                },
+            });
+        }
+        script::ScriptMutation::SetCellRangeValue {
+            sheet,
+            start,
+            end,
+            value,
+        } => {
+            let range = format!("{start}:{end}");
+            let Some(((start_row, start_col), (end_row, end_col))) = parse_range_ref(&range) else {
+                return Err(CliError::InvalidMacroMutation(format!(
+                    "invalid range reference '{start}:{end}' in script mutation"
+                )));
+            };
+            for row in start_row..=end_row {
+                for col in start_col..=end_col {
+                    output.push(MacroMutationAssignment {
+                        sheet: sheet.to_string(),
+                        cell_ref: to_a1(row, col),
+                        row,
+                        col,
+                        kind: MacroMutationValue::Value {
+                            value: script_cell_value_to_core_value(value),
+                        },
+                    });
+                }
+            }
+        }
+        script::ScriptMutation::SetCellRangeFormula {
+            sheet,
+            start,
+            end,
+            formula,
+        } => {
+            let range = format!("{start}:{end}");
+            let Some(((start_row, start_col), (end_row, end_col))) = parse_range_ref(&range) else {
+                return Err(CliError::InvalidMacroMutation(format!(
+                    "invalid range reference '{start}:{end}' in script mutation"
+                )));
+            };
+            let normalized = normalize_macro_formula(formula);
+            for row in start_row..=end_row {
+                for col in start_col..=end_col {
+                    output.push(MacroMutationAssignment {
+                        sheet: sheet.to_string(),
+                        cell_ref: to_a1(row, col),
+                        row,
+                        col,
+                        kind: MacroMutationValue::Formula {
+                            formula: normalized.clone(),
+                        },
+                    });
+                }
+            }
+        }
+    }
+    Ok(output)
+}
+
 fn parse_range_ref(input: &str) -> Option<((u32, u32), (u32, u32))> {
     let (start, end) = input.split_once(':')?;
     let (start_row, start_col) = parse_a1_cell_ref(start.trim())?;
@@ -2675,6 +3153,91 @@ mod tests {
         assert_eq!(parse_range_ref("AA10:AB12"), Some(((10, 27), (12, 28))));
         assert_eq!(parse_range_ref("A1"), None);
         assert_eq!(parse_range_ref("A1:B0"), None);
+    }
+
+    #[test]
+    fn parses_macro_arguments_and_rejects_duplicates() {
+        let parsed = parse_macro_args(&["env=prod".to_string(), "mode=fast".to_string()])
+            .expect("parse args");
+        assert_eq!(parsed.len(), 2);
+        assert_eq!(parsed.get("env"), Some(&"prod".to_string()));
+        assert_eq!(parsed.get("mode"), Some(&"fast".to_string()));
+    }
+
+    #[test]
+    fn parses_macro_argument_rejects_invalid_input() {
+        assert!(parse_macro_args(&["missing-equals".to_string()]).is_err());
+        assert!(parse_macro_args(&["=oops".to_string()]).is_err());
+    }
+
+    #[test]
+    fn parses_macro_argument_rejects_duplicate_keys() {
+        let error = parse_macro_args(&[
+            "foo=bar".to_string(),
+            "foo=baz".to_string(),
+            "other=1".to_string(),
+        ])
+        .expect_err("duplicate keys should fail");
+        assert!(matches!(error, CliError::InvalidMacroArg(_)));
+    }
+
+    #[test]
+    fn desugars_macro_single_cell_mutations_to_tx_assignments() {
+        let value = script::ScriptCellValue::Text("hello".to_string());
+        let mutation = script::ScriptMutation::SetCellValue {
+            sheet: "Sheet1".to_string(),
+            cell: "B2".to_string(),
+            value,
+        };
+        let assignments = desugar_script_mutation(&mutation).expect("desugar value mutation");
+        assert_eq!(assignments.len(), 1);
+        assert_eq!(assignments[0].sheet, "Sheet1");
+        assert_eq!(assignments[0].cell_ref, "B2");
+        assert_eq!(assignments[0].row, 2);
+        assert_eq!(assignments[0].col, 2);
+    }
+
+    #[test]
+    fn desugars_macro_formula_and_range_mutations() {
+        let formula = script::ScriptMutation::SetCellFormula {
+            sheet: "Sheet1".to_string(),
+            cell: "C3".to_string(),
+            formula: "A1+B1".to_string(),
+        };
+        let formula_assignments =
+            desugar_script_mutation(&formula).expect("desugar formula mutation");
+        assert_eq!(formula_assignments.len(), 1);
+        assert_eq!(formula_assignments[0].cell_ref, "C3");
+        match &formula_assignments[0].kind {
+            MacroMutationValue::Formula { formula } => assert_eq!(formula, "=A1+B1"),
+            _ => panic!("expected formula assignment"),
+        }
+
+        let range = script::ScriptMutation::SetCellRangeValue {
+            sheet: "Sheet1".to_string(),
+            start: "A1".to_string(),
+            end: "B2".to_string(),
+            value: script::ScriptCellValue::Number(3.0),
+        };
+        let range_assignments = desugar_script_mutation(&range).expect("desugar range mutation");
+        assert_eq!(range_assignments.len(), 4);
+        assert!(range_assignments
+            .iter()
+            .any(|mutation| mutation.cell_ref == "A1"));
+        assert!(range_assignments
+            .iter()
+            .any(|mutation| mutation.cell_ref == "B2"));
+    }
+
+    #[test]
+    fn parse_range_rejects_bad_inputs_for_macro_desugar() {
+        let err = desugar_script_mutation(&script::ScriptMutation::SetCellValue {
+            sheet: "Sheet1".to_string(),
+            cell: "Z0".to_string(),
+            value: script::ScriptCellValue::Empty,
+        })
+        .expect_err("bad cell ref should fail");
+        assert!(matches!(err, CliError::InvalidMacroMutation(_)));
     }
 
     #[test]

@@ -37,9 +37,10 @@ Make each desktop workflow reproducible from UI artifact to backend artifact cha
 - Save + recalc workflow:
   - Trace start: save command invocation.
   - Primary outputs: compatibility output from open/save cycle, recalc trace output, artifact linkage line, screenshot capture `desktop-save-recalc.png`.
-- Macro/scripting workflow (planned):
-  - Trace start: script launch command.
-  - Planned outputs: script span trace, permission events, output artifact id.
+- Macro/scripting workflow (in progress):
+  - CLI trace start: `run-macro` command path currently emits macro/session/permission artifacts in JSONL.
+  - Current outputs: script span trace (`script.session.*`), permission events (`script.permission.granted|denied`), and macro completion trace (`script.macro.run`).
+  - Planned desktop outputs: same artifact continuity in `main.ts` command orchestration and user policy prompt telemetry.
 
 ## Query Cookbook
 - Start with latest trace: search event store for `event_name: ...` and `trace_id: ...`.

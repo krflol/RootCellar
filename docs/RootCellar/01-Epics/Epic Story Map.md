@@ -59,12 +59,12 @@ Story matrix: [[docs/RootCellar/00-Program/Sprint-Epic Story Matrix]]
 ## Epic 04 - Python Automation Platform
 - **E04-S1: Worker Lifecycle & Permission Boundary**
   - Intent: script execution runs through isolated worker process.
-  - Done by: CLI/engine scaffolding and host design.
+  - Done by: CLI process-isolated macro path and protocol contract; desktop/prompt policy integration remains.
   - Acceptance: deny-by-default for privileged permissions with audit log path.
   - Evidence links: [[docs/RootCellar/03-Implementation/Python Scripting Host Design]], [[docs/RootCellar/03-Implementation/Security and Permission Model]]
 - **E04-S2: Macro/Event Entry Surfaces**
   - Intent: support imperative and event-driven calls.
-  - Done by: command/RPC contract design + manifest model.
+  - Partially done by: command/RPC contract + permission/audit trace emission (`run-macro` alpha).
   - Acceptance: macro invocation yields reproducible trace and permission record.
   - Evidence links: [[docs/RootCellar/03-Implementation/Python Scripting Host Design]], [[docs/RootCellar/04-Observability/Trace Correlation Model]]
 - **E04-S3: UDF Bridge + Object Model v1**

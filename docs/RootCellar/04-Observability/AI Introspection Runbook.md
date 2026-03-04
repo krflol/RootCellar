@@ -7,7 +7,7 @@ Execution control: [[Execution Traceability Atlas]], [[docs/RootCellar/00-Progra
 Give humans and AI a reliable path from an observed behavior to root cause using only repository artifacts and trace IDs.
 
 ## Fast Triage Playbooks
-1. Confirm trace continuity for a suspicious command (`open`, `edit`, `save`, `recalc`).
+1. Confirm trace continuity for a suspicious command (`open`, `edit`, `save`, `recalc`, `run-macro`).
    - Inspect latest command output for `Latest trace:` block.
    - Extract `trace_id`, `ui_command_id`, `ui_command_name`, and any `artifact_id`.
    - Cross-check those IDs in `events.jsonl` and artifact manifests.

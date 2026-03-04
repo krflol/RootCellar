@@ -44,6 +44,9 @@ Enable reliable headless automation workflows with reproducibility records.
 4. Integrate macro execution into CLI with policy enforcement.
 5. Add CI nightly batch benchmark and deterministic replay job.
 
+## Current Macro Status
+- Story 4 (`run-macro` with policy enforcement) is now implemented in `crates/rootcellar-cli/src/main.rs` and `crates/rootcellar-cli/src/script.rs` using process-isolated worker protocol and permission event telemetry.
+
 ## Acceptance Criteria
 - Batch runs produce consistent artifacts with stable naming in deterministic mode.
 - Repro check detects drift in calc or output bytes.

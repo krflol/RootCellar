@@ -15,8 +15,8 @@ Source contract: [[docs/RootCellar PRD]].
 - Decision log: [[docs/RootCellar/00-Program/Decision Register]]
 
 ## Current Delivery Snapshot (March 4, 2026)
-- Completed: Sprint 00 foundation and Sprint 01 interop baseline are delivered and verified.
-- In progress: PRD decomposition and traceability planning are now documented in linked notes, with desktop traceability bridge implementation next.
+- Completed: Sprint 00 foundation, Sprint 01 interop baseline, and Sprint 03 desktop editing/observability loop are delivered and verified.
+- In progress: Sprint 02 parser/dependency hardening remains active while Sprint 04 Python macro automation foundation is now implemented in CLI and moving toward desktop/policy integration.
 - Active traceability index: [[docs/RootCellar/04-Observability/Traceability Spine]], [[docs/RootCellar/00-Program/Sprint-Epic Story Matrix]]
 - Live status detail: [[docs/RootCellar/00-Program/Execution Plan Board]], [[docs/RootCellar/00-Program/Execution Status]]
 

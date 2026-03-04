@@ -17,7 +17,7 @@ Related epic: [[docs/RootCellar/01-Epics/Epic 05 - Headless CLI and SDK]]
 - `rootcellar bench recalc-synthetic [--chains N] [--chain-length N] [--iterations N] [--changed-chain N] [--report <path>]`
 - `rootcellar repro record|check <bundle>`
 
-## Current Implemented Baseline (March 1, 2026)
+## Current Implemented Baseline (March 4, 2026)
 - Implemented: `open`, `save`, `recalc`, `tx-demo`, `tx-save`, `batch recalc`, `bench recalc-synthetic`, `repro record`, `repro check`, `repro diff`.
 - Implemented corpus validator: `part-graph-corpus <dir> [--max-files N] [--fail-on-errors]`.
 - Implemented diff artifact output: `repro diff --format text|json --output <path>`.
@@ -29,6 +29,9 @@ Related epic: [[docs/RootCellar/01-Epics/Epic 05 - Headless CLI and SDK]]
 - Implemented incremental post-mutation recalc in `tx-save` using changed-root invalidation.
 - Implemented parser introspection metrics in dependency artifacts (`function_call_count`, `ast_node_count`, `ast_unique_node_count`, `formula_ast_ids`).
 - Implemented formula-language literal support for quoted text (`"..."` with escaped `""`) and boolean constants (`TRUE`/`FALSE`) in parser/evaluator paths.
+- Implemented CLI alpha macro execution: `run-macro <input> <output> --macro-script <script-path> --macro-name <fn> --allow <permission> [--arg key=value]`.
+  - Introduces process-isolated request/response path via `crates/rootcellar-cli/src/script.rs` and `python/worker_stub.py`.
+  - Emits macro lifecycle + permission events (`script.session.start`, `script.permission.granted`, `script.permission.denied`, `script.rpc.error`, `script.macro.run`) plus mutation summary.
 - Implemented typed branch-preserving conditional/selector evaluation (`IF`, `IFERROR`, `IFS`, `SWITCH`, `CHOOSE`, `INDEX`) so non-numeric literal/text results flow without helper-cell indirection.
 - Implemented DAG analysis metrics in timing artifacts (`critical_path`, `max_fan_in`, `max_fan_out`, slow-node threshold).
 - Implemented function evaluator starter set: `SUM`, `SUMSQ`, `PRODUCT`, `MIN`, `MAX`, `MEDIAN`, `SMALL`, `LARGE`, `GEOMEAN`, `HARMEAN`, `VARP`, `VAR`/`VARS`, `STDEVP`, `STDEV`/`STDEVS`, `IF`, `IFERROR`, `IFS`, `SWITCH`, `AVERAGE`/`AVG`, `ABS`, `INT`, `FACT`, `FACTDOUBLE`, `COMBIN`, `PERMUT`, `GCD`, `LCM`, `QUOTIENT`, `MOD`, `ROUND`, `ROUNDUP`, `ROUNDDOWN`, `TRUNC`, `MROUND`, `POWER`, `SQRT`, `SIGN`, `EVEN`, `ODD`, `ISEVEN`, `ISODD`, `CEILING`, `FLOOR`, `PI`, `EXP`, `LN`, `LOG`, `LOG10`, `SIN`, `COS`, `TAN`, `SINH`, `COSH`, `TANH`, `ASINH`, `ACOSH`, `ATANH`, `ASIN`, `ACOS`, `ATAN`, `ATAN2`, `RADIANS`, `DEGREES`, `PV`, `FV`, `NPV`, `PMT`, `BITAND`, `BITOR`, `BITXOR`, `BITLSHIFT`, `BITRSHIFT`, `AND`, `OR`, `XOR`, `NOT`, `LEN`, `LOWER`, `UPPER`, `TRIM`, `LEFT`, `RIGHT`, `MID`, `SUBSTITUTE`, `REPLACE`, `CONCAT`, `TEXTJOIN`, `CHOOSE`, `MATCH`, `EXACT`, `FIND`, `SEARCH`, `CODE`, `N`, `VALUE`, `DATEVALUE`, `TIMEVALUE`, `ISNUMBER`, `ISTEXT`, `ISBLANK`, `ISLOGICAL`, `ISERROR`, `COUNT`, `COUNTA`, `COUNTBLANK`, `DATE`, `YEAR`, `MONTH`, `DAY`, `DAYS`, `TIME`, `HOUR`, `MINUTE`, `SECOND`, `EDATE`, `EOMONTH`, `WEEKDAY`, `WEEKNUM`, `ISOWEEKNUM`.

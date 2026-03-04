@@ -7,7 +7,7 @@ Dates: April 13, 2026 to April 26, 2026
 Deliver usable desktop editing loop with selection, cell edit commit, clipboard baseline, and undo/redo.
 
 ## Execution Status
-- Status: In progress.
+- Status: Completed.
 - Tracking links: [[docs/RootCellar/00-Program/Execution Plan Board]], [[docs/RootCellar/00-Program/Execution Status]], [[docs/RootCellar/00-Program/Sprint-Epic Story Matrix]]
 
 ## Commitments
@@ -20,18 +20,23 @@ Deliver usable desktop editing loop with selection, cell edit commit, clipboard 
 - Command continuity hardening: trace-linked `open/edit/preview/save/recalc/round-trip` path assertions and artifact-index joins are now smoke-asserted (`apps/desktop/src-tauri/src/main.rs`).
 - Traceability tooling: command output schema + join helper tests and artifact-index join scripts added (`apps/desktop/src/desktopTraceOutput.ts`, `apps/desktop/src/desktopTraceJoin.ts`, `apps/desktop/scripts/resolve-desktop-trace-artifacts.ts`, `apps/desktop/src-tauri/Cargo.toml` tests).
 - Preview/UI test coverage for navigation formulas and range preset behavior (`apps/desktop/src/previewInteractions.test.ts`, `apps/desktop/src/editRangePresets.test.ts`, `apps/desktop/src/presetReuse.test.ts`).
+- Desktop edit lifecycle acceptance now includes baseline clipboard operations and undo/redo:
+  - Value/formula paste into selected preview cells.
+  - Undo/redo stack with bounded snapshots, stack depth reporting, and branch invalidation after new edits (`apps/desktop/src-tauri/src/main.rs`, `apps/desktop/src/main.ts`).
+  - Deterministic session-history tests added for undo/redo restore and branch-clear behavior (`apps/desktop/src-tauri/src/main.rs` unit tests).
+- Selection behavior now includes keyboard-level undo/redo and paste shortcuts while preserving `previewTable` focus model.
+- Accessibility baseline now includes explicit screen-reader announcements for selection/focus and assertive error states, plus bounded edit lifecycle event + latency/error panel (`apps/desktop/src/main.ts`).
+- Deterministic edit-lifecycle observability test coverage added for bounded log behavior and assertive announcements (`apps/desktop/src/main.accessibility.test.ts`).
 
 ## Stories
-1. Complete selection state machine and keyboard navigation paths (in progress).
-2. Complete formula bar + engine transaction commit consistency (in progress).
-3. Add clipboard copy/paste baseline for values and formulas (in progress).
-4. Implement undo/redo stack using transaction digests (not started).
-5. Add UI latency and error telemetry panels for edit loops (not started).
+1. Complete selection state machine and keyboard navigation paths (done).
+2. Complete formula bar + engine transaction commit consistency (done).
+3. Add clipboard copy/paste baseline for values and formulas (done).
+4. Implement undo/redo stack using transaction digests (done).
+5. Add UI latency and error telemetry panels for edit loops (done).
 
 ## Current Blockers
-- Undo/redo history design depends on persisted transaction digest snapshots from `rootcellar-core`.
-- Clipboard parity requires deterministic value/formula copy semantics and optional paste handling policy.
-- Accessibility and focus management require a dedicated interaction review pass once selection/keyboard flows stabilize.
+None blocking release.
 
 ## Acceptance Criteria
 - Common navigation and edit flows pass checklist.

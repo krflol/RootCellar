@@ -4,7 +4,7 @@ Parent: [[docs/RootCellar/00-Program/RootCellar Master Plan]]
 Last updated: March 4, 2026
 
 ## Current Execution Slice
-- Slice: **M1 Alpha-in-progress** — grid-editing loop completion (Sprint 03) while continuing calc hardening and broader interaction/accessibility coverage.
+- Slice: **M1 Alpha-in-progress** — Sprint 03 is complete for core editing baseline; active emphasis is Sprint 04 Python macro automation alpha + Sprint 02 edge-case hardening.
 - Status: In progress.
 
 ## Track Check (March 4, 2026)
@@ -17,7 +17,6 @@ Last updated: March 4, 2026
   - Keep bidirectional workbook compatibility (`Excel/openpyxl <-> RootCellar`) as a standing gate for every interop-affecting change.
   - Keep desktop save defaults interop-first (`preserve`) with compatibility findings visible before write.
   - Propagate and emit trace context across UI->engine command paths.
-  - Complete selection/edit keyboard, undo/redo, and accessibility baseline before broadening surface area.
   - Keep desktop UI smoke and trace-join CI green so command continuity remains measurable.
   - Continue scheduler hot-path optimization with benchmark-backed validation so larger dependency graphs stay predictable.
 
@@ -30,8 +29,8 @@ Last updated: March 4, 2026
 - In-progress plan items linked in docs:
 1. [[docs/RootCellar/02-Sprints/Sprint 02 - Calc Baseline and Dependency Graph#Execution Status]]
 2. [[docs/RootCellar/00-Program/Milestone Roadmap#Current Milestone Status (March 1, 2026)]]
-3. [[docs/RootCellar/02-Sprints/Sprint 03 - Grid Editing Loop#Execution Status]]
-4. [[docs/RootCellar/01-Epics/Epic 03 - Desktop Grid UX and Productivity#Execution Status]]
+3. [[docs/RootCellar/02-Sprints/Sprint 04 - Python Macros Alpha#Execution Status]]
+4. [[docs/RootCellar/01-Epics/Epic 04 - Python Automation Platform#Execution Status]]
 
 ## Completed In Code
 1. Rust workspace scaffold created.
@@ -80,6 +79,8 @@ Last updated: March 4, 2026
     - `save` command (load workbook model and write compatibility-first `.xlsx` output; default mode now `preserve`, with `--mode normalize` available).
     - Save/open summaries now include part-graph diagnostics (node/edge counts, dangling-edge counts, and preserve/normalize graph flags).
     - `repro` command group (`record`, `check`, and `diff`) for reproducibility bundles, including `--against` workbook comparison and `repro diff --format text|json --output <path>` artifact export.
+    - `run-macro` command (process-isolated Python worker + explicit permission allow-list + macro args), with trace events (`script.session.start`, `script.permission.granted`, `script.permission.denied`, `script.rpc.error`, `script.macro.run`), mutation desugaring for single cells and ranges, and incremental recalc of changed cells.
+    - End-to-end macro command integration tests added in `crates/rootcellar-cli/tests/macro_integration.rs` (`run_macro_cli_applies_mutations_and_recalculates_cells`, `run_macro_cli_denies_mutation_without_permission`, `run_macro_cli_fails_with_invalid_worker_response`).
 4. Telemetry schema contract added:
    - `schemas/events/v1/envelope.schema.json`.
 5. Artifact telemetry now includes diff output artifact events:
@@ -288,13 +289,24 @@ Last updated: March 4, 2026
    - Edit panel now provides one-click range presets (`Row x3`, `Col x3`, `Block 2x2`) anchored to selected preview cell when available (or current edit cell fallback).
    - Preset selection now writes normalized A1/A1-range targets directly into edit controls to speed repeat range operations.
    - Save + Recalc panel now exposes persistent recalc freshness status (pending/stale/fresh with last scope/time) so formula refresh intent is explicit before save.
+55. Desktop undo/redo baseline plus preview clipboard paste now supports session-state revert semantics in desktop edit loop:
+   - Backend command history tracks undo/redo depth, snapshots state before each edit, clears redo stack on branch edits, and exposes counts in `InteropSessionStatusResponse` + `InteropUndoRedoResponse`.
+   - UI wires undo/redo controls and keyboard shortcuts (`Ctrl/Cmd+Z`, `Ctrl/Cmd+Y`) with preview-focused paste (`Ctrl/Cmd+V`) and disabled-state binding.
+   - TypeScript and backend tests validate undo restore behavior, redo consistency, and branch-clear semantics.
+56. Accessibility and edit-lifecycle observability baseline is implemented for Sprint 03:
+   - Added live regions for command feedback (`polite` + `assertive`) and edit lifecycle log panel for command status/latency/error visibility.
+   - Added deterministic UI-level accessibility + lifecycle instrumentation tests (`apps/desktop/src/main.accessibility.test.ts`) that assert bounded log behavior and assertive error announcements.
 
 ## Verification
 - `npm run build` (from `apps/desktop`): pass.
 - `cargo check --manifest-path apps/desktop/src-tauri/Cargo.toml -j 1`: pass.
+- `npm run test -- --config vitest.config.ts src/main.accessibility.test.ts` (from `apps/desktop`): pass.
 - `cargo test --manifest-path apps/desktop/src-tauri/Cargo.toml --locked apply_cell_edit_range`: pass.
+- `cargo test --manifest-path apps/desktop/src-tauri/Cargo.toml --locked interop_undo_redo`: pass.
 - `cargo fmt --all`: pass.
 - `cargo test --workspace --offline`: pass.
+- `cargo test -p rootcellar-cli`: pass (22 tests total; includes new macro argument parsing and macro-mutation desugaring unit tests).
+- `cargo test -p rootcellar-cli --test macro_integration`: pass (3 integration cases: successful macro mutation + recalc, permission-denied enforcement, malformed worker response failure path).
 - `cargo run -p rootcellar-cli --offline -- --help`: pass.
 - `cargo run -p rootcellar-cli --offline -- tx-demo --jsonl ./tmp-events.jsonl`: pass.
 - `cargo run -p rootcellar-cli --offline -- open ./sample.xlsx --jsonl ./sample-events.jsonl`: pass.
@@ -479,7 +491,9 @@ Last updated: March 4, 2026
 - `cargo run -p rootcellar-cli --offline -- part-graph-corpus ./target/excel-interop-corpus-v15 --fail-on-errors --report ./target/part-graph-corpus-report-v14.json --jsonl ./target/part-graph-corpus-events-v14.jsonl`: pass (`discovered=25`, `processed=25`, `failures=0`; expanded verified curated corpus remains compatibility/load safe, with `external_edges=4` captured).
 
 ## Next Execution Slice
-1. Complete Sprint 03 interaction acceptance (undo/redo baseline, clipboard baseline for copy/paste, and selection accessibility semantics) in `[[docs/RootCellar/02-Sprints/Sprint 03 - Grid Editing Loop#Stories]]`.
-2. Broaden calc coverage and resilience in Sprint 02 (`Sprint 02 - Calc Baseline and Dependency Graph`) to cover compatibility-sensitive expression edge cases plus large-graph performance gates with deterministic benchmark evidence.
-3. Begin Sprint 04 Python automation platform foundation (`Epic 04`) by drafting sandboxed execution surface and event/permission model for macro/event invocation.
-4. Expand verified Excel-authored curated corpus policy beyond current baseline by adding scenario-manager/rich chart-layout variants while preserving the proven floor policy (`EXCEL_INTEROP_MIN_EXCEL_AUTHORED_SAMPLES=17`, `EXCEL_INTEROP_MIN_VERIFIED_EXCEL_SAMPLES=17`).
+1. Complete Sprint 04 Python automation platform foundation (`Epic 04`) end-to-end in CLI + desktop:
+   - grant/deny UX and policy persistence
+   - CLI + desktop audit trail correlation for macro session, permission, and macro-mutation artifacts
+   - UDF/event surface extension with read/write/range primitives.
+2. Stabilize and harden Sprint 02 edge-case compatibility (`Sprint 02 - Calc Baseline and Dependency Graph`) before expanding interaction surface area.
+3. Expand verified Excel-authored curated corpus policy beyond current baseline by adding scenario-manager/rich chart-layout variants while preserving the proven floor policy (`EXCEL_INTEROP_MIN_EXCEL_AUTHORED_SAMPLES=17`, `EXCEL_INTEROP_MIN_VERIFIED_EXCEL_SAMPLES=17`).
