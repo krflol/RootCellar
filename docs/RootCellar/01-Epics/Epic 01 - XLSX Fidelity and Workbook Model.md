@@ -2,6 +2,7 @@
 
 Parent: [[docs/RootCellar/00-Program/RootCellar Master Plan]]
 Specs: [[docs/RootCellar/03-Implementation/Engine Workbook Model Spec]], [[docs/RootCellar/03-Implementation/XLSX Import Export Pipeline]]
+Story registry: [[docs/RootCellar/00-Program/Sprint-Epic Story Matrix]]
 
 ## Objective
 Implement workbook model and XLSX import/export pipeline with high round-trip fidelity and preserve-first behavior.

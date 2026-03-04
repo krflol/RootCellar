@@ -8,7 +8,7 @@ Establish skeleton architecture and mandatory observability plumbing so subseque
 
 ## Execution Status
 - Status: Completed.
-- Tracking links: [[docs/RootCellar/00-Program/Execution Plan Board]], [[docs/RootCellar/00-Program/Execution Status]]
+- Tracking links: [[docs/RootCellar/00-Program/Execution Plan Board]], [[docs/RootCellar/00-Program/Execution Status]], [[docs/RootCellar/00-Program/Sprint-Epic Story Matrix]]
 - Delivered stories:
 1. Rust workspace scaffold and crate boundaries.
 2. Transaction API baseline with IDs and commit digest shape.

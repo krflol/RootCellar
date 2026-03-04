@@ -6,6 +6,10 @@ Dates: June 8, 2026 to June 21, 2026
 ## Sprint Goal
 Harden scripting security model and deliver signed add-in verification baseline.
 
+## Execution Status
+- Status: Planned.
+- Tracking links: [[docs/RootCellar/00-Program/Execution Plan Board]], [[docs/RootCellar/00-Program/Execution Status]], [[docs/RootCellar/00-Program/Sprint-Epic Story Matrix]]
+
 ## Commitments
 - Epic 08 primary.
 - Epic 04 security closure items.

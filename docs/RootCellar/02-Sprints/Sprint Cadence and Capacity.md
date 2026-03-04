@@ -42,3 +42,6 @@ Roadmap: [[docs/RootCellar/00-Program/Milestone Roadmap]]
 - No uninstrumented feature merges for critical paths.
 - All stories include acceptance tests.
 - Security-relevant changes require threat note update.
+
+## Detailed Linkage
+- Story-to-sprint execution registry: [[docs/RootCellar/00-Program/Sprint-Epic Story Matrix]]

@@ -6,6 +6,10 @@ Dates: May 11, 2026 to May 24, 2026
 ## Sprint Goal
 Expose compatibility transparency in UI and stabilize corpus-driven validation pipelines.
 
+## Execution Status
+- Status: Planned.
+- Tracking links: [[docs/RootCellar/00-Program/Execution Plan Board]], [[docs/RootCellar/00-Program/Execution Status]], [[docs/RootCellar/00-Program/Sprint-Epic Story Matrix]]
+
 ## Commitments
 - Epic 06 primary.
 - Epic 01 and 02 status feed integration.

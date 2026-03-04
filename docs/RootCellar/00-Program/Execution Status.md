@@ -1,23 +1,24 @@
 # Execution Status
 
 Parent: [[docs/RootCellar/00-Program/RootCellar Master Plan]]
-Last updated: March 1, 2026
+Last updated: March 4, 2026
 
 ## Current Execution Slice
-- Slice: Compatibility-first XLSX interop hardening on top of completed Sprint 00/01 baselines, alongside Sprint 02 calc internals + Sprint 06 batch CLI/observability work.
+- Slice: **M1 Alpha-in-progress** — grid-editing loop completion (Sprint 03) while continuing calc hardening and broader interaction/accessibility coverage.
 - Status: In progress.
 
-## Track Check (March 1, 2026)
-- Overall: On track for M0.
+## Track Check (March 4, 2026)
+- Overall: On track for M1 Alpha.
 - Why this is on track:
   - Engine/CLI/telemetry and deterministic artifact publication paths are already in place and stable.
-  - Calc baseline has broad starter coverage and passing offline workspace tests.
-  - Remaining M0 scope is concentrated in richer UI interactions and CI smoke coverage, not core engine uncertainty.
+  - Calc/perf foundation is stable with benchmark-gated incremental scheduler improvements.
+  - Desktop grid editing has moved from prototype to traceable, observable workflows with presets, formula-bar apply, and selection navigation.
 - Critical path to protect:
   - Keep bidirectional workbook compatibility (`Excel/openpyxl <-> RootCellar`) as a standing gate for every interop-affecting change.
   - Keep desktop save defaults interop-first (`preserve`) with compatibility findings visible before write.
   - Propagate and emit trace context across UI->engine command paths.
-  - Keep desktop UI smoke CI green so M0 readiness has an executable guardrail.
+  - Complete selection/edit keyboard, undo/redo, and accessibility baseline before broadening surface area.
+  - Keep desktop UI smoke and trace-join CI green so command continuity remains measurable.
   - Continue scheduler hot-path optimization with benchmark-backed validation so larger dependency graphs stay predictable.
 
 ## Execution Plan Linkage
@@ -29,6 +30,8 @@ Last updated: March 1, 2026
 - In-progress plan items linked in docs:
 1. [[docs/RootCellar/02-Sprints/Sprint 02 - Calc Baseline and Dependency Graph#Execution Status]]
 2. [[docs/RootCellar/00-Program/Milestone Roadmap#Current Milestone Status (March 1, 2026)]]
+3. [[docs/RootCellar/02-Sprints/Sprint 03 - Grid Editing Loop#Execution Status]]
+4. [[docs/RootCellar/01-Epics/Epic 03 - Desktop Grid UX and Productivity#Execution Status]]
 
 ## Completed In Code
 1. Rust workspace scaffold created.
@@ -476,6 +479,7 @@ Last updated: March 1, 2026
 - `cargo run -p rootcellar-cli --offline -- part-graph-corpus ./target/excel-interop-corpus-v15 --fail-on-errors --report ./target/part-graph-corpus-report-v14.json --jsonl ./target/part-graph-corpus-events-v14.jsonl`: pass (`discovered=25`, `processed=25`, `failures=0`; expanded verified curated corpus remains compatibility/load safe, with `external_edges=4` captured).
 
 ## Next Execution Slice
-1. Add lightweight desktop preview interaction tests for selection navigation and formula-bar enter/apply behavior.
-2. Expand desktop edit UX with configurable preset dimensions (for example N x 1, 1 x N, N x M) while preserving explicit A1 range visibility.
-3. Expand verified Microsoft Excel-authored curated corpus coverage beyond the current seventeen-sample baseline (for example rich chart-layout and scenario-manager variants) while keeping `EXCEL_INTEROP_MIN_EXCEL_AUTHORED_SAMPLES=17` and `EXCEL_INTEROP_MIN_VERIFIED_EXCEL_SAMPLES=17` green.
+1. Complete Sprint 03 interaction acceptance (undo/redo baseline, clipboard baseline for copy/paste, and selection accessibility semantics) in `[[docs/RootCellar/02-Sprints/Sprint 03 - Grid Editing Loop#Stories]]`.
+2. Broaden calc coverage and resilience in Sprint 02 (`Sprint 02 - Calc Baseline and Dependency Graph`) to cover compatibility-sensitive expression edge cases plus large-graph performance gates with deterministic benchmark evidence.
+3. Begin Sprint 04 Python automation platform foundation (`Epic 04`) by drafting sandboxed execution surface and event/permission model for macro/event invocation.
+4. Expand verified Excel-authored curated corpus policy beyond current baseline by adding scenario-manager/rich chart-layout variants while preserving the proven floor policy (`EXCEL_INTEROP_MIN_EXCEL_AUTHORED_SAMPLES=17`, `EXCEL_INTEROP_MIN_VERIFIED_EXCEL_SAMPLES=17`).

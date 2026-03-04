@@ -42,6 +42,7 @@ A slice is done only if all are true:
 - Event and trace model: [[docs/RootCellar/04-Observability/Telemetry Taxonomy and Event Schema]], [[docs/RootCellar/04-Observability/Trace Correlation Model]]
 - Artifact contract: [[docs/RootCellar/04-Observability/Inspectable Artifact Contract]]
 - Quality and release: [[docs/RootCellar/05-Quality/Test Strategy]], [[docs/RootCellar/05-Quality/Release Gates]]
+- Story and traceability registry: [[docs/RootCellar/00-Program/Sprint-Epic Story Matrix]], [[docs/RootCellar/04-Observability/Traceability Spine]]
 
 ## Execution Linkage
 - Plan-to-delivery board: [[Execution Plan Board]]

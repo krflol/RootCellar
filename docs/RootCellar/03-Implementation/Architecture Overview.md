@@ -9,6 +9,7 @@ PRD Source: [[docs/RootCellar PRD]]
 - Engine: Rust core crate set for workbook model, calc, import/export, transaction manager.
 - Script host: separate Python worker process with RPC boundary and capability enforcement.
 - Headless surface: Rust CLI and SDK wrappers over shared engine crates.
+- Traceability flow: desktop trace context and artifact lineage via `[[docs/RootCellar/04-Observability/Traceability Spine]]`.
 
 ## Data/Control Flow
 1. User action or CLI command creates a transaction request.

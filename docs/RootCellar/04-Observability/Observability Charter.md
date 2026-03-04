@@ -40,3 +40,5 @@ Provide full-stack introspection so any important system behavior can be explain
 - [[Dashboards SLOs and Alerts]]
 - [[Audit and Forensics]]
 - [[AI Introspection Workflow]]
+- [[AI Introspection Runbook]]
+- [[Execution Traceability Atlas]]

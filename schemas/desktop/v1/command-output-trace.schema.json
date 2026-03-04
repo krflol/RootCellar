@@ -1,0 +1,96 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.rootcellar.dev/desktop/v1/command-output-trace.schema.json",
+  "title": "RootCellar Desktop Command Output Trace Metadata",
+  "description": "Machine-readable contract for desktop command trace metadata rendered in the `Latest trace:` header.",
+  "type": "object",
+  "required": ["trace_id", "trace_root_id", "command_status", "span_id", "parent_span_id", "session_id", "linked_artifact_ids", "artifact_refs"],
+  "properties": {
+    "trace_id": {
+      "type": "string",
+      "pattern": "^[0-9a-fA-F-]{36}$"
+    },
+    "trace_root_id": {
+      "type": "string",
+      "pattern": "^[0-9a-fA-F-]{36}$"
+    },
+    "command_status": {
+      "type": "string",
+      "minLength": 1
+    },
+    "span_id": {
+      "type": "string",
+      "pattern": "^[0-9a-fA-F-]{36}$"
+    },
+    "parent_span_id": {
+      "type": ["string", "null"],
+      "pattern": "^[0-9a-fA-F-]{36}$"
+    },
+    "session_id": {
+      "type": ["string", "null"],
+      "pattern": "^[0-9a-fA-F-]{36}$"
+    },
+    "ui_command_id": {
+      "type": ["string", "null"],
+      "pattern": "^[0-9a-fA-F-]{36}$"
+    },
+    "ui_command_name": {
+      "type": "string",
+      "minLength": 1
+    },
+    "duration_ms": {
+      "type": "number",
+      "minimum": 0
+    },
+    "event_log_path": {
+      "type": ["string", "null"],
+      "minLength": 1
+    },
+    "artifact_index_path": {
+      "type": ["string", "null"],
+      "minLength": 1
+    },
+    "linked_artifact_ids": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "artifact_refs": {
+      "type": "array",
+      "items": {
+        "$ref": "#/definitions/artifact_ref"
+      }
+    }
+  },
+  "definitions": {
+    "artifact_ref": {
+      "type": "object",
+      "required": ["artifactId", "artifactType", "relation"],
+      "properties": {
+        "artifactId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "artifactType": {
+          "type": "string",
+          "minLength": 1
+        },
+        "relation": {
+          "type": "string",
+          "minLength": 1
+        },
+        "path": {
+          "type": "string",
+          "minLength": 1
+        },
+        "description": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "additionalProperties": true
+    }
+  }
+}

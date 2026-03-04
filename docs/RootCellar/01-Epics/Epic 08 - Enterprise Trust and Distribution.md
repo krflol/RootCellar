@@ -2,6 +2,7 @@
 
 Parent: [[docs/RootCellar/00-Program/RootCellar Master Plan]]
 Specs: [[docs/RootCellar/03-Implementation/Security and Permission Model]]
+Story registry: [[docs/RootCellar/00-Program/Sprint-Epic Story Matrix]]
 
 ## Objective
 Deliver enterprise-grade trust controls for scripts, add-ins, and deployment.

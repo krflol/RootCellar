@@ -43,8 +43,15 @@ jobs:
         working-directory: apps/desktop
         run: npm run build
 
+      - name: Run desktop frontend interaction tests
+        working-directory: apps/desktop
+        run: npm run test
+
       - name: Check Tauri desktop backend
         run: cargo check --manifest-path apps/desktop/src-tauri/Cargo.toml -j 1
+
+      - name: Check desktop trace continuity smoke
+        run: cargo test --manifest-path apps/desktop/src-tauri/Cargo.toml --locked desktop_trace_continuity_smoke_open_edit_save_recalc
 
       - name: Check desktop range-edit regressions
         run: cargo test --manifest-path apps/desktop/src-tauri/Cargo.toml --locked apply_cell_edit_range

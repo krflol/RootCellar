@@ -2,6 +2,7 @@
 
 Parent: [[docs/RootCellar/00-Program/RootCellar Master Plan]]
 Specs: [[docs/RootCellar/03-Implementation/Calculation Engine Design]]
+Story registry: [[docs/RootCellar/00-Program/Sprint-Epic Story Matrix]]
 
 ## Objective
 Deliver a reliable Excel-like calculation engine with incremental recalc and deterministic mode.

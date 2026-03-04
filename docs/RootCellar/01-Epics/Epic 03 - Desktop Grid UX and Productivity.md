@@ -2,6 +2,7 @@
 
 Parent: [[docs/RootCellar/00-Program/RootCellar Master Plan]]
 Specs: [[docs/RootCellar/03-Implementation/UI Grid and Interaction Design]]
+Story registry: [[docs/RootCellar/00-Program/Sprint-Epic Story Matrix]]
 
 ## Objective
 Provide an Excel-familiar editing experience for core workflows with strong performance and accessibility.

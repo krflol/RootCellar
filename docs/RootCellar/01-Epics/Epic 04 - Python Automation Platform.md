@@ -2,6 +2,7 @@
 
 Parent: [[docs/RootCellar/00-Program/RootCellar Master Plan]]
 Specs: [[docs/RootCellar/03-Implementation/Python Scripting Host Design]], [[docs/RootCellar/03-Implementation/Security and Permission Model]]
+Story registry: [[docs/RootCellar/00-Program/Sprint-Epic Story Matrix]]
 
 ## Objective
 Replace VBA workflows with secure, versioned, and observable Python automation.

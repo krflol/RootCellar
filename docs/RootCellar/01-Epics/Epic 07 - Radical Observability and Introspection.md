@@ -2,6 +2,7 @@
 
 Parent: [[docs/RootCellar/00-Program/RootCellar Master Plan]]
 Specs: [[docs/RootCellar/04-Observability/Observability Charter]], [[docs/RootCellar/04-Observability/Inspectable Artifact Contract]], [[docs/RootCellar/04-Observability/AI Introspection Workflow]]
+Story registry: [[docs/RootCellar/00-Program/Sprint-Epic Story Matrix]], [[docs/RootCellar/04-Observability/Traceability Spine]]
 
 ## Objective
 Make every critical product path inspectable by humans and AI through structured telemetry, traces, and artifact bundles.
@@ -68,6 +69,13 @@ Make every critical product path inspectable by humans and AI through structured
 - >= 95% of critical workflows produce complete end-to-end traces.
 - Every release candidate build has artifact completeness report.
 - Incident triage can reconstruct user action -> engine outcome -> script actions.
+
+## Delivery Highlights
+- `ui_command_id` / `ui_command_name` are now propagated through desktop -> Tauri -> engine trace context (`apps/desktop/src/main.ts`, `apps/desktop/src-tauri/src/main.rs`, `crates/rootcellar-core/src/telemetry.rs`).
+- Command output formatting now includes command trace metadata for `open/preview/edit/save/recalc`.
+
+## In Progress
+- Deterministic artifact id linkage for every desktop command remains to close full end-to-end trace loop.
 
 ## Dependencies
 - None; this epic is foundational and parallelized with all others.

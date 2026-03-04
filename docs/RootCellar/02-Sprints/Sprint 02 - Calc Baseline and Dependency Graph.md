@@ -8,7 +8,7 @@ Establish formula parser, dependency graph, and incremental recalc baseline for 
 
 ## Execution Status
 - Status: In progress.
-- Tracking links: [[docs/RootCellar/00-Program/Execution Plan Board]], [[docs/RootCellar/00-Program/Execution Status]]
+- Tracking links: [[docs/RootCellar/00-Program/Execution Plan Board]], [[docs/RootCellar/00-Program/Execution Status]], [[docs/RootCellar/00-Program/Sprint-Epic Story Matrix]], [[docs/RootCellar/01-Epics/Epic Story Map]]
 - Delivered subset:
 1. Arithmetic parser scaffold with precedence and parentheses support.
 2. Dependency graph analysis scaffold (edge inventory, topological ordering, cycle/parse diagnostics).

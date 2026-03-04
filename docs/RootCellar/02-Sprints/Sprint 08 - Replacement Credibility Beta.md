@@ -6,6 +6,10 @@ Dates: June 22, 2026 to July 5, 2026
 ## Sprint Goal
 Consolidate compatibility, performance, and UX improvements to reach external beta credibility.
 
+## Execution Status
+- Status: Planned.
+- Tracking links: [[docs/RootCellar/00-Program/Execution Plan Board]], [[docs/RootCellar/00-Program/Execution Status]], [[docs/RootCellar/00-Program/Sprint-Epic Story Matrix]]
+
 ## Commitments
 - Epic 01, 02, 03, 06 convergence sprint.
 - Epic 07 operational readiness metrics.

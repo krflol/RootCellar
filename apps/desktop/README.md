@@ -10,11 +10,14 @@ Tauri + TypeScript desktop shell with a compatibility-first interop workflow.
 - Apply in-app value/formula edits to single cells or A1 ranges (for example `A1` or `A1:B3`).
 - Formula bar supports selected-cell edits directly from preview (`Apply From Bar` or `Enter`).
 - One-click range presets are available in Edit Cell (`Row x3`, `Col x3`, `Block 2x2`) and anchor from selected preview cell when available.
+- Custom preset dimensions (`N x M`) are supported for explicit A1 range scaffolding.
 - Jump-to-last-edited helper and visual highlight in preview.
 - Copy selected preview cell A1/value/formula to clipboard.
 - Arrow-key navigation in preview; `Enter` applies the current edit input to the selected cell.
+- Frontend interaction tests cover preview navigation, formula-bar apply triggers, preset range guardrails (invalid anchors, bounds, span validation), recalc-freshness transitions, and DOM-level wiring for freshness badges plus last-custom preset button states.
 - Recalculate loaded workbook sheets through `rootcellar-core`.
 - Save/Recalc panel shows recalc freshness so stale-after-edit state is visible before save.
+- Save/Recalc panel now includes a visual freshness tag (`Fresh`, `Stale`, `Pending Recalc` / `No Recalc Yet`).
 - Save loaded workbook in either:
   - `preserve` mode (passthrough when clean, sheet-overrides when dirty; interop-first)
   - `normalize` mode (model-driven rewrite)
@@ -40,8 +43,22 @@ Tauri + TypeScript desktop shell with a compatibility-first interop workflow.
 ```bash
 cd apps/desktop
 npm install
+npm run test
 npm run tauri dev
 ```
+
+## UI Capture
+```bash
+cd apps/desktop
+npm run ui:capture:setup
+npm run ui:capture
+```
+
+- Captures are written to `apps/desktop/artifacts/ui-captures`.
+- Capture URLs support seeded visual states:
+  - `?ui_capture=1&capture_state=fresh`
+  - `?ui_capture=1&capture_state=stale`
+  - `?ui_capture=1&capture_state=pending`
 
 ## Targeted Regression Test
 ```bash

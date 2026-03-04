@@ -1,12 +1,41 @@
 import { invoke } from "@tauri-apps/api/core";
 import { open as openDialog, save as saveDialog } from "@tauri-apps/plugin-dialog";
+import { buildPresetRange } from "./editRangePresets";
+import { bindFormulaBarApplyHandlers, computeNextPreviewSelection } from "./previewInteractions";
+import {
+  PRESET_DIMENSIONS_STORAGE_KEY,
+  parsePresetDimensions,
+  serializePresetDimensions,
+  type PresetDimensions,
+} from "./presetReuse";
+import { renderLastCustomPresetButtonView } from "./presetReuseView";
+import {
+  markRecalcCompletedState,
+  markRecalcPendingState,
+  resetRecalcStatusState,
+  type RecalcStatusState,
+} from "./recalcFreshness";
+import { renderRecalcStatusView } from "./recalcFreshnessView";
+import { jsonWithTraceHeader, formatTraceHeader } from "./desktopTraceOutput";
 import "./styles.css";
 
 type TraceInput = {
   traceId: string;
   spanId: string;
   parentSpanId: string | null;
-  sessionId: string;
+  sessionId: string | null;
+  commandId?: string;
+  commandName?: string;
+  eventLogPath?: string;
+  artifactIndexPath?: string | null;
+};
+
+type TraceArtifactRef = {
+  artifactId: string;
+  artifactType: string;
+  relation: string;
+  path?: string;
+  description?: string;
 };
 
 type AppStatusResponse = {
@@ -21,6 +50,59 @@ type TraceEcho = {
   spanId: string;
   parentSpanId: string | null;
   sessionId: string | null;
+  uiCommandId?: string;
+  uiCommandName?: string;
+  traceRootId?: string;
+  commandStatus?: string;
+  durationMs?: number;
+  eventLogPath?: string | null;
+  artifactIndexPath?: string | null;
+  linkedArtifactIds?: string[];
+  artifactRefs?: TraceArtifactRef[];
+};
+
+function isTraceEcho(
+  traceContext: TraceInput | TraceEcho,
+): traceContext is TraceEcho & { uiCommandId?: string; uiCommandName?: string } {
+  return "uiCommandId" in traceContext || "uiCommandName" in traceContext;
+}
+
+function toTraceInput(traceContext: TraceInput | TraceEcho): TraceInput {
+  if (isTraceEcho(traceContext)) {
+    return {
+      traceId: traceContext.traceId,
+      spanId: traceContext.spanId,
+      parentSpanId: traceContext.parentSpanId,
+      sessionId: traceContext.sessionId,
+        commandId: traceContext.uiCommandId,
+      commandName: traceContext.uiCommandName,
+      eventLogPath:
+        traceContext.eventLogPath === null ? undefined : traceContext.eventLogPath,
+      artifactIndexPath:
+        traceContext.artifactIndexPath === null ? undefined : traceContext.artifactIndexPath,
+    };
+  }
+
+  return {
+    traceId: traceContext.traceId,
+    spanId: traceContext.spanId,
+    parentSpanId: traceContext.parentSpanId,
+    sessionId: traceContext.sessionId,
+    commandId: traceContext.commandId,
+    commandName: traceContext.commandName,
+    eventLogPath: traceContext.eventLogPath,
+    artifactIndexPath:
+      traceContext.artifactIndexPath === null ? undefined : traceContext.artifactIndexPath,
+  };
+}
+
+type UiCommandTrace = {
+  traceId: string;
+  spanId: string;
+  parentSpanId: string | null;
+  sessionId: string | null;
+  commandId: string;
+  commandName: string;
 };
 
 type CellValue =
@@ -72,6 +154,8 @@ type InteropSessionStatusResponse = {
   unknownPartCount: number;
   dirtySheetCount: number;
   dirtySheets: string[];
+  undoCount: number;
+  redoCount: number;
   sheets: string[];
 };
 
@@ -159,19 +243,24 @@ type InteropSheetPreviewResponse = {
   trace: TraceEcho;
 };
 
+type InteropUndoRedoResponse = {
+  action: "undo" | "redo";
+  workbookId: string;
+  dirtySheetCount: number;
+  dirtySheets: string[];
+  undoCount: number;
+  redoCount: number;
+  trace: TraceEcho;
+};
+
 type SelectedPreviewCell = {
   sheet: string;
   cell: InteropPreviewCell;
 };
 
 type EditActionSource = "edit-form" | "formula-bar";
-
-type RecalcStatusState = {
-  runCount: number;
-  pendingEditsSinceLastRun: boolean;
-  lastScope: string | null;
-  lastAtIso: string | null;
-};
+type UiCaptureRecalcState = "pending" | "fresh" | "stale";
+type UiCaptureSection = "default" | "edit-cell" | "save-recalc";
 
 function formatCellValue(value: CellValue): string {
   if (typeof value === "string") {
@@ -197,6 +286,14 @@ function newTrace(): TraceInput {
     spanId: crypto.randomUUID(),
     parentSpanId: null,
     sessionId: crypto.randomUUID(),
+  };
+}
+
+function startUiCommand(commandName: string): UiCommandTrace {
+  return {
+    ...newTrace(),
+    commandId: crypto.randomUUID(),
+    commandName,
   };
 }
 
@@ -262,6 +359,44 @@ function formatPreviewCell(cell: InteropPreviewCell): string {
   return cell.formula ? `${cell.formula} => ${value}` : value;
 }
 
+function focusCaptureSection(section: UiCaptureSection): void {
+  const id =
+    section === "edit-cell"
+      ? "capture-section-edit-cell"
+      : section === "save-recalc"
+        ? "capture-section-save-recalc"
+        : null;
+  if (!id) {
+    return;
+  }
+
+  const sectionElement = document.getElementById(id);
+  if (!sectionElement) {
+    return;
+  }
+
+  sectionElement.scrollIntoView({ behavior: "auto", block: "start", inline: "nearest" });
+}
+
+const captureParams = new URLSearchParams(window.location.search);
+const uiCaptureMode = captureParams.get("ui_capture") === "1";
+const uiCaptureRecalcState = (() => {
+  const value = (captureParams.get("capture_state") ?? "stale").trim().toLowerCase();
+  if (value === "pending" || value === "fresh" || value === "stale") {
+    return value as UiCaptureRecalcState;
+  }
+  return "stale";
+})();
+const uiCaptureSection = (() => {
+  const value = (captureParams.get("capture_section") ?? "default").trim().toLowerCase();
+  if (value === "edit-cell" || value === "save-recalc" || value === "default") {
+    return value as UiCaptureSection;
+  }
+  return "default";
+})();
+const maxPresetRows = 1_048_576;
+const maxPresetCols = 16_384;
+
 const app = document.querySelector<HTMLDivElement>("#app");
 if (!app) {
   throw new Error("missing #app container");
@@ -322,6 +457,7 @@ app.innerHTML = `
         <button id="copy-preview-a1" class="btn secondary">Copy A1</button>
         <button id="copy-preview-value" class="btn secondary">Copy Value</button>
         <button id="copy-preview-formula" class="btn secondary">Copy Formula</button>
+        <button id="paste-clipboard-cell" class="btn secondary">Paste Into Cell</button>
       </div>
       <div class="formula-bar">
         <label class="field compact">
@@ -342,14 +478,14 @@ app.innerHTML = `
         <button id="formula-bar-apply" class="btn primary">Apply From Bar</button>
       </div>
       <pre id="preview-output" class="output compact">No preview loaded.</pre>
-      <pre id="preview-selected-output" class="output compact">No cell selected.</pre>
-      <pre id="preview-copy-status" class="output compact">No copy action yet.</pre>
+      <pre id="preview-selected-output" class="output compact" role="status" aria-live="polite">No cell selected.</pre>
+      <pre id="preview-copy-status" class="output compact" role="status" aria-live="polite">No copy action yet.</pre>
       <div id="preview-wrap" class="table-wrap" tabindex="0">
         <table id="preview-table" class="preview-table"></table>
       </div>
     </section>
 
-    <section class="panel">
+    <section class="panel" id="capture-section-edit-cell">
       <h2>Edit Cell</h2>
       <div class="row three">
         <label class="field compact">
@@ -376,10 +512,27 @@ app.innerHTML = `
         <button id="preset-row-3" class="btn secondary">Preset Row x3</button>
         <button id="preset-col-3" class="btn secondary">Preset Col x3</button>
         <button id="preset-block-2x2" class="btn secondary">Preset Block 2x2</button>
+        <button id="undo-last-edit" class="btn secondary" disabled>Undo</button>
+        <button id="redo-last-edit" class="btn secondary" disabled>Redo</button>
+      </div>
+      <div class="row three">
+        <label class="field compact">
+          <span>Preset Rows</span>
+          <input id="preset-rows" type="number" min="1" max="1048576" step="1" value="2" />
+        </label>
+        <label class="field compact">
+          <span>Preset Cols</span>
+          <input id="preset-cols" type="number" min="1" max="16384" step="1" value="2" />
+        </label>
+        <div class="field compact">
+          <span>Apply Custom</span>
+          <button id="preset-apply-custom" class="btn secondary">Apply N x M</button>
+          <button id="preset-apply-last" class="btn secondary" disabled>Apply Last Custom</button>
+        </div>
       </div>
       <p class="summary hint">
         Presets anchor at the selected preview cell when available; otherwise they use the current
-        edit cell.
+        edit cell. Custom presets support configurable <code>N x M</code> ranges.
       </p>
       <div class="actions">
         <button id="apply-edit" class="btn primary">Apply Cell Edit</button>
@@ -387,7 +540,7 @@ app.innerHTML = `
       <pre id="edit-output" class="output">No edits yet.</pre>
     </section>
 
-    <section class="panel">
+    <section class="panel" id="capture-section-save-recalc">
       <h2>Save + Recalc</h2>
       <label class="field">
         <span>Output Path</span>
@@ -415,8 +568,12 @@ app.innerHTML = `
         <button id="save-workbook" class="btn primary">Save Workbook</button>
         <button id="recalc-loaded" class="btn secondary">Recalc Loaded Workbook</button>
       </div>
+      <div class="freshness-row">
+        <span class="freshness-label">Recalc Freshness</span>
+        <span id="recalc-freshness-badge" class="freshness-badge pending">No Recalc Yet</span>
+      </div>
       <pre id="save-output" class="output">No save/recalc run yet.</pre>
-      <pre id="recalc-status" class="output compact">No recalc run yet for this workbook.</pre>
+      <pre id="recalc-status" class="output compact" aria-live="polite">No recalc run yet for this workbook.</pre>
     </section>
 
     <section class="panel">
@@ -448,6 +605,7 @@ const jumpLastEditedButton = document.querySelector<HTMLButtonElement>("#jump-la
 const copyPreviewA1Button = document.querySelector<HTMLButtonElement>("#copy-preview-a1");
 const copyPreviewValueButton = document.querySelector<HTMLButtonElement>("#copy-preview-value");
 const copyPreviewFormulaButton = document.querySelector<HTMLButtonElement>("#copy-preview-formula");
+const pasteClipboardCellButton = document.querySelector<HTMLButtonElement>("#paste-clipboard-cell");
 const formulaBarCellInput = document.querySelector<HTMLInputElement>("#formula-bar-cell");
 const formulaBarModeSelect = document.querySelector<HTMLSelectElement>("#formula-bar-mode");
 const formulaBarInput = document.querySelector<HTMLInputElement>("#formula-bar-input");
@@ -464,6 +622,12 @@ const editInput = document.querySelector<HTMLInputElement>("#edit-input");
 const presetRow3Button = document.querySelector<HTMLButtonElement>("#preset-row-3");
 const presetCol3Button = document.querySelector<HTMLButtonElement>("#preset-col-3");
 const presetBlock2x2Button = document.querySelector<HTMLButtonElement>("#preset-block-2x2");
+const undoLastEditButton = document.querySelector<HTMLButtonElement>("#undo-last-edit");
+const redoLastEditButton = document.querySelector<HTMLButtonElement>("#redo-last-edit");
+const presetRowsInput = document.querySelector<HTMLInputElement>("#preset-rows");
+const presetColsInput = document.querySelector<HTMLInputElement>("#preset-cols");
+const presetApplyCustomButton = document.querySelector<HTMLButtonElement>("#preset-apply-custom");
+const presetApplyLastButton = document.querySelector<HTMLButtonElement>("#preset-apply-last");
 const applyEditButton = document.querySelector<HTMLButtonElement>("#apply-edit");
 const editOutput = document.querySelector<HTMLPreElement>("#edit-output");
 const savePathInput = document.querySelector<HTMLInputElement>("#save-path");
@@ -473,6 +637,7 @@ const saveModeSelect = document.querySelector<HTMLSelectElement>("#save-mode");
 const saveWorkbookButton = document.querySelector<HTMLButtonElement>("#save-workbook");
 const recalcSheetInput = document.querySelector<HTMLInputElement>("#recalc-sheet");
 const recalcLoadedButton = document.querySelector<HTMLButtonElement>("#recalc-loaded");
+const recalcFreshnessBadge = document.querySelector<HTMLSpanElement>("#recalc-freshness-badge");
 const saveOutput = document.querySelector<HTMLPreElement>("#save-output");
 const recalcStatusOutput = document.querySelector<HTMLPreElement>("#recalc-status");
 
@@ -494,6 +659,7 @@ if (
   !copyPreviewA1Button ||
   !copyPreviewValueButton ||
   !copyPreviewFormulaButton ||
+  !pasteClipboardCellButton ||
   !formulaBarCellInput ||
   !formulaBarModeSelect ||
   !formulaBarInput ||
@@ -510,6 +676,12 @@ if (
   !presetRow3Button ||
   !presetCol3Button ||
   !presetBlock2x2Button ||
+  !undoLastEditButton ||
+  !redoLastEditButton ||
+  !presetRowsInput ||
+  !presetColsInput ||
+  !presetApplyCustomButton ||
+  !presetApplyLastButton ||
   !applyEditButton ||
   !editOutput ||
   !savePathInput ||
@@ -519,6 +691,7 @@ if (
   !saveWorkbookButton ||
   !recalcSheetInput ||
   !recalcLoadedButton ||
+  !recalcFreshnessBadge ||
   !saveOutput ||
   !recalcStatusOutput
 ) {
@@ -542,6 +715,7 @@ const jumpLastEditedButtonEl = jumpLastEditedButton;
 const copyPreviewA1ButtonEl = copyPreviewA1Button;
 const copyPreviewValueButtonEl = copyPreviewValueButton;
 const copyPreviewFormulaButtonEl = copyPreviewFormulaButton;
+const pasteClipboardCellButtonEl = pasteClipboardCellButton;
 const formulaBarCellInputEl = formulaBarCellInput;
 const formulaBarModeSelectEl = formulaBarModeSelect;
 const formulaBarInputEl = formulaBarInput;
@@ -558,6 +732,12 @@ const editInputEl = editInput;
 const presetRow3ButtonEl = presetRow3Button;
 const presetCol3ButtonEl = presetCol3Button;
 const presetBlock2x2ButtonEl = presetBlock2x2Button;
+const undoLastEditButtonEl = undoLastEditButton;
+const redoLastEditButtonEl = redoLastEditButton;
+const presetRowsInputEl = presetRowsInput;
+const presetColsInputEl = presetColsInput;
+const presetApplyCustomButtonEl = presetApplyCustomButton;
+const presetApplyLastButtonEl = presetApplyLastButton;
 const applyEditButtonEl = applyEditButton;
 const editOutputEl = editOutput;
 const savePathInputEl = savePathInput;
@@ -567,6 +747,7 @@ const saveModeSelectEl = saveModeSelect;
 const saveWorkbookButtonEl = saveWorkbookButton;
 const recalcSheetInputEl = recalcSheetInput;
 const recalcLoadedButtonEl = recalcLoadedButton;
+const recalcFreshnessBadgeEl = recalcFreshnessBadge;
 const saveOutputEl = saveOutput;
 const recalcStatusOutputEl = recalcStatusOutput;
 
@@ -574,12 +755,15 @@ let currentSession: InteropSessionStatusResponse | null = null;
 let currentPreview: InteropSheetPreviewResponse | null = null;
 let selectedPreviewCell: SelectedPreviewCell | null = null;
 let lastEditedCell: { sheet: string; cell: string } | null = null;
-let recalcStatusState: RecalcStatusState = {
-  runCount: 0,
-  pendingEditsSinceLastRun: false,
-  lastScope: null,
-  lastAtIso: null,
-};
+let recalcStatusState: RecalcStatusState = resetRecalcStatusState();
+let lastCustomPreset: PresetDimensions | null = null;
+
+function updateHistoryControls(): void {
+  const canUndo = currentSession?.loaded && currentSession.undoCount > 0;
+  const canRedo = currentSession?.loaded && currentSession.redoCount > 0;
+  undoLastEditButtonEl.disabled = !canUndo;
+  redoLastEditButtonEl.disabled = !canRedo;
+}
 
 function fillSheetSelect(select: HTMLSelectElement, sheets: string[]): void {
   const currentValue = select.value;
@@ -618,41 +802,13 @@ function normalizeA1(value: string): string {
   return value.trim().toUpperCase();
 }
 
-function parseSingleA1Cell(value: string): { row: number; col: number } | null {
-  const normalized = normalizeA1(value);
-  if (normalized.length === 0 || normalized.includes(":")) {
-    return null;
-  }
-
-  const match = normalized.match(/^([A-Z]+)([1-9][0-9]*)$/);
-  if (!match) {
-    return null;
-  }
-
-  const [, colPart, rowPart] = match;
-  let col = 0;
-  for (const ch of colPart) {
-    col = col * 26 + (ch.charCodeAt(0) - 64);
-  }
-
-  const row = Number.parseInt(rowPart, 10);
-  if (!Number.isFinite(row) || row <= 0 || col <= 0) {
-    return null;
-  }
-
-  return { row, col };
-}
-
-function formatA1Cell(row: number, col: number): string {
-  return `${columnToA1(col)}${row}`;
-}
-
 function updatePreviewCopyButtons(): void {
   const hasSelection = Boolean(selectedPreviewCell);
   copyPreviewA1ButtonEl.disabled = !hasSelection;
   copyPreviewValueButtonEl.disabled = !hasSelection;
   copyPreviewFormulaButtonEl.disabled =
     !hasSelection || selectedPreviewCell?.cell.formula == null;
+  pasteClipboardCellButtonEl.disabled = !hasSelection;
   formulaBarApplyButtonEl.disabled = !hasSelection;
 }
 
@@ -740,127 +896,288 @@ function updateJumpLastEditedButton(): void {
 }
 
 function renderRecalcStatus(): void {
-  if (recalcStatusState.runCount === 0) {
-    recalcStatusOutputEl.textContent = recalcStatusState.pendingEditsSinceLastRun
-      ? "Recalc pending: edits were applied since workbook load. Run \"Recalc Loaded Workbook\" to refresh dependent formulas."
-      : "No recalc run yet for this workbook.";
-    return;
-  }
-
-  const lines = [
-    `Recalc runs: ${recalcStatusState.runCount}`,
-    `Last scope: ${recalcStatusState.lastScope ?? "all loaded sheets"}`,
-    `Last run: ${recalcStatusState.lastAtIso ? new Date(recalcStatusState.lastAtIso).toLocaleString() : "unknown"}`,
-    `Freshness: ${
-      recalcStatusState.pendingEditsSinceLastRun
-        ? "stale (edits after last recalc)"
-        : "fresh (no edits since last recalc)"
-    }`,
-  ];
-  recalcStatusOutputEl.textContent = lines.join("\n");
+  renderRecalcStatusView({
+    state: recalcStatusState,
+    badgeEl: recalcFreshnessBadgeEl,
+    statusEl: recalcStatusOutputEl,
+  });
 }
 
 function resetRecalcStatus(): void {
-  recalcStatusState = {
-    runCount: 0,
-    pendingEditsSinceLastRun: false,
-    lastScope: null,
-    lastAtIso: null,
-  };
+  recalcStatusState = resetRecalcStatusState();
   renderRecalcStatus();
 }
 
 function markRecalcPending(): void {
-  recalcStatusState.pendingEditsSinceLastRun = true;
+  recalcStatusState = markRecalcPendingState(recalcStatusState);
   renderRecalcStatus();
 }
 
 function markRecalcCompleted(scope: string | null): void {
-  recalcStatusState.runCount += 1;
-  recalcStatusState.pendingEditsSinceLastRun = false;
-  recalcStatusState.lastScope = scope;
-  recalcStatusState.lastAtIso = new Date().toISOString();
+  recalcStatusState = markRecalcCompletedState(recalcStatusState, scope, new Date().toISOString());
   renderRecalcStatus();
 }
 
-function applyRangePreset(rowSpan: number, colSpan: number, label: string): void {
+function loadLastCustomPresetFromStorage(): PresetDimensions | null {
+  try {
+    return parsePresetDimensions(
+      localStorage.getItem(PRESET_DIMENSIONS_STORAGE_KEY),
+      maxPresetRows,
+      maxPresetCols,
+    );
+  } catch {
+    return null;
+  }
+}
+
+function persistLastCustomPreset(dimensions: PresetDimensions): void {
+  try {
+    localStorage.setItem(
+      PRESET_DIMENSIONS_STORAGE_KEY,
+      serializePresetDimensions(dimensions),
+    );
+  } catch {
+    // Persistence is a convenience feature only.
+  }
+}
+
+function renderLastCustomPresetButton(): void {
+  renderLastCustomPresetButtonView({
+    buttonEl: presetApplyLastButtonEl,
+    dimensions: lastCustomPreset,
+  });
+}
+
+function seedUiCaptureDemo(): void {
+  const demoInputPath = "C:\\Demo\\quarterly-forecast.xlsx";
+  const demoSheet = "Summary";
+  const baseTrace: TraceEcho = {
+    traceId: "ui-capture",
+    spanId: "ui-capture",
+    parentSpanId: null,
+    sessionId: "ui-capture",
+  };
+  const editTrace: TraceEcho = {
+    traceId: "ui-capture-edit",
+    spanId: "ui-capture-edit",
+    parentSpanId: "ui-capture",
+    sessionId: "ui-capture",
+  };
+  const saveTrace: TraceEcho = {
+    traceId: "ui-capture-save",
+    spanId: "ui-capture-save",
+    parentSpanId: "ui-capture",
+    sessionId: "ui-capture",
+  };
+  const recalcTrace: TraceEcho = {
+    traceId: "ui-capture-recalc",
+    spanId: "ui-capture-recalc",
+    parentSpanId: "ui-capture",
+    sessionId: "ui-capture",
+  };
+
+  const statusPayload: InteropSessionStatusResponse = {
+    loaded: true,
+    inputPath: demoInputPath,
+    workbookId: "ui-capture-demo-workbook",
+    sheetCount: 2,
+    cellCount: 10,
+    issueCount: 1,
+    unknownPartCount: 2,
+    dirtySheetCount: 1,
+    dirtySheets: [demoSheet],
+    undoCount: 0,
+    redoCount: 0,
+    sheets: [demoSheet, "Detail"],
+  };
+  renderSessionStatus(statusPayload);
+
+  openPathInputEl.value = demoInputPath;
+  savePathInputEl.value = suggestOutputPath(demoInputPath, normalizeMode(saveModeSelectEl.value));
+  compatOutputEl.textContent = jsonWithTraceHeader(baseTrace, [
+    "Feature score: 92",
+    "Issues: 1",
+    "Unknown parts: 2",
+    "Part graph: nodes=41, edges=62, dangling=0, external=2",
+    "",
+    "Compatibility Issues:",
+    "- [partially_supported] xl.comments: threaded comments preserved in preserve mode",
+  ].join("\n"));
+
+  const previewCells: InteropPreviewCell[] = [
+    { cell: "A1", row: 1, col: 1, value: { text: "Region" }, formula: null },
+    { cell: "B1", row: 1, col: 2, value: { text: "Actual" }, formula: null },
+    { cell: "C1", row: 1, col: 3, value: { text: "Forecast" }, formula: null },
+    { cell: "A2", row: 2, col: 1, value: { text: "North" }, formula: null },
+    { cell: "B2", row: 2, col: 2, value: { number: 1250 }, formula: null },
+    { cell: "C2", row: 2, col: 3, value: { number: 1330 }, formula: "=B2*1.064" },
+    { cell: "A3", row: 3, col: 1, value: { text: "South" }, formula: null },
+    { cell: "B3", row: 3, col: 2, value: { number: 980 }, formula: null },
+    { cell: "C3", row: 3, col: 3, value: { number: 1060 }, formula: "=B3*1.082" },
+    { cell: "D3", row: 3, col: 4, value: { bool: true }, formula: null },
+  ];
+
+  currentPreview = {
+    workbookId: "ui-capture-demo-workbook",
+    sheet: demoSheet,
+    totalCells: previewCells.length,
+    shownCells: previewCells.length,
+    truncated: false,
+    cells: previewCells,
+    trace: baseTrace,
+  };
+  previewSheetSelectEl.value = demoSheet;
+  lastEditedCell = { sheet: demoSheet, cell: "C3" };
+  updateJumpLastEditedButton();
+
+  const selected = previewCells.find((cell) => cell.cell === "C3") ?? previewCells[0];
+  setSelectedPreviewCell({ sheet: demoSheet, cell: selected });
+  renderPreviewTable(currentPreview);
+  previewOutputEl.textContent = [
+    `Latest trace: ${formatTraceHeader(baseTrace)}`,
+    `Workbook: ${currentPreview.workbookId}`,
+    `Sheet: ${currentPreview.sheet}`,
+    `Shown cells: ${currentPreview.shownCells}/${currentPreview.totalCells}`,
+    "Truncated: no",
+  ].join("\n");
+  previewCopyStatusEl.textContent = `UI capture mode (${uiCaptureRecalcState}) seeded at ${demoSheet}!${selected.cell}.`;
+  saveOutputEl.textContent = "UI capture mode: save/recalc outputs are simulated for visual review.";
+  lastCustomPreset = { rows: 3, cols: 4 };
+  presetRowsInputEl.value = String(lastCustomPreset.rows);
+  presetColsInputEl.value = String(lastCustomPreset.cols);
+  renderLastCustomPresetButton();
+
+  const recalcIso = "2026-03-02T20:00:00.000Z";
+  recalcStatusState = resetRecalcStatusState();
+  if (uiCaptureRecalcState === "pending") {
+    recalcStatusState = markRecalcPendingState(recalcStatusState);
+  } else if (uiCaptureRecalcState === "fresh") {
+    recalcStatusState = markRecalcCompletedState(recalcStatusState, demoSheet, recalcIso);
+  } else {
+    recalcStatusState = markRecalcCompletedState(recalcStatusState, demoSheet, recalcIso);
+    recalcStatusState = markRecalcPendingState(recalcStatusState);
+  }
+  renderRecalcStatus();
+
+  if (uiCaptureSection === "edit-cell") {
+    editSheetSelectEl.value = demoSheet;
+    editCellInputEl.value = "C3";
+    editModeSelectEl.value = "formula";
+    editInputEl.value = "=B3*1.082";
+    const editDemoOutput = {
+      workbookId: "ui-capture-demo-workbook",
+      sheet: demoSheet,
+      cell: "C3",
+      anchorCell: "C3",
+      appliedCellCount: 1,
+      mode: "formula",
+      value: "number=1060",
+      formula: "=B3*1.082",
+      dirtySheetCount: 1,
+      dirtySheets: [demoSheet],
+      trace: editTrace,
+    };
+    editOutputEl.textContent = jsonWithTraceHeader(editTrace, JSON.stringify(editDemoOutput, null, 2));
+    previewCopyStatusEl.textContent = "UI capture mode: edit-cell output prepared for close-up review.";
+  } else if (uiCaptureSection === "save-recalc") {
+    recalcSheetInputEl.value = demoSheet;
+    savePromoteSourceInputEl.checked = true;
+    const saveDemoOutput = {
+      inputPath: demoInputPath,
+      outputPath: suggestOutputPath(demoInputPath, "preserve"),
+      workbookId: "ui-capture-demo-workbook",
+      mode: "preserve",
+      sheetCount: 2,
+      cellCount: 10,
+      copiedBytes: 1280,
+      partGraph: {
+        nodeCount: 41,
+        edgeCount: 62,
+        danglingEdgeCount: 0,
+        externalEdgeCount: 2,
+        unknownPartCount: 2,
+      },
+      partGraphFlags: {
+        strategy: "interop_preserve",
+        sourceGraphReused: true,
+        relationshipsPreserved: true,
+        unknownPartsPreserved: true,
+      },
+      trace: saveTrace,
+    };
+    const recalcDemoOutput = {
+      workbookId: "ui-capture-demo-workbook",
+      reports: [
+        {
+          sheet: demoSheet,
+          evaluatedCells: 3,
+          cycleCount: 0,
+          parseErrorCount: 0,
+        },
+      ],
+      trace: recalcTrace,
+    };
+    const saveSectionLines = [
+      "Latest save command:",
+      jsonWithTraceHeader(saveTrace, JSON.stringify(saveDemoOutput, null, 2)),
+      "",
+      "Latest recalc command:",
+      jsonWithTraceHeader(recalcTrace, JSON.stringify(recalcDemoOutput, null, 2)),
+    ];
+    saveOutputEl.textContent = saveSectionLines.join("\n");
+  } else {
+    editOutputEl.textContent = "UI capture mode: default seeded scenario for full-shell review.";
+  }
+
+  focusCaptureSection(uiCaptureSection);
+}
+
+function applyRangePreset(rowSpan: number, colSpan: number, label: string): boolean {
   if (!currentSession?.loaded) {
     editOutputEl.textContent = "open a workbook first";
-    return;
+    return false;
   }
 
   const anchorSheet = selectedPreviewCell?.sheet ?? editSheetSelectEl.value.trim();
   const anchorA1 = selectedPreviewCell?.cell.cell ?? editCellInputEl.value.trim();
   if (!anchorSheet) {
     editOutputEl.textContent = "select a sheet before applying a preset";
-    return;
+    return false;
   }
 
-  const anchor = parseSingleA1Cell(anchorA1);
-  if (!anchor) {
-    editOutputEl.textContent = "preset anchor must be a single A1 cell (not a range)";
-    return;
+  const rangeResult = buildPresetRange(anchorA1, rowSpan, colSpan);
+  if (!rangeResult.ok) {
+    if (rangeResult.reason === "invalid_anchor") {
+      editOutputEl.textContent = "preset anchor must be a single A1 cell (not a range)";
+    } else if (rangeResult.reason === "invalid_span") {
+      editOutputEl.textContent = "preset dimensions must be whole numbers greater than zero";
+    } else {
+      editOutputEl.textContent = "preset range exceeds Excel bounds";
+    }
+    return false;
   }
-
-  const endRow = anchor.row + rowSpan - 1;
-  const endCol = anchor.col + colSpan - 1;
-  const maxExcelRow = 1_048_576;
-  const maxExcelCol = 16_384;
-  if (endRow > maxExcelRow || endCol > maxExcelCol) {
-    editOutputEl.textContent = "preset range exceeds Excel bounds";
-    return;
-  }
-
-  const startA1 = formatA1Cell(anchor.row, anchor.col);
-  const endA1 = formatA1Cell(endRow, endCol);
-  const range = rowSpan === 1 && colSpan === 1 ? startA1 : `${startA1}:${endA1}`;
 
   if (!editSheetSelectEl.disabled) {
     editSheetSelectEl.value = anchorSheet;
   }
-  editCellInputEl.value = range;
-  previewCopyStatusEl.textContent = `Preset ${label} selected ${anchorSheet}!${range}.`;
-  editOutputEl.textContent = `Preset ${label} applied to range ${anchorSheet}!${range}.`;
+  editCellInputEl.value = rangeResult.range;
+  previewCopyStatusEl.textContent = `Preset ${label} selected ${anchorSheet}!${rangeResult.range}.`;
+  editOutputEl.textContent = `Preset ${label} applied to range ${anchorSheet}!${rangeResult.range}.`;
+  return true;
 }
 
-type PreviewIndex = {
-  rows: number[];
-  cols: number[];
-  rowToCols: Map<number, number[]>;
-  cellMap: Map<string, InteropPreviewCell>;
-};
-
-function buildPreviewIndex(preview: InteropSheetPreviewResponse): PreviewIndex {
-  const rowSet = new Set<number>();
-  const colSet = new Set<number>();
-  const rowToCols = new Map<number, number[]>();
-  const cellMap = new Map<string, InteropPreviewCell>();
-
-  for (const cell of preview.cells) {
-    rowSet.add(cell.row);
-    colSet.add(cell.col);
-    const cols = rowToCols.get(cell.row) ?? [];
-    cols.push(cell.col);
-    rowToCols.set(cell.row, cols);
-    cellMap.set(`${cell.row}:${cell.col}`, cell);
+function parsePresetSpanInput(
+  raw: string,
+  min: number,
+  max: number,
+  fieldLabel: string,
+): number | null {
+  const parsed = Number.parseInt(raw.trim(), 10);
+  if (!Number.isInteger(parsed) || parsed < min || parsed > max) {
+    editOutputEl.textContent = `${fieldLabel} must be an integer from ${min} to ${max}.`;
+    return null;
   }
-
-  const rows = Array.from(rowSet).sort((a, b) => a - b);
-  const cols = Array.from(colSet).sort((a, b) => a - b);
-  for (const [row, colsForRow] of rowToCols.entries()) {
-    rowToCols.set(row, colsForRow.sort((a, b) => a - b));
-  }
-
-  return { rows, cols, rowToCols, cellMap };
-}
-
-function nearestAvailableCol(targetCol: number, candidates: number[]): number {
-  if (candidates.includes(targetCol)) {
-    return targetCol;
-  }
-  return candidates.reduce((best, candidate) =>
-    Math.abs(candidate - targetCol) < Math.abs(best - targetCol) ? candidate : best,
-  candidates[0]);
+  return parsed;
 }
 
 function scrollPreviewCellIntoView(a1Cell: string): void {
@@ -875,37 +1192,11 @@ function movePreviewSelection(direction: "up" | "down" | "left" | "right"): void
     return;
   }
 
-  const index = buildPreviewIndex(currentPreview);
-  if (index.rows.length === 0 || index.cols.length === 0) {
-    return;
-  }
-
-  const selected = selectedPreviewCell;
-  const baseRow = selected?.cell.row ?? index.rows[0];
-  const baseCol = selected?.cell.col ?? index.cols[0];
-  const rowIndex = Math.max(index.rows.indexOf(baseRow), 0);
-  const colIndex = Math.max(index.cols.indexOf(baseCol), 0);
-
-  let targetRowIndex = rowIndex;
-  let targetColIndex = colIndex;
-  if (direction === "up") {
-    targetRowIndex = Math.max(0, rowIndex - 1);
-  } else if (direction === "down") {
-    targetRowIndex = Math.min(index.rows.length - 1, rowIndex + 1);
-  } else if (direction === "left") {
-    targetColIndex = Math.max(0, colIndex - 1);
-  } else {
-    targetColIndex = Math.min(index.cols.length - 1, colIndex + 1);
-  }
-
-  const targetRow = index.rows[targetRowIndex];
-  const desiredCol = index.cols[targetColIndex];
-  const rowCols = index.rowToCols.get(targetRow);
-  if (!rowCols || rowCols.length === 0) {
-    return;
-  }
-  const resolvedCol = nearestAvailableCol(desiredCol, rowCols);
-  const targetCell = index.cellMap.get(`${targetRow}:${resolvedCol}`);
+  const targetCell = computeNextPreviewSelection(
+    currentPreview.cells,
+    selectedPreviewCell?.sheet === currentPreview.sheet ? selectedPreviewCell.cell : null,
+    direction,
+  );
   if (!targetCell) {
     return;
   }
@@ -981,6 +1272,7 @@ function renderSessionStatus(payload: InteropSessionStatusResponse): void {
   currentSession = payload;
   setSheetOptions(payload.sheets);
   sessionOutputEl.textContent = JSON.stringify(payload, null, 2);
+  updateHistoryControls();
 
   if (!payload.loaded) {
     currentPreview = null;
@@ -992,6 +1284,7 @@ function renderSessionStatus(payload: InteropSessionStatusResponse): void {
     previewOutputEl.textContent = "No preview loaded.";
     previewCopyStatusEl.textContent = "No copy action yet.";
     clearPreviewTable("Open a workbook to render sheet preview.");
+    updateHistoryControls();
     return;
   }
 
@@ -1014,6 +1307,7 @@ async function loadSheetPreview(
   sheetOverride?: string,
   focusCell?: string,
   scrollToFocus = false,
+  traceContext?: TraceInput | TraceEcho,
 ): Promise<void> {
   if (!currentSession?.loaded) {
     currentPreview = null;
@@ -1027,6 +1321,7 @@ async function loadSheetPreview(
   const limitRaw = Number.parseInt(previewLimitInputEl.value.trim(), 10);
   const limit = Number.isFinite(limitRaw) ? Math.min(Math.max(limitRaw, 1), 400) : 120;
   const selectedSheet = (sheetOverride ?? previewSheetSelectEl.value).trim();
+  const trace = toTraceInput(traceContext ?? newTrace());
 
   refreshPreviewButtonEl.disabled = true;
   previewOutputEl.textContent = "Loading sheet preview...";
@@ -1034,7 +1329,7 @@ async function loadSheetPreview(
     const payload = await invoke<InteropSheetPreviewResponse>("interop_sheet_preview", {
       sheet: selectedSheet.length > 0 ? selectedSheet : null,
       limit,
-      trace: newTrace(),
+      trace,
     });
 
     if (payload.sheet !== previewSheetSelectEl.value && currentSession.sheets.includes(payload.sheet)) {
@@ -1064,6 +1359,7 @@ async function loadSheetPreview(
     }
 
     const summary = [
+      `Latest trace: ${formatTraceHeader(payload.trace)}`,
       `Workbook: ${payload.workbookId}`,
       `Sheet: ${payload.sheet}`,
       `Shown cells: ${payload.shownCells}/${payload.totalCells}`,
@@ -1127,6 +1423,36 @@ async function copySelectedFormula(): Promise<void> {
   await copyTextToClipboard("formula", selectedPreviewCell.cell.formula);
 }
 
+function detectClipboardMode(raw: string): InteropEditMode {
+  return raw.trim().startsWith("=") ? "formula" : "value";
+}
+
+async function pasteFromClipboardIntoSelection(): Promise<void> {
+  if (!selectedPreviewCell) {
+    previewCopyStatusEl.textContent = "Select a preview cell first.";
+    return;
+  }
+
+  try {
+    const clipboardText = await navigator.clipboard.readText();
+    const trimmed = clipboardText.trim();
+    if (!trimmed) {
+      previewCopyStatusEl.textContent = "Clipboard is empty.";
+      return;
+    }
+
+    await applyCellEdit({
+      sheet: selectedPreviewCell.sheet,
+      cell: selectedPreviewCell.cell.cell,
+      input: clipboardText,
+      mode: detectClipboardMode(clipboardText),
+      source: "edit-form",
+    });
+  } catch (error) {
+    previewCopyStatusEl.textContent = `paste failed: ${String(error)}`;
+  }
+}
+
 async function jumpToLastEdited(): Promise<void> {
   if (!lastEditedCell) {
     previewCopyStatusEl.textContent = "No edited cell recorded yet.";
@@ -1167,11 +1493,12 @@ async function openWorkbook(): Promise<void> {
   openWorkbookButtonEl.disabled = true;
   sessionOutputEl.textContent = "Opening workbook...";
   compatOutputEl.textContent = "Inspecting compatibility...";
+  const commandContext = startUiCommand("interop_open_workbook");
 
   try {
     const payload = await invoke<InteropOpenResponse>("interop_open_workbook", {
       path,
-      trace: newTrace(),
+      trace: commandContext,
     });
 
     const statusPayload: InteropSessionStatusResponse = {
@@ -1184,17 +1511,32 @@ async function openWorkbook(): Promise<void> {
       unknownPartCount: payload.unknownPartCount,
       dirtySheetCount: 0,
       dirtySheets: [],
+      undoCount: 0,
+      redoCount: 0,
       sheets: payload.sheets,
     };
     renderSessionStatus(statusPayload);
-    compatOutputEl.textContent = formatCompatibility(payload);
+    const sessionView = {
+      ...statusPayload,
+      trace: payload.trace,
+    };
+    sessionOutputEl.textContent = jsonWithTraceHeader(
+      payload.trace,
+      JSON.stringify(sessionView, null, 2),
+      commandContext.commandId,
+    );
+    compatOutputEl.textContent = jsonWithTraceHeader(
+      payload.trace,
+      formatCompatibility(payload),
+      commandContext.commandId,
+    );
     lastEditedCell = null;
     resetRecalcStatus();
     updateJumpLastEditedButton();
     setSelectedPreviewCell(null);
     previewCopyStatusEl.textContent = "No copy action yet.";
     savePathInputEl.value = suggestOutputPath(payload.inputPath, normalizeMode(saveModeSelectEl.value));
-    await loadSheetPreview(payload.sheets[0]);
+    await loadSheetPreview(payload.sheets[0], undefined, false, payload.trace);
   } catch (error) {
     const message = `open workbook error: ${String(error)}`;
     sessionOutputEl.textContent = message;
@@ -1236,6 +1578,7 @@ async function applyCellEdit(overrides?: {
 
   applyEditButtonEl.disabled = true;
   formulaBarApplyButtonEl.disabled = true;
+  const commandContext = startUiCommand("interop_apply_cell_edit");
   editOutputEl.textContent =
     source === "formula-bar" ? "Applying edit from formula bar..." : "Applying edit...";
   try {
@@ -1244,7 +1587,7 @@ async function applyCellEdit(overrides?: {
       cell,
       input,
       mode,
-      trace: newTrace(),
+      trace: commandContext,
     });
     const view = {
       workbookId: payload.workbookId,
@@ -1259,7 +1602,11 @@ async function applyCellEdit(overrides?: {
       dirtySheets: payload.dirtySheets,
       trace: payload.trace,
     };
-    editOutputEl.textContent = JSON.stringify(view, null, 2);
+    editOutputEl.textContent = jsonWithTraceHeader(
+      payload.trace,
+      JSON.stringify(view, null, 2),
+      commandContext.commandId,
+    );
     lastEditedCell = { sheet: payload.sheet, cell: normalizeA1(payload.anchorCell) };
     updateJumpLastEditedButton();
     if (payload.appliedCellCount > 1) {
@@ -1271,7 +1618,7 @@ async function applyCellEdit(overrides?: {
     }
     markRecalcPending();
     await loadInteropSessionStatus();
-    await loadSheetPreview(payload.sheet, payload.anchorCell, true);
+    await loadSheetPreview(payload.sheet, payload.anchorCell, true, payload.trace);
   } catch (error) {
     editOutputEl.textContent = `edit error: ${String(error)}`;
   } finally {
@@ -1294,6 +1641,37 @@ async function applyFormulaBarEdit(): Promise<void> {
     mode: normalizeEditMode(formulaBarModeSelectEl.value),
     source: "formula-bar",
   });
+}
+
+async function applyHistoryAction(action: "undo" | "redo"): Promise<void> {
+  if (!currentSession?.loaded) {
+    previewCopyStatusEl.textContent = "open a workbook first";
+    return;
+  }
+
+  const commandContext = startUiCommand(`interop_${action}_edit`);
+  try {
+    const payload = await invoke<InteropUndoRedoResponse>(`interop_${action}_edit`, {
+      trace: commandContext,
+    });
+
+    const summary = `${payload.action} complete`;
+    previewCopyStatusEl.textContent = summary;
+    if (currentSession) {
+      currentSession.undoCount = payload.undoCount;
+      currentSession.redoCount = payload.redoCount;
+      updateHistoryControls();
+    }
+    await loadInteropSessionStatus();
+    if (selectedPreviewCell) {
+      await loadSheetPreview(selectedPreviewCell.sheet, selectedPreviewCell.cell.cell, true, payload.trace);
+    } else {
+      await loadSheetPreview(undefined, undefined, false, payload.trace);
+    }
+  } catch (error) {
+    previewCopyStatusEl.textContent = `${action} failed: ${String(error)}`;
+    await loadInteropSessionStatus();
+  }
 }
 
 async function pickSavePath(): Promise<void> {
@@ -1327,15 +1705,20 @@ async function saveWorkbook(): Promise<void> {
   const promoteOutputAsInput = savePromoteSourceInputEl.checked;
   saveWorkbookButtonEl.disabled = true;
   saveOutputEl.textContent = "Saving workbook...";
+  const commandContext = startUiCommand("interop_save_workbook");
 
   try {
     const payload = await invoke<InteropSaveResponse>("interop_save_workbook", {
       outputPath,
       mode,
       promoteOutputAsInput,
-      trace: newTrace(),
+      trace: commandContext,
     });
-    saveOutputEl.textContent = JSON.stringify(payload, null, 2);
+    saveOutputEl.textContent = jsonWithTraceHeader(
+      payload.trace,
+      JSON.stringify(payload, null, 2),
+      commandContext.commandId,
+    );
     if (promoteOutputAsInput) {
       openPathInputEl.value = payload.outputPath;
     }
@@ -1351,13 +1734,18 @@ async function recalcLoadedWorkbook(): Promise<void> {
   const sheet = recalcSheetInputEl.value.trim();
   recalcLoadedButtonEl.disabled = true;
   saveOutputEl.textContent = "Recalculating loaded workbook...";
+  const commandContext = startUiCommand("interop_recalc_loaded");
 
   try {
     const payload = await invoke<InteropRecalcResponse>("interop_recalc_loaded", {
       sheet: sheet.length > 0 ? sheet : null,
-      trace: newTrace(),
+      trace: commandContext,
     });
-    saveOutputEl.textContent = JSON.stringify(payload, null, 2);
+    saveOutputEl.textContent = jsonWithTraceHeader(
+      payload.trace,
+      JSON.stringify(payload, null, 2),
+      commandContext.commandId,
+    );
     const resolvedScope =
       sheet.length > 0
         ? sheet
@@ -1366,7 +1754,7 @@ async function recalcLoadedWorkbook(): Promise<void> {
           : null;
     markRecalcCompleted(resolvedScope);
     await loadInteropSessionStatus();
-    await loadSheetPreview(sheet.length > 0 ? sheet : undefined);
+    await loadSheetPreview(sheet.length > 0 ? sheet : undefined, undefined, false, payload.trace);
   } catch (error) {
     saveOutputEl.textContent = `recalc error: ${String(error)}`;
   } finally {
@@ -1377,9 +1765,11 @@ async function recalcLoadedWorkbook(): Promise<void> {
 async function runEngineRoundTrip(): Promise<void> {
   runRoundTripButtonEl.disabled = true;
   roundTripOutputEl.textContent = "Running engine round-trip...";
+  const commandContext = startUiCommand("engine_round_trip");
+
   try {
     const payload = await invoke<EngineRoundTripResponse>("engine_round_trip", {
-      trace: newTrace(),
+      trace: commandContext,
     });
 
     const view = {
@@ -1392,7 +1782,11 @@ async function runEngineRoundTrip(): Promise<void> {
       workbookId: payload.workbookId,
       trace: payload.trace,
     };
-    roundTripOutputEl.textContent = JSON.stringify(view, null, 2);
+    roundTripOutputEl.textContent = jsonWithTraceHeader(
+      payload.trace,
+      JSON.stringify(view, null, 2),
+      commandContext.commandId,
+    );
   } catch (error) {
     roundTripOutputEl.textContent = `round-trip error: ${String(error)}`;
   } finally {
@@ -1441,6 +1835,10 @@ copyPreviewFormulaButtonEl.addEventListener("click", () => {
   void copySelectedFormula();
 });
 
+pasteClipboardCellButtonEl.addEventListener("click", () => {
+  void pasteFromClipboardIntoSelection();
+});
+
 formulaBarModeSelectEl.addEventListener("change", () => {
   syncEditFormFromFormulaBarSelectionInput();
 });
@@ -1449,15 +1847,7 @@ formulaBarInputEl.addEventListener("input", () => {
   syncEditFormFromFormulaBarSelectionInput();
 });
 
-formulaBarInputEl.addEventListener("keydown", (event) => {
-  if (event.key !== "Enter") {
-    return;
-  }
-  event.preventDefault();
-  void applyFormulaBarEdit();
-});
-
-formulaBarApplyButtonEl.addEventListener("click", () => {
+bindFormulaBarApplyHandlers(formulaBarInputEl, formulaBarApplyButtonEl, () => {
   void applyFormulaBarEdit();
 });
 
@@ -1493,6 +1883,10 @@ previewWrapEl.addEventListener("keydown", (event) => {
     return;
   }
 
+  const key = event.key;
+  const isUndo = (key === "z" || key === "Z") && (event.ctrlKey || event.metaKey);
+  const isRedo = (key === "y" || key === "Y") && (event.ctrlKey || event.metaKey);
+  const isPaste = (key === "v" || key === "V") && (event.ctrlKey || event.metaKey);
   if (event.key === "ArrowUp") {
     event.preventDefault();
     movePreviewSelection("up");
@@ -1516,6 +1910,33 @@ previewWrapEl.addEventListener("keydown", (event) => {
   if (event.key === "Enter") {
     event.preventDefault();
     void applyCellEdit();
+    return;
+  }
+  if (isUndo) {
+    event.preventDefault();
+    void applyHistoryAction("undo");
+    return;
+  }
+  if (isRedo) {
+    event.preventDefault();
+    void applyHistoryAction("redo");
+    return;
+  }
+  if (isPaste) {
+    event.preventDefault();
+    void pasteFromClipboardIntoSelection();
+  }
+});
+
+formulaBarInputEl.addEventListener("keydown", (event) => {
+  if ((event.key === "z" || event.key === "Z") && (event.ctrlKey || event.metaKey)) {
+    event.preventDefault();
+    void applyHistoryAction("undo");
+    return;
+  }
+  if ((event.key === "y" || event.key === "Y") && (event.ctrlKey || event.metaKey)) {
+    event.preventDefault();
+    void applyHistoryAction("redo");
   }
 });
 
@@ -1533,6 +1954,76 @@ presetCol3ButtonEl.addEventListener("click", () => {
 
 presetBlock2x2ButtonEl.addEventListener("click", () => {
   applyRangePreset(2, 2, "Block 2x2");
+});
+
+undoLastEditButtonEl.addEventListener("click", () => {
+  void applyHistoryAction("undo");
+});
+
+redoLastEditButtonEl.addEventListener("click", () => {
+  void applyHistoryAction("redo");
+});
+
+const applyCustomPreset = (): void => {
+  const rows = parsePresetSpanInput(
+    presetRowsInputEl.value,
+    1,
+    maxPresetRows,
+    "Preset rows",
+  );
+  if (rows == null) {
+    return;
+  }
+
+  const cols = parsePresetSpanInput(
+    presetColsInputEl.value,
+    1,
+    maxPresetCols,
+    "Preset cols",
+  );
+  if (cols == null) {
+    return;
+  }
+
+  const applied = applyRangePreset(rows, cols, `Custom ${rows}x${cols}`);
+  if (!applied) {
+    return;
+  }
+
+  lastCustomPreset = { rows, cols };
+  persistLastCustomPreset(lastCustomPreset);
+  renderLastCustomPresetButton();
+};
+
+presetApplyCustomButtonEl.addEventListener("click", () => {
+  applyCustomPreset();
+});
+
+presetApplyLastButtonEl.addEventListener("click", () => {
+  if (!lastCustomPreset) {
+    editOutputEl.textContent = "No last custom preset available yet.";
+    return;
+  }
+
+  presetRowsInputEl.value = String(lastCustomPreset.rows);
+  presetColsInputEl.value = String(lastCustomPreset.cols);
+  applyRangePreset(lastCustomPreset.rows, lastCustomPreset.cols, `Last ${lastCustomPreset.rows}x${lastCustomPreset.cols}`);
+});
+
+presetRowsInputEl.addEventListener("keydown", (event) => {
+  if (event.key !== "Enter") {
+    return;
+  }
+  event.preventDefault();
+  applyCustomPreset();
+});
+
+presetColsInputEl.addEventListener("keydown", (event) => {
+  if (event.key !== "Enter") {
+    return;
+  }
+  event.preventDefault();
+  applyCustomPreset();
 });
 
 pickSavePathButtonEl.addEventListener("click", () => {
@@ -1555,10 +2046,22 @@ saveModeSelectEl.addEventListener("change", () => {
   savePathInputEl.value = suggestOutputPath(currentInputPath, normalizeMode(saveModeSelectEl.value));
 });
 
-void loadAppStatus();
-void loadInteropSessionStatus();
 clearPreviewTable("Open a workbook to render sheet preview.");
 setSelectedPreviewCell(null);
 previewCopyStatusEl.textContent = "No copy action yet.";
 updateJumpLastEditedButton();
 renderRecalcStatus();
+lastCustomPreset = loadLastCustomPresetFromStorage();
+if (lastCustomPreset) {
+  presetRowsInputEl.value = String(lastCustomPreset.rows);
+  presetColsInputEl.value = String(lastCustomPreset.cols);
+}
+renderLastCustomPresetButton();
+
+if (uiCaptureMode) {
+  seedUiCaptureDemo();
+} else {
+  void loadAppStatus();
+  void loadInteropSessionStatus();
+}
+

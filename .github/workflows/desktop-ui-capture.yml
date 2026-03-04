@@ -1,0 +1,42 @@
+name: desktop-ui-capture
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  desktop-ui-capture:
+    runs-on: windows-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: apps/desktop/package-lock.json
+
+      - name: Install desktop dependencies
+        working-directory: apps/desktop
+        run: npm ci
+
+      - name: Install Playwright Chromium
+        working-directory: apps/desktop
+        run: npm run ui:capture:setup
+
+      - name: Capture desktop UI
+        working-directory: apps/desktop
+        run: npm run ui:capture
+
+      - name: Upload UI captures
+        uses: actions/upload-artifact@v4
+        with:
+          name: rootcellar-desktop-ui-captures-${{ github.run_id }}-${{ github.run_attempt }}
+          path: apps/desktop/artifacts/ui-captures
+          if-no-files-found: error
+          retention-days: 21

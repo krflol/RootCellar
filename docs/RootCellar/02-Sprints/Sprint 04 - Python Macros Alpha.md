@@ -6,6 +6,10 @@ Dates: April 27, 2026 to May 10, 2026
 ## Sprint Goal
 Ship alpha macro execution with explicit permissions and audit logging in desktop.
 
+## Execution Status
+- Status: Planned.
+- Tracking links: [[docs/RootCellar/00-Program/Execution Plan Board]], [[docs/RootCellar/00-Program/Execution Status]], [[docs/RootCellar/00-Program/Sprint-Epic Story Matrix]]
+
 ## Commitments
 - Epic 04 primary.
 - Epic 08 policy hooks baseline.

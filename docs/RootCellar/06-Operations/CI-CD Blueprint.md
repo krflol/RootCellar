@@ -62,8 +62,18 @@ Parent: [[Environment Matrix]]
   - Steps:
     1. Install desktop Node dependencies (`apps/desktop`, `npm ci`).
     2. Build desktop frontend (`npm run build`).
-    3. Run Tauri desktop backend compile check (`cargo check --manifest-path apps/desktop/src-tauri/Cargo.toml`).
-    4. Run targeted interop extension compatibility test (`cargo test -p rootcellar-core --locked accepts_uppercase_xlsx_extension`).
+    3. Run desktop frontend interaction tests (`npm run test`) for preview navigation, formula-bar apply behavior, preset range guardrails, and recalc-freshness transitions.
+    4. Run Tauri desktop backend compile check (`cargo check --manifest-path apps/desktop/src-tauri/Cargo.toml`).
+    5. Run targeted desktop range-edit regression tests (`cargo test --manifest-path apps/desktop/src-tauri/Cargo.toml --locked apply_cell_edit_range`).
+    6. Run targeted interop extension compatibility test (`cargo test -p rootcellar-core --locked accepts_uppercase_xlsx_extension`).
+- Workflow: `.github/workflows/desktop-ui-capture.yml`.
+  - Triggers: `workflow_dispatch`.
+  - Steps:
+    1. Install desktop Node dependencies (`apps/desktop`, `npm ci`).
+    2. Install Playwright Chromium (`npm run ui:capture:setup`).
+    3. Run deterministic UI capture script (`npm run ui:capture`) with seeded demo states and close-up sections
+      (`fresh`, `stale`, `pending`, `edit-cell`, `save-recalc`) and output files (`desktop-fresh.png`, `desktop-stale.png`, `desktop-pending.png`, `desktop-edit-cell.png`, `desktop-save-recalc.png`, `mobile-stale.png`).
+    4. Upload capture artifact bundle from `apps/desktop/artifacts/ui-captures`.
 - Workflow: `.github/workflows/batch-recalc-nightly.yml`.
   - Triggers: nightly `schedule` and `workflow_dispatch`.
   - Benchmark env knobs:

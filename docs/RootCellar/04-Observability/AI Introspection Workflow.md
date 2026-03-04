@@ -1,6 +1,8 @@
 # AI Introspection Workflow
 
 Parent: [[Observability Charter]]
+Operational runbook: [[AI Introspection Runbook]]
+Execution atlas: [[Execution Traceability Atlas]]
 
 ## Purpose
 Enable AI assistants and engineers to inspect product behavior using stable artifacts instead of fragile logs alone.

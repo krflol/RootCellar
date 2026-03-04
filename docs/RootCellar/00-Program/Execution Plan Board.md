@@ -2,7 +2,12 @@
 
 Parent: [[RootCellar Master Plan]]
 Evidence ledger: [[Execution Status]]
-Last updated: March 1, 2026
+Last updated: March 4, 2026
+
+## Execution Traceability Atlas
+- Traceability navigator for this execution board: [[docs/RootCellar/04-Observability/Execution Traceability Atlas]]
+- Active traceability runbook for human/AI inspection: [[docs/RootCellar/04-Observability/AI Introspection Runbook]]
+- Story-to-plan crosswalk: [[docs/RootCellar/00-Program/Sprint-Epic Story Matrix]]
 
 ## Completed Items
 - [x] Sprint 00 foundation baseline delivered (workspace scaffold, telemetry envelope + JSONL sink, CLI skeleton commands).
@@ -107,18 +112,59 @@ Last updated: March 1, 2026
 - [x] Nightly synthetic recalc benchmark gate wired into batch CI with policy knobs, threshold enforcement, and benchmark artifact publication.
   Plan links: [[docs/RootCellar/06-Operations/CI-CD Blueprint]], [[docs/RootCellar/05-Quality/Performance and Benchmarking]], [[docs/RootCellar/03-Implementation/CLI and SDK Design]], [[docs/RootCellar/02-Sprints/Sprint 06 - CLI Batch and Repro Mode]], [[docs/RootCellar/01-Epics/Epic 02 - Calculation Engine and Determinism]], [[docs/RootCellar/01-Epics/Epic 07 - Radical Observability and Introspection]]
   Evidence: [[Execution Status#Completed In Code]], [[Execution Status#Verification]]
+- [x] Desktop UI observability slice for capture QA and trace visibility delivered.
+  Plan links: [[docs/RootCellar/00-Program/Execution Status]], [[docs/RootCellar/06-Operations/CI-CD Blueprint]]
+  Evidence: [[Execution Status#Execution Plan Linkage]], [[apps/desktop/src/main.ts]], [[apps/desktop/scripts/capture-ui.mjs]]
+- [x] PRD decomposition and traceability planning suite delivered for implementation handoff.
+  Plan links: [[docs/RootCellar/RootCellar Master Plan]], [[docs/RootCellar PRD]], [[docs/RootCellar/00-Program/PRD Decomposition Map]], [[docs/RootCellar/03-Implementation/UI-to-Engine Trace Bridge]], [[docs/RootCellar/04-Observability/Desktop Inspectable Artifact Map]], [[docs/RootCellar/04-Observability/Traceability Spine]], [[docs/RootCellar/00-Program/Sprint-Epic Story Matrix]]
+  Evidence: [[Execution Status]], [[Execution Status#Completed In Code]], [[docs/RootCellar/04-Observability/AI Introspection Workflow]], [[docs/RootCellar/04-Observability/Trace Correlation Model]], [[docs/RootCellar/00-Program/Sprint-Epic Story Matrix]]
+- [x] Desktop command context continuity now delivered from action entry to trace metadata output.
+  Plan links: [[docs/RootCellar/03-Implementation/UI-to-Engine Trace Bridge]], [[docs/RootCellar/04-Observability/Traceability Spine]], [[apps/desktop/src/main.ts]], [[apps/desktop/src-tauri/src/main.rs]], [[crates/rootcellar-core/src/telemetry.rs]], [[Execution Status#Completed In Code]]
+  Evidence: [[Execution Status#Current Execution Slice]], [[Execution Status#Completed In Code]]
+- [x] Desktop trace output now includes deterministic artifact references for command-level introspection (status, duration, and linked artifact IDs).
+  Plan links: [[docs/RootCellar/04-Observability/Traceability Spine]], [[docs/RootCellar/04-Observability/Desktop Inspectable Artifact Map]], [[docs/RootCellar/04-Observability/Trace Correlation Model]], [[docs/RootCellar/00-Program/PRD Decomposition Map]], [[apps/desktop/src-tauri/src/main.rs]], [[apps/desktop/src/main.ts]]
+  Evidence: [[Execution Status#Current Execution Slice]], [[Execution Status#Completed In Code]]
+- [x] Desktop command-chain continuity for open/edit/preview/save/recalc/round-trip is now smoke-asserted in backend tests.
+  Plan links: [[docs/RootCellar/03-Implementation/UI-to-Engine Trace Bridge]], [[docs/RootCellar/04-Observability/Execution Traceability Atlas]], [[docs/RootCellar/04-Observability/AI Introspection Runbook]], [[apps/desktop/src-tauri/src/main.rs]]
+  Evidence: [[Execution Status#Completed In Code]], [[Execution Status#Verification]]
+- [x] Desktop artifact-index output is now emitted per command and wired into trace metadata with trace id/command metadata for local debugging and forensic replay.
+  Plan links: [[docs/RootCellar/04-Observability/Desktop Inspectable Artifact Map]], [[docs/RootCellar/04-Observability/Traceability Spine]], [[apps/desktop/src-tauri/src/main.rs]], [[apps/desktop/src/main.ts]]
+  Evidence: [[Execution Status#Completed In Code]], [[Execution Status#Verification]]
+- [x] Desktop command-output trace schema now has a machine-checkable contract.
+  Plan links: [[docs/RootCellar/04-Observability/Traceability Spine]], [[docs/RootCellar/04-Observability/Desktop Inspectable Artifact Map]], [[apps/desktop/src/desktopTraceOutput.ts]]
+  Evidence: [[Execution Status#Completed In Code]], [[schemas/desktop/v1/command-output-trace.schema.json]], [[apps/desktop/src/desktopTraceOutput.test.ts]]
+- [x] Desktop linked artifact IDs now resolve to deterministic artifact-index records for inspection joins.
+  Plan links: [[docs/RootCellar/04-Observability/Traceability Spine]], [[docs/RootCellar/04-Observability/Desktop Inspectable Artifact Map]], [[apps/desktop/scripts/resolve-desktop-trace-artifacts.ts]], [[apps/desktop/src/desktopTraceJoin.ts]]
+  Evidence: [[Execution Status#Completed In Code]], [[Execution Status#Verification]]
+- [x] Desktop continuity smoke now validates command output artifacts against manifest index records.
+  Plan links: [[docs/RootCellar/03-Implementation/UI-to-Engine Trace Bridge]], [[docs/RootCellar/04-Observability/Traceability Spine]], [[apps/desktop/src-tauri/src/main.rs]]
+  Evidence: [[Execution Status#Completed In Code]], [[Execution Status#Verification]]
+
+- [x] Sprint 03 grid loop foundations are shipped to a working UI shape.
+  Plan links: [[docs/RootCellar/02-Sprints/Sprint 03 - Grid Editing Loop]], [[docs/RootCellar/01-Epics/Epic 03 - Desktop Grid UX and Productivity]], [[docs/RootCellar/03-Implementation/UI-to-Engine Trace Bridge]], [[apps/desktop/src/main.ts]]
+  Evidence: [[Execution Status#Completed In Code]], [[apps/desktop/src/previewInteractions.test.ts]], [[apps/desktop/src/editRangePresets.test.ts]], [[apps/desktop/src/presetReuse.ts]], [[apps/desktop/src/presetReuse.test.ts]], [[apps/desktop/src/presetReuseView.ts]], [[apps/desktop/src/recalcFreshness.ts]], [[apps/desktop/src/recalcFreshness.test.ts]]
 
 ## In Progress Items
 - [ ] Sprint 02 parser/dependency-graph core is in progress.
   Plan links: [[docs/RootCellar/02-Sprints/Sprint 02 - Calc Baseline and Dependency Graph]], [[docs/RootCellar/01-Epics/Epic 02 - Calculation Engine and Determinism]]
   Current state: parser, dependency graph, incremental invalidation, DAG timing + analysis artifacts, expanded starter function set (including lookup/text/date/time + counting/stat/math/finance increment: `LEN`, `LOWER`, `UPPER`, `TRIM`, `LEFT`, `RIGHT`, `MID`, `SUBSTITUTE`, `REPLACE`, `CONCAT`, `TEXTJOIN`, `CHOOSE`, `MATCH`, `INDEX`, `XMATCH`, `EXACT`, `FIND`, `SEARCH`, `CODE`, `N`, `VALUE`, `DATEVALUE`, `TIMEVALUE`, `ISNUMBER`, `ISTEXT`, `ISBLANK`, `ISLOGICAL`, `ISERROR`, `COUNT`, `COUNTA`, `COUNTBLANK`, `SUM`, `SUMSQ`, `PRODUCT`, `MIN`, `MAX`, `MEDIAN`, `SMALL`, `LARGE`, `GEOMEAN`, `HARMEAN`, `VARP`, `VAR`/`VARS`, `STDEVP`, `STDEV`/`STDEVS`, `IF`, `IFERROR`, `IFS`, `SWITCH`, `AVERAGE`/`AVG`, `ABS`, `INT`, `FACT`, `FACTDOUBLE`, `COMBIN`, `PERMUT`, `GCD`, `LCM`, `QUOTIENT`, `MOD`, `ROUND`, `ROUNDUP`, `ROUNDDOWN`, `TRUNC`, `MROUND`, `POWER`, `SQRT`, `SIGN`, `EVEN`, `ODD`, `ISEVEN`, `ISODD`, `CEILING`, `FLOOR`, `PI`, `EXP`, `LN`, `LOG`, `LOG10`, `SIN`, `COS`, `TAN`, `SINH`, `COSH`, `TANH`, `ASINH`, `ACOSH`, `ATANH`, `ASIN`, `ACOS`, `ATAN`, `ATAN2`, `RADIANS`, `DEGREES`, `PV`, `FV`, `NPV`, `PMT`, `BITAND`, `BITOR`, `BITXOR`, `BITLSHIFT`, `BITRSHIFT`, `AND`, `OR`, `XOR`, `NOT`, `DATE`, `YEAR`, `MONTH`, `DAY`, `DAYS`, `TIME`, `HOUR`, `MINUTE`, `SECOND`, `EDATE`, `EOMONTH`, `WEEKDAY`, `WEEKNUM`, `ISOWEEKNUM`), reverse-dependency index reuse and topological-position index reuse for incremental scheduler/perf hardening, AST interning scaffold, configurable slow-node thresholds, text-returning formula evaluation, typed branch-preserving conditional/selector evaluation (`IF`, `IFERROR`, `IFS`, `SWITCH`, `CHOOSE`, `INDEX`), and formula-language literals (quoted text + `TRUE`/`FALSE`) are implemented; deeper function parity expansion and further scheduler/perf hardening are pending.
   Evidence: [[Execution Status#Current Execution Slice]], [[Execution Status#Next Execution Slice]]
-- [ ] Milestone M0 remains in progress pending UI shell startup and desktop->engine trace bridge completion.
-  Plan links: [[docs/RootCellar/00-Program/Milestone Roadmap#Milestone M0 Foundation Ready (March 15, 2026)]]
-  Evidence: [[Execution Status#Completed In Code]], [[Execution Status#Next Execution Slice]]
+- [ ] Sprint 03 editing-loop acceptance pass is active.
+  Plan links: [[docs/RootCellar/02-Sprints/Sprint 03 - Grid Editing Loop]], [[docs/RootCellar/01-Epics/Epic 03 - Desktop Grid UX and Productivity]], [[docs/RootCellar/03-Implementation/UI-to-Engine Trace Bridge]], [[apps/desktop/src/main.ts]]
+  Current state: selection rendering and formula-bar/apply paths are complete and traceable (`Selection`, `Range Presets`, `Recalc Freshness`, `Preset Restore`, `Trace Join`); remaining scope is undo/redo + accessibility semantics + clipboard copy/paste baseline.
+  Evidence: [[Execution Status#Completed In Code]]
+
+- [ ] Sprint 04 Python macro platform foundation planning is ready to start.
+  Plan links: [[docs/RootCellar/02-Sprints/Sprint 04 - Python Macros Alpha]], [[docs/RootCellar/01-Epics/Epic 04 - Python Automation Platform]], [[docs/RootCellar/01-Epics/Epic 08 - Enterprise Trust and Distribution]]
+
+- [ ] Cross-surface event lookup assertions for desktop trace continuity are now validated in tests and CI command invocation.
+  Plan links: [[docs/RootCellar/04-Observability/Execution Traceability Atlas]], [[docs/RootCellar/04-Observability/AI Introspection Runbook]], [[apps/desktop/scripts/capture-ui.mjs]], [[apps/desktop/src-tauri/src/main.rs]]
+  Current state: command-level continuity and response-level metadata assertions are now covered in `desktop_trace_continuity_smoke_open_edit_save_recalc` across open/edit/preview/save/recalc/round-trip, plus event-log inclusion checks for that flow.
 
 ## Next Planned Items
-1. Continue parser/intern scheduler hot-path optimization with benchmark-backed validation on larger dependency graphs.
-2. Stabilize literal-coercion semantics (quoted text + `TRUE`/`FALSE`) with compatibility-focused recalc edge-case coverage.
-3. Start Tauri shell initialization and bridge trace context into UI->engine command paths.
-4. Add a minimal UI smoke check in CI (shell startup + one engine command round-trip) to lock M0 readiness gates.
+ 1. Stabilize next-phase calc edge-case compatibility in Sprint 02 while extending function parity in compatibility-stressed fixtures.
+ 2. Implement Sprint 03 undo/redo baseline and clipboard accessibility behavior with deterministic interaction tests.
+ 3. Deliver `Sprint 04 - Python Macros Alpha` foundation stories for sandboxed runtime lifecycle and permission model.
+ 4. Expand curated Excel-authored corpus with scenario-manager and layout-rich variants, while preserving policy gates (`EXCEL_INTEROP_MIN_EXCEL_AUTHORED_SAMPLES=17` and `EXCEL_INTEROP_MIN_VERIFIED_EXCEL_SAMPLES=17`).
+
+

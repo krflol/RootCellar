@@ -8,7 +8,7 @@ Load and save simple XLSX files with preserve-mode scaffolding and workbook mode
 
 ## Execution Status
 - Status: Completed (interop baseline).
-- Tracking links: [[docs/RootCellar/00-Program/Execution Plan Board]], [[docs/RootCellar/00-Program/Execution Status]]
+- Tracking links: [[docs/RootCellar/00-Program/Execution Plan Board]], [[docs/RootCellar/00-Program/Execution Status]], [[docs/RootCellar/00-Program/Sprint-Epic Story Matrix]]
 - Delivered stories:
 1. Parse workbook/worksheet/shared strings into workbook model projection.
 2. Unknown part preserve pipeline for passthrough and selective worksheet overrides.

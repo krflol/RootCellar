@@ -1,7 +1,7 @@
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
-use serde_json::{json, Value};
-use std::fs::File;
+use serde_json::{json, Map, Value};
+use std::fs::{File, OpenOptions};
 use std::io::{BufWriter, Write};
 use std::path::Path;
 use thiserror::Error;
@@ -22,6 +22,8 @@ pub struct TraceContext {
     pub span_id: Uuid,
     pub parent_span_id: Option<Uuid>,
     pub session_id: Option<Uuid>,
+    pub command_id: Option<Uuid>,
+    pub command_name: Option<String>,
 }
 
 impl TraceContext {
@@ -31,6 +33,8 @@ impl TraceContext {
             span_id: Uuid::now_v7(),
             parent_span_id: None,
             session_id: Some(Uuid::now_v7()),
+            command_id: None,
+            command_name: None,
         }
     }
 
@@ -40,7 +44,20 @@ impl TraceContext {
             span_id: Uuid::now_v7(),
             parent_span_id: Some(self.span_id),
             session_id: self.session_id,
+            command_id: self.command_id,
+            command_name: self.command_name.clone(),
         }
+    }
+
+    fn command_context(&self) -> Value {
+        let mut command_context = Map::new();
+        if let Some(command_id) = self.command_id {
+            command_context.insert("ui_command_id".to_string(), json!(command_id.to_string()));
+        }
+        if let Some(command_name) = &self.command_name {
+            command_context.insert("ui_command_name".to_string(), json!(command_name));
+        }
+        Value::Object(command_context)
     }
 }
 
@@ -74,7 +91,7 @@ impl EventEnvelope {
             session_id: trace.session_id,
             workbook_id: None,
             txn_id: None,
-            context: json!({}),
+            context: trace.command_context(),
             metrics: json!({}),
             payload: json!({}),
         }
@@ -140,6 +157,13 @@ pub struct JsonlEventSink {
 }
 
 impl JsonlEventSink {
+    pub fn new_append(path: impl AsRef<Path>) -> Result<Self, TelemetryError> {
+        let file = OpenOptions::new().create(true).append(true).open(path)?;
+        Ok(Self {
+            writer: BufWriter::new(file),
+        })
+    }
+
     pub fn new(path: impl AsRef<Path>) -> Result<Self, TelemetryError> {
         let file = File::create(path)?;
         Ok(Self {

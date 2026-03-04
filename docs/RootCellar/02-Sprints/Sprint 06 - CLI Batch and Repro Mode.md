@@ -34,6 +34,9 @@ Enable reliable headless automation workflows with reproducibility records.
 - Epic 02 deterministic replay checks.
 - Epic 07 artifact registry enrichment.
 
+## Plan Linkage
+- Tracking links: [[docs/RootCellar/00-Program/Execution Plan Board]], [[docs/RootCellar/00-Program/Execution Status]], [[docs/RootCellar/00-Program/Sprint-Epic Story Matrix]]
+
 ## Stories
 1. Implement `batch` command with bounded Rayon parallelism.
 2. Implement `repro record` and `repro check` command paths.

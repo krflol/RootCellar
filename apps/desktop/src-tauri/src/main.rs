@@ -4,15 +4,23 @@ use rootcellar_core::model::CellRef;
 use rootcellar_core::{
     inspect_xlsx, load_workbook_model, preserve_xlsx_passthrough,
     preserve_xlsx_with_sheet_overrides, recalc_sheet, save_workbook_model, CellValue,
-    CompatibilityIssue, Mutation, NoopEventSink, RecalcReport, SaveMode, TraceContext, Workbook,
-    WorkbookPartGraphSummary, XlsxInspectionReport, XlsxSaveReport,
+    CompatibilityIssue, EventSink, JsonlEventSink, Mutation, NoopEventSink, RecalcReport, SaveMode,
+    TraceContext, Workbook, WorkbookPartGraphSummary, XlsxInspectionReport, XlsxSaveReport,
 };
 use serde::{Deserialize, Serialize};
+use std::collections::hash_map::DefaultHasher;
 use std::collections::BTreeSet;
+use std::fs::OpenOptions;
+use std::hash::{Hash, Hasher};
+use std::io::{BufWriter, Write};
+use std::path::Path;
 use std::path::PathBuf;
 use std::sync::Mutex;
+use std::time::Instant;
 use tauri::State;
 use uuid::Uuid;
+
+const MAX_INTEROP_HISTORY_STEPS: usize = 50;
 
 #[derive(Default)]
 struct DesktopState {
@@ -25,6 +33,72 @@ struct InteropSession {
     workbook: Workbook,
     inspection: XlsxInspectionReport,
     dirty_sheets: BTreeSet<String>,
+    undo_stack: Vec<InteropSessionSnapshot>,
+    redo_stack: Vec<InteropSessionSnapshot>,
+}
+
+#[derive(Debug, Clone)]
+struct InteropSessionSnapshot {
+    workbook: Workbook,
+    dirty_sheets: BTreeSet<String>,
+}
+
+impl InteropSession {
+    fn push_undo_snapshot(&mut self) {
+        self.undo_stack.push(InteropSessionSnapshot {
+            workbook: self.workbook.clone(),
+            dirty_sheets: self.dirty_sheets.clone(),
+        });
+        enforce_history_limit(&mut self.undo_stack, MAX_INTEROP_HISTORY_STEPS);
+        self.redo_stack.clear();
+    }
+
+    fn undo(&mut self) -> Result<(), String> {
+        let previous_state = self
+            .undo_stack
+            .pop()
+            .ok_or_else(|| "no undo history available".to_string())?;
+
+        let current_state = InteropSessionSnapshot {
+            workbook: self.workbook.clone(),
+            dirty_sheets: self.dirty_sheets.clone(),
+        };
+        self.redo_stack.push(current_state);
+        enforce_history_limit(&mut self.redo_stack, MAX_INTEROP_HISTORY_STEPS);
+
+        self.workbook = previous_state.workbook;
+        self.dirty_sheets = previous_state.dirty_sheets;
+        Ok(())
+    }
+
+    fn redo(&mut self) -> Result<(), String> {
+        let next_state = self
+            .redo_stack
+            .pop()
+            .ok_or_else(|| "no redo history available".to_string())?;
+
+        let current_state = InteropSessionSnapshot {
+            workbook: self.workbook.clone(),
+            dirty_sheets: self.dirty_sheets.clone(),
+        };
+        self.undo_stack.push(current_state);
+        enforce_history_limit(&mut self.undo_stack, MAX_INTEROP_HISTORY_STEPS);
+
+        self.workbook = next_state.workbook;
+        self.dirty_sheets = next_state.dirty_sheets;
+        Ok(())
+    }
+
+    fn history_depths(&self) -> (usize, usize) {
+        (self.undo_stack.len(), self.redo_stack.len())
+    }
+}
+
+fn enforce_history_limit(stack: &mut Vec<InteropSessionSnapshot>, max_steps: usize) {
+    if stack.len() > max_steps {
+        let overflow = stack.len() - max_steps;
+        stack.drain(0..overflow);
+    }
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -34,9 +108,17 @@ struct UiTraceContext {
     span_id: Option<String>,
     parent_span_id: Option<String>,
     session_id: Option<String>,
+    command_id: Option<String>,
+    command_name: Option<String>,
+    event_log_path: Option<String>,
+    artifact_index_path: Option<String>,
 }
 
 impl UiTraceContext {
+    fn as_trace_context(&self) -> TraceContext {
+        self.clone().into_trace_context()
+    }
+
     fn into_trace_context(self) -> TraceContext {
         let fallback = TraceContext::root();
         TraceContext {
@@ -56,12 +138,140 @@ impl UiTraceContext {
                 .as_deref()
                 .and_then(parse_uuid)
                 .or(fallback.session_id),
+            command_id: self.command_id.as_deref().and_then(parse_uuid),
+            command_name: self.command_name,
         }
     }
 }
 
 fn parse_uuid(value: &str) -> Option<Uuid> {
     Uuid::parse_str(value).ok()
+}
+
+const DESKTOP_EVENT_JSONL_ENV_VAR: &str = "ROOTCELLAR_DESKTOP_EVENT_JSONL";
+const DESKTOP_ARTIFACT_INDEX_JSONL_ENV_VAR: &str = "ROOTCELLAR_DESKTOP_ARTIFACT_INDEX";
+
+fn make_event_sink(trace: Option<&UiTraceContext>) -> Result<Box<dyn EventSink>, String> {
+    let path = resolve_event_log_path(trace).map(PathBuf::from);
+
+    match path {
+        Some(path) => Ok(Box::new(
+            JsonlEventSink::new_append(&path).map_err(|error| error.to_string())?,
+        )),
+        None => Ok(Box::new(NoopEventSink)),
+    }
+}
+
+fn resolve_event_log_path(trace: Option<&UiTraceContext>) -> Option<String> {
+    trace
+        .and_then(|value| value.event_log_path.as_deref())
+        .filter(|value| !value.trim().is_empty())
+        .map(std::string::ToString::to_string)
+        .or_else(|| {
+            std::env::var(DESKTOP_EVENT_JSONL_ENV_VAR)
+                .ok()
+                .filter(|value| !value.trim().is_empty())
+        })
+}
+
+fn make_artifact_index_path(trace: Option<&UiTraceContext>) -> Option<PathBuf> {
+    trace
+        .and_then(|value| value.artifact_index_path.as_deref())
+        .filter(|value| !value.trim().is_empty())
+        .map(PathBuf::from)
+        .or_else(|| {
+            std::env::var(DESKTOP_ARTIFACT_INDEX_JSONL_ENV_VAR)
+                .ok()
+                .filter(|value| !value.trim().is_empty())
+                .map(PathBuf::from)
+        })
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct TraceArtifactIndexRecord {
+    command_name: String,
+    command_status: String,
+    duration_ms: u128,
+    trace_id: String,
+    trace_root_id: String,
+    span_id: String,
+    parent_span_id: Option<String>,
+    session_id: Option<String>,
+    ui_command_id: Option<String>,
+    ui_command_name: Option<String>,
+    event_log_path: Option<String>,
+    linked_artifact_ids: Vec<String>,
+    artifact_refs: Vec<TraceArtifactRef>,
+}
+
+fn append_trace_artifact_index(
+    artifact_index_path: &Path,
+    trace: &TraceEcho,
+    command_status: &str,
+    duration_ms: u128,
+    event_log_path: Option<&str>,
+    artifact_refs: &[TraceArtifactRef],
+) -> Result<(), String> {
+    let record = TraceArtifactIndexRecord {
+        command_name: trace
+            .ui_command_name
+            .clone()
+            .unwrap_or_else(|| "unknown".to_string()),
+        command_status: command_status.to_string(),
+        duration_ms,
+        trace_id: trace.trace_id.clone(),
+        trace_root_id: trace.trace_root_id.clone(),
+        span_id: trace.span_id.clone(),
+        parent_span_id: trace.parent_span_id.clone(),
+        session_id: trace.session_id.clone(),
+        ui_command_id: trace.ui_command_id.clone(),
+        ui_command_name: trace.ui_command_name.clone(),
+        event_log_path: event_log_path.map(std::string::ToString::to_string),
+        linked_artifact_ids: trace.linked_artifact_ids.clone(),
+        artifact_refs: artifact_refs.to_vec(),
+    };
+
+    let file = OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(artifact_index_path)
+        .map_err(|error| error.to_string())?;
+    let mut writer = BufWriter::new(file);
+    serde_json::to_writer(&mut writer, &record).map_err(|error| error.to_string())?;
+    writer.write_all(b"\n").map_err(|error| error.to_string())?;
+    writer.flush().map_err(|error| error.to_string())?;
+    Ok(())
+}
+
+fn finalize_command_trace(
+    command_trace: &TraceContext,
+    command_status: &str,
+    duration_ms: u128,
+    artifact_refs: Vec<TraceArtifactRef>,
+    artifact_index_path: Option<&Path>,
+    event_log_path: Option<&str>,
+) -> Result<TraceEcho, String> {
+    let trace = finalize_trace(
+        command_trace,
+        command_status,
+        duration_ms,
+        artifact_refs.clone(),
+        artifact_index_path,
+        event_log_path,
+    );
+
+    if let Some(index_path) = artifact_index_path {
+        append_trace_artifact_index(
+            index_path,
+            &trace,
+            command_status,
+            duration_ms,
+            event_log_path,
+            &artifact_refs,
+        )?;
+    }
+    Ok(trace)
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -73,22 +283,118 @@ struct AppStatusResponse {
     interop_ready: bool,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct TraceArtifactRef {
+    artifact_id: String,
+    artifact_type: String,
+    relation: String,
+    path: Option<String>,
+    description: Option<String>,
+}
+
+fn trace_artifact_id(
+    trace: &TraceContext,
+    command_name: &str,
+    artifact_type: &str,
+    relation: &str,
+    path: Option<&str>,
+) -> String {
+    let mut path_hasher = DefaultHasher::new();
+    let payload = match path {
+        Some(path) => format!(
+            "command={command_name}|type={artifact_type}|relation={relation}|path={path}|trace_id={}|span_id={}",
+            trace.trace_id, trace.span_id
+        ),
+        None => format!(
+            "command={command_name}|type={artifact_type}|relation={relation}|trace_id={}|span_id={}",
+            trace.trace_id, trace.span_id
+        ),
+    };
+    payload.hash(&mut path_hasher);
+    format!("{:016x}", path_hasher.finish())
+}
+
+fn trace_artifact_ref(
+    trace: &TraceContext,
+    command_name: &str,
+    artifact_type: &str,
+    relation: &str,
+    path: Option<&str>,
+    description: Option<String>,
+) -> TraceArtifactRef {
+    TraceArtifactRef {
+        artifact_id: trace_artifact_id(trace, command_name, artifact_type, relation, path),
+        artifact_type: artifact_type.to_string(),
+        relation: relation.to_string(),
+        path: path.map(std::string::ToString::to_string),
+        description,
+    }
+}
+
+fn finalize_trace(
+    trace: &TraceContext,
+    command_status: &str,
+    duration_ms: u128,
+    artifact_refs: Vec<TraceArtifactRef>,
+    artifact_index_path: Option<&Path>,
+    event_log_path: Option<&str>,
+) -> TraceEcho {
+    let linked_artifact_ids = artifact_refs
+        .iter()
+        .map(|entry| entry.artifact_id.clone())
+        .collect::<Vec<_>>();
+    TraceEcho {
+        trace_id: trace.trace_id.to_string(),
+        trace_root_id: trace.trace_id.to_string(),
+        span_id: trace.span_id.to_string(),
+        parent_span_id: trace.parent_span_id.map(|id| id.to_string()),
+        session_id: trace.session_id.map(|id| id.to_string()),
+        ui_command_id: trace.command_id.map(|id| id.to_string()),
+        ui_command_name: trace.command_name.clone(),
+        command_status: command_status.to_string(),
+        duration_ms,
+        event_log_path: event_log_path.map(std::string::ToString::to_string),
+        linked_artifact_ids,
+        artifact_refs,
+        artifact_index_path: artifact_index_path.map(|path| path.to_string_lossy().to_string()),
+    }
+}
+
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 struct TraceEcho {
     trace_id: String,
+    trace_root_id: String,
     span_id: String,
     parent_span_id: Option<String>,
     session_id: Option<String>,
+    ui_command_id: Option<String>,
+    ui_command_name: Option<String>,
+    command_status: String,
+    duration_ms: u128,
+    event_log_path: Option<String>,
+    linked_artifact_ids: Vec<String>,
+    artifact_index_path: Option<String>,
+    artifact_refs: Vec<TraceArtifactRef>,
 }
 
 impl From<&TraceContext> for TraceEcho {
     fn from(value: &TraceContext) -> Self {
         Self {
             trace_id: value.trace_id.to_string(),
+            trace_root_id: value.trace_id.to_string(),
             span_id: value.span_id.to_string(),
             parent_span_id: value.parent_span_id.map(|id| id.to_string()),
             session_id: value.session_id.map(|id| id.to_string()),
+            ui_command_id: value.command_id.map(|id| id.to_string()),
+            ui_command_name: value.command_name.clone(),
+            command_status: "not_measured".to_string(),
+            duration_ms: 0,
+            event_log_path: None,
+            linked_artifact_ids: Vec::new(),
+            artifact_index_path: None,
+            artifact_refs: Vec::new(),
         }
     }
 }
@@ -119,6 +425,8 @@ struct InteropSessionStatusResponse {
     dirty_sheet_count: usize,
     dirty_sheets: Vec<String>,
     sheets: Vec<String>,
+    undo_count: usize,
+    redo_count: usize,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -231,6 +539,18 @@ struct InteropSheetPreviewResponse {
     trace: TraceEcho,
 }
 
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct InteropUndoRedoResponse {
+    action: String,
+    workbook_id: String,
+    dirty_sheet_count: usize,
+    dirty_sheets: Vec<String>,
+    undo_count: usize,
+    redo_count: usize,
+    trace: TraceEcho,
+}
+
 fn workbook_sheet_names(workbook: &Workbook) -> Vec<String> {
     workbook.sheets.keys().cloned().collect()
 }
@@ -255,18 +575,23 @@ fn normalize_input_path(path: &str) -> Result<PathBuf, String> {
 
 fn map_session_status(session: Option<&InteropSession>) -> InteropSessionStatusResponse {
     match session {
-        Some(session) => InteropSessionStatusResponse {
-            loaded: true,
-            input_path: Some(session.input_path.display().to_string()),
-            workbook_id: Some(session.workbook.workbook_id.to_string()),
-            sheet_count: session.workbook.sheets.len(),
-            cell_count: workbook_cell_count(&session.workbook),
-            issue_count: session.inspection.summary.issue_count,
-            unknown_part_count: session.inspection.summary.unknown_part_count,
-            dirty_sheet_count: session.dirty_sheets.len(),
-            dirty_sheets: session.dirty_sheets.iter().cloned().collect(),
-            sheets: workbook_sheet_names(&session.workbook),
-        },
+        Some(session) => {
+            let (undo_count, redo_count) = session.history_depths();
+            InteropSessionStatusResponse {
+                loaded: true,
+                input_path: Some(session.input_path.display().to_string()),
+                workbook_id: Some(session.workbook.workbook_id.to_string()),
+                sheet_count: session.workbook.sheets.len(),
+                cell_count: workbook_cell_count(&session.workbook),
+                issue_count: session.inspection.summary.issue_count,
+                unknown_part_count: session.inspection.summary.unknown_part_count,
+                dirty_sheet_count: session.dirty_sheets.len(),
+                dirty_sheets: session.dirty_sheets.iter().cloned().collect(),
+                undo_count,
+                redo_count,
+                sheets: workbook_sheet_names(&session.workbook),
+            }
+        }
         None => InteropSessionStatusResponse {
             loaded: false,
             input_path: None,
@@ -277,6 +602,8 @@ fn map_session_status(session: Option<&InteropSession>) -> InteropSessionStatusR
             unknown_part_count: 0,
             dirty_sheet_count: 0,
             dirty_sheets: Vec::new(),
+            undo_count: 0,
+            redo_count: 0,
             sheets: Vec::new(),
         },
     }
@@ -429,10 +756,9 @@ fn apply_cell_edit_to_workbook(
     cell: &str,
     input: &str,
     mode: UiEditMode,
+    sink: &mut dyn EventSink,
     command_trace: &TraceContext,
 ) -> Result<InteropCellEditResponse, String> {
-    let mut sink = NoopEventSink;
-
     let resolved_sheet = {
         let trimmed = sheet.trim();
         if trimmed.is_empty() {
@@ -458,7 +784,7 @@ fn apply_cell_edit_to_workbook(
     }
 
     let mut txn = workbook
-        .begin_txn(&mut sink, command_trace)
+        .begin_txn(sink, command_trace)
         .map_err(|error| error.to_string())?;
 
     match mode {
@@ -491,7 +817,7 @@ fn apply_cell_edit_to_workbook(
         }
     }
 
-    txn.commit(workbook, &mut sink, command_trace)
+    txn.commit(workbook, sink, command_trace)
         .map_err(|error| error.to_string())?;
     dirty_sheets.insert(resolved_sheet.clone());
 
@@ -533,15 +859,19 @@ fn app_status() -> AppStatusResponse {
 
 #[tauri::command]
 fn engine_round_trip(trace: Option<UiTraceContext>) -> Result<EngineRoundTripResponse, String> {
+    let mut sink = make_event_sink(trace.as_ref())?;
+    let artifact_index_path = make_artifact_index_path(trace.as_ref());
+    let event_log_path = resolve_event_log_path(trace.as_ref());
     let incoming_trace = trace
-        .map(UiTraceContext::into_trace_context)
+        .as_ref()
+        .map(UiTraceContext::as_trace_context)
         .unwrap_or_else(TraceContext::root);
     let command_trace = incoming_trace.child();
-    let mut sink = NoopEventSink;
+    let started = Instant::now();
 
     let mut workbook = Workbook::new();
     let mut txn = workbook
-        .begin_txn(&mut sink, &command_trace)
+        .begin_txn(&mut *sink, &command_trace)
         .map_err(|error| error.to_string())?;
 
     txn.apply(Mutation::SetCellValue {
@@ -564,10 +894,10 @@ fn engine_round_trip(trace: Option<UiTraceContext>) -> Result<EngineRoundTripRes
         cached_value: CellValue::Empty,
     });
 
-    txn.commit(&mut workbook, &mut sink, &command_trace)
+    txn.commit(&mut workbook, &mut *sink, &command_trace)
         .map_err(|error| error.to_string())?;
 
-    let report = recalc_sheet(&mut workbook, "Sheet1", &mut sink, &command_trace)
+    let report = recalc_sheet(&mut workbook, "Sheet1", &mut *sink, &command_trace)
         .map_err(|error| error.to_string())?;
 
     let value = workbook
@@ -582,7 +912,17 @@ fn engine_round_trip(trace: Option<UiTraceContext>) -> Result<EngineRoundTripRes
         })
         .ok_or_else(|| "formula cell C1 not found after recalc".to_string())?;
 
-    Ok(EngineRoundTripResponse {
+    let artifact_refs = vec![trace_artifact_ref(
+        &command_trace,
+        "engine_round_trip",
+        "engine_roundtrip",
+        "runtime_report",
+        None,
+        Some(format!("workbook_id={}", workbook.workbook_id)),
+    )];
+
+    let command_duration = started.elapsed().as_millis();
+    let response = EngineRoundTripResponse {
         sheet: "Sheet1".to_string(),
         formula_cell: "C1".to_string(),
         value,
@@ -590,8 +930,18 @@ fn engine_round_trip(trace: Option<UiTraceContext>) -> Result<EngineRoundTripRes
         cycle_count: report.cycle_count,
         parse_error_count: report.parse_error_count,
         workbook_id: workbook.workbook_id.to_string(),
-        trace: TraceEcho::from(&command_trace),
-    })
+        trace: finalize_command_trace(
+            &command_trace,
+            "success",
+            command_duration,
+            artifact_refs,
+            artifact_index_path.as_deref(),
+            event_log_path.as_deref(),
+        )
+        .map_err(|error| error.to_string())?,
+    };
+
+    Ok(response)
 }
 
 #[tauri::command]
@@ -601,17 +951,23 @@ fn interop_open_workbook(
     trace: Option<UiTraceContext>,
 ) -> Result<InteropOpenResponse, String> {
     let input_path = normalize_input_path(&path)?;
+    let mut sink = make_event_sink(trace.as_ref())?;
+    let artifact_index_path = make_artifact_index_path(trace.as_ref());
+    let event_log_path = resolve_event_log_path(trace.as_ref());
     let incoming_trace = trace
-        .map(UiTraceContext::into_trace_context)
+        .as_ref()
+        .map(UiTraceContext::as_trace_context)
         .unwrap_or_else(TraceContext::root);
     let command_trace = incoming_trace.child();
-    let mut sink = NoopEventSink;
+    let started = Instant::now();
 
     let inspection =
-        inspect_xlsx(&input_path, &mut sink, &command_trace).map_err(|error| error.to_string())?;
-    let workbook = load_workbook_model(&input_path, &mut sink, &command_trace)
+        inspect_xlsx(&input_path, &mut *sink, &command_trace).map_err(|error| error.to_string())?;
+    let workbook = load_workbook_model(&input_path, &mut *sink, &command_trace)
         .map_err(|error| error.to_string())?;
-    let response = map_open_response(&input_path, &workbook, &inspection, &command_trace);
+    let workbook_sheet_count = workbook.sheets.len();
+    let input_path_display = input_path.display().to_string();
+    let mut response = map_open_response(&input_path, &workbook, &inspection, &command_trace);
 
     let mut session_guard = state
         .session
@@ -622,8 +978,38 @@ fn interop_open_workbook(
         workbook,
         inspection,
         dirty_sheets: BTreeSet::new(),
+        undo_stack: Vec::new(),
+        redo_stack: Vec::new(),
     });
 
+    let artifact_refs = vec![
+        trace_artifact_ref(
+            &command_trace,
+            "interop_open_workbook",
+            "workbook_input",
+            "input_source",
+            Some(&input_path_display),
+            Some("opened workbook artifact".to_string()),
+        ),
+        trace_artifact_ref(
+            &command_trace,
+            "interop_open_workbook",
+            "compatibility_report",
+            "open_report",
+            Some(&input_path_display),
+            Some(format!("sheets={}", workbook_sheet_count)),
+        ),
+    ];
+    let command_duration = started.elapsed().as_millis();
+    response.trace = finalize_command_trace(
+        &command_trace,
+        "success",
+        command_duration,
+        artifact_refs,
+        artifact_index_path.as_deref(),
+        event_log_path.as_deref(),
+    )
+    .map_err(|error| error.to_string())?;
     Ok(response)
 }
 
@@ -644,11 +1030,15 @@ fn interop_recalc_loaded(
     sheet: Option<String>,
     trace: Option<UiTraceContext>,
 ) -> Result<InteropRecalcResponse, String> {
+    let mut sink = make_event_sink(trace.as_ref())?;
+    let artifact_index_path = make_artifact_index_path(trace.as_ref());
+    let event_log_path = resolve_event_log_path(trace.as_ref());
     let incoming_trace = trace
-        .map(UiTraceContext::into_trace_context)
+        .as_ref()
+        .map(UiTraceContext::as_trace_context)
         .unwrap_or_else(TraceContext::root);
     let command_trace = incoming_trace.child();
-    let mut sink = NoopEventSink;
+    let started = Instant::now();
 
     let mut session_guard = state
         .session
@@ -671,23 +1061,41 @@ fn interop_recalc_loaded(
         return Err("loaded workbook has no sheets".to_string());
     }
 
+    let target_sheet_list = target_sheets.join(",");
     let mut reports = Vec::with_capacity(target_sheets.len());
-    for sheet_name in target_sheets {
+    for sheet_name in &target_sheets {
         let report = recalc_sheet(
             &mut session.workbook,
-            &sheet_name,
-            &mut sink,
+            sheet_name,
+            &mut *sink,
             &command_trace,
         )
         .map_err(|error| error.to_string())?;
-        session.dirty_sheets.insert(sheet_name);
+        session.dirty_sheets.insert(sheet_name.to_string());
         reports.push(report);
     }
 
+    let artifact_refs = vec![trace_artifact_ref(
+        &command_trace,
+        "interop_recalc_loaded",
+        "recalc_report",
+        "sheet_recalc",
+        Some(&target_sheet_list),
+        Some(format!("dirty_sheets={}", session.dirty_sheets.len())),
+    )];
+    let command_duration = started.elapsed().as_millis();
     Ok(InteropRecalcResponse {
         workbook_id: session.workbook.workbook_id.to_string(),
         reports,
-        trace: TraceEcho::from(&command_trace),
+        trace: finalize_command_trace(
+            &command_trace,
+            "success",
+            command_duration,
+            artifact_refs,
+            artifact_index_path.as_deref(),
+            event_log_path.as_deref(),
+        )
+        .map_err(|error| error.to_string())?,
     })
 }
 
@@ -700,10 +1108,17 @@ fn interop_apply_cell_edit(
     mode: UiEditMode,
     trace: Option<UiTraceContext>,
 ) -> Result<InteropCellEditResponse, String> {
+    let mut sink = make_event_sink(trace.as_ref())?;
+    let artifact_index_path = make_artifact_index_path(trace.as_ref());
+    let event_log_path = resolve_event_log_path(trace.as_ref());
     let incoming_trace = trace
-        .map(UiTraceContext::into_trace_context)
+        .as_ref()
+        .map(UiTraceContext::as_trace_context)
         .unwrap_or_else(TraceContext::root);
     let command_trace = incoming_trace.child();
+    let started = Instant::now();
+    let resolved_sheet = sheet.trim().to_string();
+    let normalized_cell = cell.trim().to_ascii_uppercase();
 
     let mut session_guard = state
         .session
@@ -712,16 +1127,147 @@ fn interop_apply_cell_edit(
     let session = session_guard
         .as_mut()
         .ok_or_else(|| "no workbook loaded; open a workbook first".to_string())?;
+    session.push_undo_snapshot();
 
-    apply_cell_edit_to_workbook(
+    let mut response = apply_cell_edit_to_workbook(
         &mut session.workbook,
         &mut session.dirty_sheets,
-        &sheet,
-        &cell,
+        &resolved_sheet,
+        &normalized_cell,
         &input,
         mode,
+        &mut *sink,
         &command_trace,
+    )?;
+
+    let artifact_refs = vec![trace_artifact_ref(
+        &command_trace,
+        "interop_apply_cell_edit",
+        "workbook_mutation",
+        "sheet_edit",
+        Some(&format!("{resolved_sheet}!{normalized_cell}")),
+        Some(format!("applied_cells={}", response.applied_cell_count)),
+    )];
+    let command_duration = started.elapsed().as_millis();
+    response.trace = finalize_command_trace(
+        &command_trace,
+        "success",
+        command_duration,
+        artifact_refs,
+        artifact_index_path.as_deref(),
+        event_log_path.as_deref(),
     )
+    .map_err(|error| error.to_string())?;
+
+    Ok(response)
+}
+
+fn make_undo_redo_response(
+    session: &InteropSession,
+    action: &str,
+    command_trace: &TraceContext,
+    command_duration: u128,
+    artifact_index_path: Option<&Path>,
+    event_log_path: Option<&str>,
+) -> Result<InteropUndoRedoResponse, String> {
+    let (undo_count, redo_count) = session.history_depths();
+    let artifact_refs = vec![trace_artifact_ref(
+        command_trace,
+        &format!("interop_{action}"),
+        "workbook_snapshot",
+        "history_restore",
+        Some(&session.input_path.display().to_string()),
+        Some(format!("{action} history restore")),
+    )];
+    Ok(InteropUndoRedoResponse {
+        action: action.to_string(),
+        workbook_id: session.workbook.workbook_id.to_string(),
+        dirty_sheet_count: session.dirty_sheets.len(),
+        dirty_sheets: session.dirty_sheets.iter().cloned().collect(),
+        undo_count,
+        redo_count,
+        trace: finalize_command_trace(
+            command_trace,
+            "success",
+            command_duration,
+            artifact_refs,
+            artifact_index_path,
+            event_log_path,
+        )
+        .map_err(|error| error.to_string())?,
+    })
+}
+
+#[tauri::command]
+fn interop_undo_edit(
+    state: State<DesktopState>,
+    trace: Option<UiTraceContext>,
+) -> Result<InteropUndoRedoResponse, String> {
+    let _sink = make_event_sink(trace.as_ref())?;
+    let artifact_index_path = make_artifact_index_path(trace.as_ref());
+    let event_log_path = resolve_event_log_path(trace.as_ref());
+    let incoming_trace = trace
+        .as_ref()
+        .map(UiTraceContext::as_trace_context)
+        .unwrap_or_else(TraceContext::root);
+    let command_trace = incoming_trace.child();
+    let started = Instant::now();
+
+    let _ = _sink;
+    let mut session_guard = state
+        .session
+        .lock()
+        .map_err(|_| "desktop state lock poisoned".to_string())?;
+    let session = session_guard
+        .as_mut()
+        .ok_or_else(|| "no workbook loaded; open a workbook first".to_string())?;
+
+    session.undo()?;
+    let response = make_undo_redo_response(
+        session,
+        "undo",
+        &command_trace,
+        started.elapsed().as_millis(),
+        artifact_index_path.as_deref(),
+        event_log_path.as_deref(),
+    )?;
+    Ok(response)
+}
+
+#[tauri::command]
+fn interop_redo_edit(
+    state: State<DesktopState>,
+    trace: Option<UiTraceContext>,
+) -> Result<InteropUndoRedoResponse, String> {
+    let _sink = make_event_sink(trace.as_ref())?;
+    let artifact_index_path = make_artifact_index_path(trace.as_ref());
+    let event_log_path = resolve_event_log_path(trace.as_ref());
+    let incoming_trace = trace
+        .as_ref()
+        .map(UiTraceContext::as_trace_context)
+        .unwrap_or_else(TraceContext::root);
+    let command_trace = incoming_trace.child();
+    let started = Instant::now();
+
+    let _ = _sink;
+    let mut session_guard = state
+        .session
+        .lock()
+        .map_err(|_| "desktop state lock poisoned".to_string())?;
+    let session = session_guard
+        .as_mut()
+        .ok_or_else(|| "no workbook loaded; open a workbook first".to_string())?;
+
+    session.redo()?;
+    let response = make_undo_redo_response(
+        session,
+        "redo",
+        &command_trace,
+        started.elapsed().as_millis(),
+        artifact_index_path.as_deref(),
+        event_log_path.as_deref(),
+    )?;
+    Ok(response)
 }
 
 #[tauri::command]
@@ -731,10 +1277,14 @@ fn interop_sheet_preview(
     limit: Option<usize>,
     trace: Option<UiTraceContext>,
 ) -> Result<InteropSheetPreviewResponse, String> {
+    let artifact_index_path = make_artifact_index_path(trace.as_ref());
+    let event_log_path = resolve_event_log_path(trace.as_ref());
     let incoming_trace = trace
-        .map(UiTraceContext::into_trace_context)
+        .as_ref()
+        .map(UiTraceContext::as_trace_context)
         .unwrap_or_else(TraceContext::root);
     let command_trace = incoming_trace.child();
+    let started = Instant::now();
 
     let session_guard = state
         .session
@@ -776,6 +1326,15 @@ fn interop_sheet_preview(
         })
         .collect::<Vec<_>>();
 
+    let artifact_refs = vec![trace_artifact_ref(
+        &command_trace,
+        "interop_sheet_preview",
+        "sheet_snapshot",
+        "sheet_preview",
+        Some(&resolved_sheet),
+        Some(format!("limit={preview_limit},shown={}", cells.len())),
+    )];
+    let command_duration = started.elapsed().as_millis();
     Ok(InteropSheetPreviewResponse {
         workbook_id: session.workbook.workbook_id.to_string(),
         sheet: resolved_sheet,
@@ -783,7 +1342,15 @@ fn interop_sheet_preview(
         shown_cells: cells.len(),
         truncated: sheet_data.cells.len() > cells.len(),
         cells,
-        trace: TraceEcho::from(&command_trace),
+        trace: finalize_command_trace(
+            &command_trace,
+            "success",
+            command_duration,
+            artifact_refs,
+            artifact_index_path.as_deref(),
+            event_log_path.as_deref(),
+        )
+        .map_err(|error| error.to_string())?,
     })
 }
 
@@ -800,11 +1367,15 @@ fn interop_save_workbook(
         return Err("output path is required".to_string());
     }
 
+    let mut sink = make_event_sink(trace.as_ref())?;
+    let artifact_index_path = make_artifact_index_path(trace.as_ref());
+    let event_log_path = resolve_event_log_path(trace.as_ref());
     let incoming_trace = trace
-        .map(UiTraceContext::into_trace_context)
+        .as_ref()
+        .map(UiTraceContext::as_trace_context)
         .unwrap_or_else(TraceContext::root);
     let command_trace = incoming_trace.child();
-    let mut sink = NoopEventSink;
+    let started = Instant::now();
 
     let mut session_guard = state
         .session
@@ -819,7 +1390,7 @@ fn interop_save_workbook(
             &session.input_path,
             output_path,
             &session.workbook,
-            &mut sink,
+            &mut *sink,
             &command_trace,
         ),
         UiSaveMode::Preserve => {
@@ -829,7 +1400,7 @@ fn interop_save_workbook(
                 output_path,
                 &session.workbook,
                 &changed_sheets,
-                &mut sink,
+                &mut *sink,
                 &command_trace,
             )
         }
@@ -837,13 +1408,41 @@ fn interop_save_workbook(
             &session.workbook,
             output_path,
             SaveMode::Normalize,
-            &mut sink,
+            &mut *sink,
             &command_trace,
         ),
     }
     .map_err(|error| error.to_string())?;
     let saved_output_path = report.output_path.clone();
-    let response = map_save_response(session, report, mode, &command_trace);
+    let artifact_refs = vec![
+        trace_artifact_ref(
+            &command_trace,
+            "interop_save_workbook",
+            "workbook_output",
+            "saved_workbook",
+            Some(&saved_output_path.display().to_string()),
+            Some(format!("mode={}", mode.as_str())),
+        ),
+        trace_artifact_ref(
+            &command_trace,
+            "interop_save_workbook",
+            "workbook_snapshot",
+            "session_input",
+            Some(&session.input_path.display().to_string()),
+            Some("source_workbook_path".to_string()),
+        ),
+    ];
+    let command_duration = started.elapsed().as_millis();
+    let mut response = map_save_response(session, report, mode, &command_trace);
+    response.trace = finalize_command_trace(
+        &command_trace,
+        "success",
+        command_duration,
+        artifact_refs,
+        artifact_index_path.as_deref(),
+        event_log_path.as_deref(),
+    )
+    .map_err(|error| error.to_string())?;
 
     if promote_output_as_input.unwrap_or(false) {
         session.input_path = saved_output_path
@@ -884,6 +1483,184 @@ mod tests {
         workbook
     }
 
+    fn sample_xlsx_path() -> String {
+        let manifest_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+        manifest_dir
+            .join("..")
+            .join("..")
+            .join("..")
+            .join("sample-formula.xlsx")
+            .to_string_lossy()
+            .into_owned()
+    }
+
+    fn make_command_trace(
+        seed_trace_id: &str,
+        seed_session_id: &str,
+        command_name: &str,
+        event_log_path: Option<&str>,
+        artifact_index_path: Option<&str>,
+    ) -> UiTraceContext {
+        UiTraceContext {
+            trace_id: Some(seed_trace_id.to_string()),
+            span_id: Some(Uuid::now_v7().to_string()),
+            parent_span_id: None,
+            session_id: Some(seed_session_id.to_string()),
+            command_id: Some(Uuid::now_v7().to_string()),
+            command_name: Some(command_name.to_string()),
+            artifact_index_path: artifact_index_path.map(ToString::to_string),
+            event_log_path: event_log_path.map(ToString::to_string),
+        }
+    }
+
+    fn event_trace_present_in_log(path: &Path, trace_id: &str) -> bool {
+        let expected = format!("\"trace_id\":\"{trace_id}\"");
+        std::fs::read_to_string(path)
+            .map(|contents| contents.contains(&expected))
+            .unwrap_or(false)
+    }
+
+    fn event_line_count(path: &Path) -> usize {
+        std::fs::read_to_string(path)
+            .map(|contents| {
+                contents
+                    .lines()
+                    .filter(|line| !line.trim().is_empty())
+                    .count()
+            })
+            .unwrap_or(0)
+    }
+
+    fn artifact_index_present_in_log(path: &Path, trace_id: &str, command_name: &str) -> bool {
+        std::fs::read_to_string(path)
+            .map(|contents| {
+                let trace_marker = format!("\"traceId\":\"{trace_id}\"");
+                let command_marker = format!("\"commandName\":\"{command_name}\"");
+                contents.contains(&trace_marker) && contents.contains(&command_marker)
+            })
+            .unwrap_or(false)
+    }
+
+    fn artifact_index_line_count(path: &Path) -> usize {
+        std::fs::read_to_string(path)
+            .map(|contents| {
+                contents
+                    .lines()
+                    .filter(|line| !line.trim().is_empty())
+                    .count()
+            })
+            .unwrap_or(0)
+    }
+
+    #[allow(dead_code)]
+    #[derive(Debug, Clone, Deserialize)]
+    #[serde(rename_all = "camelCase")]
+    struct ArtifactIndexRecord {
+        command_name: String,
+        command_status: String,
+        duration_ms: u128,
+        trace_id: String,
+        trace_root_id: String,
+        span_id: String,
+        parent_span_id: Option<String>,
+        session_id: Option<String>,
+        ui_command_id: Option<String>,
+        ui_command_name: Option<String>,
+        event_log_path: Option<String>,
+        linked_artifact_ids: Vec<String>,
+        artifact_refs: Vec<TraceArtifactRef>,
+    }
+
+    fn load_artifact_index_records(path: &Path) -> Vec<ArtifactIndexRecord> {
+        std::fs::read_to_string(path)
+            .unwrap_or_default()
+            .lines()
+            .filter_map(|line| {
+                let trimmed = line.trim();
+                if trimmed.is_empty() {
+                    return None;
+                }
+                serde_json::from_str::<ArtifactIndexRecord>(trimmed).ok()
+            })
+            .collect()
+    }
+
+    fn assert_trace_has_manifest_coverage(trace: &TraceEcho, records: &[ArtifactIndexRecord]) {
+        let command_name = trace
+            .ui_command_name
+            .clone()
+            .unwrap_or_else(|| "unknown".to_string());
+        let matching = records
+            .iter()
+            .filter(|record| {
+                record.trace_id == trace.trace_id && record.command_name == command_name
+            })
+            .collect::<Vec<_>>();
+        assert!(
+            !matching.is_empty(),
+            "artifact index should include {command_name} record for trace_id {}",
+            trace.trace_id
+        );
+
+        for artifact_id in &trace.linked_artifact_ids {
+            let resolved = matching.iter().any(|record| {
+                record
+                    .linked_artifact_ids
+                    .iter()
+                    .any(|id| id == artifact_id)
+            });
+            assert!(
+                resolved,
+                "artifact index for {command_name} should include linked_artifact_id {artifact_id}"
+            );
+        }
+
+        for artifact_ref in &trace.artifact_refs {
+            assert!(
+                trace
+                    .linked_artifact_ids
+                    .iter()
+                    .any(|artifact_id| artifact_id == &artifact_ref.artifact_id),
+                "artifact_ref id {} should be present in linked_artifact_ids for {command_name}",
+                artifact_ref.artifact_id
+            );
+            let present = matching.iter().any(|record| {
+                record.artifact_refs.iter().any(|candidate| {
+                    candidate.artifact_id == artifact_ref.artifact_id
+                        && candidate.artifact_type == artifact_ref.artifact_type
+                        && candidate.relation == artifact_ref.relation
+                })
+            });
+            assert!(
+                present,
+                "artifact index for {command_name} should include artifact_ref {}",
+                artifact_ref.artifact_id
+            );
+        }
+
+        for record in &matching {
+            assert_eq!(
+                record.trace_root_id, trace.trace_root_id,
+                "artifact index trace_root_id should match trace payload"
+            );
+            assert_eq!(
+                record.trace_id, trace.trace_id,
+                "artifact index trace_id should match command trace payload"
+            );
+            assert_eq!(
+                record.command_status, trace.command_status,
+                "artifact index command_status should match command trace payload"
+            );
+        }
+    }
+
+    fn as_state<'a>(session: &'a DesktopState) -> tauri::State<'a, DesktopState> {
+        unsafe {
+            // SAFETY: `State` is a transparent wrapper around a reference for read-only access.
+            std::mem::transmute::<&'a DesktopState, tauri::State<'a, DesktopState>>(session)
+        }
+    }
+
     fn sheet_cell_value(workbook: &Workbook, row: u32, col: u32) -> CellValue {
         workbook
             .sheets
@@ -902,6 +1679,520 @@ mod tests {
             .expect("cell should exist in Sheet1")
     }
 
+    fn cell_value_from_session(
+        session: &DesktopState,
+        sheet: &str,
+        row: u32,
+        col: u32,
+    ) -> CellValue {
+        let session_guard = session
+            .session
+            .lock()
+            .expect("desktop state lock should not be poisoned");
+        let opened = session_guard
+            .as_ref()
+            .expect("workbook should be opened for session");
+        opened
+            .workbook
+            .sheets
+            .get(sheet)
+            .and_then(|sheet_data| sheet_data.cells.get(&CellRef { row, col }))
+            .map(|record| record.value.clone())
+            .expect("cell should exist in loaded workbook")
+    }
+
+    fn sheet1_cell_from_session(session: &DesktopState, row: u32, col: u32) -> CellValue {
+        cell_value_from_session(session, "Sheet1", row, col)
+    }
+
+    #[test]
+    fn desktop_trace_continuity_smoke_open_edit_save_recalc() {
+        let sample_path = sample_xlsx_path();
+        let session = DesktopState::default();
+        let state = as_state(&session);
+
+        let command_root = TraceContext::root();
+        let trace_root = command_root.trace_id.to_string();
+        let trace_session = command_root
+            .session_id
+            .expect("root session id should be set")
+            .to_string();
+        let event_log_path = std::env::temp_dir()
+            .join(format!("rootcellar-desktop-events-{trace_root}.jsonl"))
+            .to_string_lossy()
+            .into_owned();
+        let artifact_index_path = std::env::temp_dir()
+            .join(format!("rootcellar-desktop-artifacts-{trace_root}.jsonl"))
+            .to_string_lossy()
+            .into_owned();
+
+        let open_trace_context = make_command_trace(
+            &trace_root,
+            &trace_session,
+            "interop_open_workbook",
+            Some(&event_log_path),
+            Some(&artifact_index_path),
+        );
+        let open_payload = interop_open_workbook(
+            state.clone(),
+            sample_path.clone(),
+            Some(open_trace_context.clone()),
+        )
+        .expect("open should succeed for sample workbook");
+        assert_eq!(open_payload.trace.command_status, "success");
+        assert!(
+            event_line_count(Path::new(&event_log_path)) > 0,
+            "event log should be written for open"
+        );
+        assert!(
+            event_trace_present_in_log(Path::new(&event_log_path), &trace_root),
+            "events should include open trace_id"
+        );
+        assert!(
+            artifact_index_present_in_log(
+                Path::new(&artifact_index_path),
+                &trace_root,
+                "interop_open_workbook"
+            ),
+            "artifact index should include open command"
+        );
+        assert!(!open_payload.trace.linked_artifact_ids.is_empty());
+        assert_trace_has_manifest_coverage(
+            &open_payload.trace,
+            &load_artifact_index_records(Path::new(&artifact_index_path)),
+        );
+
+        let first_sheet = open_payload
+            .sheets
+            .first()
+            .cloned()
+            .expect("sample workbook should expose at least one sheet");
+        assert_eq!(open_payload.trace.trace_id, trace_root);
+        assert_eq!(
+            open_payload.trace.trace_root_id,
+            open_payload.trace.trace_id
+        );
+        assert_eq!(
+            open_payload.trace.parent_span_id,
+            Some(open_trace_context.span_id.expect("open trace span"))
+        );
+        assert!(open_payload.trace.ui_command_id.is_some());
+        assert_eq!(
+            open_payload.trace.ui_command_name.as_deref(),
+            Some("interop_open_workbook")
+        );
+        let events_after_open = event_line_count(Path::new(&event_log_path));
+
+        let preview_trace_context = make_command_trace(
+            &trace_root,
+            &trace_session,
+            "interop_sheet_preview",
+            Some(&event_log_path),
+            Some(&artifact_index_path),
+        );
+        let preview_payload = interop_sheet_preview(
+            state.clone(),
+            Some(first_sheet.clone()),
+            Some(20),
+            Some(preview_trace_context.clone()),
+        )
+        .expect("preview should succeed after open");
+        assert_eq!(preview_payload.trace.trace_id, trace_root);
+        assert_eq!(
+            preview_payload.trace.trace_root_id,
+            preview_payload.trace.trace_id
+        );
+        assert_eq!(preview_payload.trace.command_status, "success");
+        assert!(!preview_payload.trace.linked_artifact_ids.is_empty());
+        assert_trace_has_manifest_coverage(
+            &preview_payload.trace,
+            &load_artifact_index_records(Path::new(&artifact_index_path)),
+        );
+        assert_eq!(
+            preview_payload.trace.parent_span_id,
+            Some(preview_trace_context.span_id.expect("preview trace span"))
+        );
+        assert_eq!(
+            preview_payload.trace.ui_command_name.as_deref(),
+            Some("interop_sheet_preview")
+        );
+        assert!(
+            artifact_index_present_in_log(
+                Path::new(&artifact_index_path),
+                &trace_root,
+                "interop_sheet_preview",
+            ),
+            "artifact index should include preview command"
+        );
+        assert!(
+            artifact_index_line_count(Path::new(&artifact_index_path)) >= 2,
+            "artifact index should include open + preview records"
+        );
+
+        let edit_trace_context = make_command_trace(
+            &trace_root,
+            &trace_session,
+            "interop_apply_cell_edit",
+            Some(&event_log_path),
+            Some(&artifact_index_path),
+        );
+        let edit_payload = interop_apply_cell_edit(
+            state.clone(),
+            first_sheet.clone(),
+            "A1".to_string(),
+            "11".to_string(),
+            UiEditMode::Value,
+            Some(edit_trace_context.clone()),
+        )
+        .expect("edit should succeed on sample workbook");
+        assert_eq!(edit_payload.trace.trace_id, trace_root);
+        assert_eq!(
+            edit_payload.trace.trace_root_id,
+            edit_payload.trace.trace_id
+        );
+        assert_eq!(edit_payload.trace.command_status, "success");
+        assert!(!edit_payload.trace.linked_artifact_ids.is_empty());
+        assert_trace_has_manifest_coverage(
+            &edit_payload.trace,
+            &load_artifact_index_records(Path::new(&artifact_index_path)),
+        );
+        assert_eq!(
+            edit_payload.trace.parent_span_id,
+            Some(edit_trace_context.span_id.expect("edit trace span"))
+        );
+        assert_eq!(
+            edit_payload.trace.ui_command_name.as_deref(),
+            Some("interop_apply_cell_edit")
+        );
+        let events_after_edit = event_line_count(Path::new(&event_log_path));
+        assert!(
+            events_after_edit > events_after_open,
+            "event log should grow after edit"
+        );
+        assert!(
+            event_trace_present_in_log(Path::new(&event_log_path), &trace_root),
+            "events should include edit trace_id"
+        );
+        assert!(
+            artifact_index_present_in_log(
+                Path::new(&artifact_index_path),
+                &trace_root,
+                "interop_apply_cell_edit",
+            ),
+            "artifact index should include edit command"
+        );
+        assert!(
+            artifact_index_line_count(Path::new(&artifact_index_path)) >= 2,
+            "artifact index should include at least open + edit records"
+        );
+
+        let output_path = std::env::temp_dir()
+            .join(format!("rootcellar-desktop-smoke-{trace_root}.xlsx"))
+            .to_string_lossy()
+            .into_owned();
+        let save_trace_context = make_command_trace(
+            &trace_root,
+            &trace_session,
+            "interop_save_workbook",
+            Some(&event_log_path),
+            Some(&artifact_index_path),
+        );
+        let save_payload = interop_save_workbook(
+            state.clone(),
+            output_path.clone(),
+            UiSaveMode::Preserve,
+            Some(false),
+            Some(save_trace_context.clone()),
+        )
+        .expect("save should succeed after mutation");
+        assert_eq!(save_payload.trace.command_status, "success");
+        assert!(!save_payload.trace.linked_artifact_ids.is_empty());
+        assert_trace_has_manifest_coverage(
+            &save_payload.trace,
+            &load_artifact_index_records(Path::new(&artifact_index_path)),
+        );
+        assert_eq!(save_payload.trace.trace_id, trace_root);
+        assert_eq!(
+            save_payload.trace.trace_root_id,
+            save_payload.trace.trace_id
+        );
+        assert_eq!(
+            save_payload.trace.parent_span_id,
+            Some(save_trace_context.span_id.expect("save trace span"))
+        );
+        assert_eq!(
+            save_payload.trace.ui_command_name.as_deref(),
+            Some("interop_save_workbook")
+        );
+        let events_after_save = event_line_count(Path::new(&event_log_path));
+        assert!(
+            events_after_save > events_after_edit,
+            "event log should grow after save"
+        );
+        assert!(
+            event_trace_present_in_log(Path::new(&event_log_path), &trace_root),
+            "events should include save trace_id"
+        );
+        assert!(
+            artifact_index_present_in_log(
+                Path::new(&artifact_index_path),
+                &trace_root,
+                "interop_save_workbook",
+            ),
+            "artifact index should include save command"
+        );
+        assert!(
+            artifact_index_line_count(Path::new(&artifact_index_path)) >= 4,
+            "artifact index should include open + preview + edit + save records"
+        );
+
+        let recalc_trace_context = make_command_trace(
+            &trace_root,
+            &trace_session,
+            "interop_recalc_loaded",
+            Some(&event_log_path),
+            Some(&artifact_index_path),
+        );
+        let recalc_payload =
+            interop_recalc_loaded(state, Some(first_sheet), Some(recalc_trace_context.clone()))
+                .expect("recalc should succeed for loaded workbook");
+        assert_eq!(recalc_payload.trace.command_status, "success");
+        assert!(!recalc_payload.trace.linked_artifact_ids.is_empty());
+        assert_trace_has_manifest_coverage(
+            &recalc_payload.trace,
+            &load_artifact_index_records(Path::new(&artifact_index_path)),
+        );
+        assert_eq!(recalc_payload.trace.trace_id, trace_root);
+        let events_after_recalc = event_line_count(Path::new(&event_log_path));
+        assert_eq!(
+            recalc_payload.trace.trace_root_id,
+            recalc_payload.trace.trace_id
+        );
+        assert_eq!(
+            recalc_payload.trace.parent_span_id,
+            Some(recalc_trace_context.span_id.expect("recalc trace span"))
+        );
+        assert!(!recalc_payload.reports.is_empty());
+        assert_eq!(
+            recalc_payload.trace.ui_command_name.as_deref(),
+            Some("interop_recalc_loaded")
+        );
+        assert!(
+            event_line_count(Path::new(&event_log_path)) > events_after_save,
+            "event log should grow after recalc"
+        );
+        assert!(
+            event_trace_present_in_log(Path::new(&event_log_path), &trace_root),
+            "events should include recalc trace_id"
+        );
+        assert!(
+            artifact_index_present_in_log(
+                Path::new(&artifact_index_path),
+                &trace_root,
+                "interop_recalc_loaded",
+            ),
+            "artifact index should include recalc command"
+        );
+        assert!(
+            artifact_index_line_count(Path::new(&artifact_index_path)) >= 5,
+            "artifact index should include open + preview + edit + save + recalc records"
+        );
+
+        let round_trip_trace_context = make_command_trace(
+            &trace_root,
+            &trace_session,
+            "engine_round_trip",
+            Some(&event_log_path),
+            Some(&artifact_index_path),
+        );
+        let round_trip_payload = engine_round_trip(Some(round_trip_trace_context.clone()))
+            .expect("round-trip should succeed");
+        assert_eq!(round_trip_payload.trace.command_status, "success");
+        assert!(!round_trip_payload.trace.linked_artifact_ids.is_empty());
+        assert_trace_has_manifest_coverage(
+            &round_trip_payload.trace,
+            &load_artifact_index_records(Path::new(&artifact_index_path)),
+        );
+        assert_eq!(round_trip_payload.trace.trace_id, trace_root);
+        assert_eq!(
+            round_trip_payload.trace.trace_root_id,
+            round_trip_payload.trace.trace_id
+        );
+        assert_eq!(
+            round_trip_payload.trace.parent_span_id,
+            Some(
+                round_trip_trace_context
+                    .span_id
+                    .expect("round-trip trace span")
+            )
+        );
+        assert_eq!(
+            round_trip_payload.trace.ui_command_name.as_deref(),
+            Some("engine_round_trip")
+        );
+        assert!(
+            event_line_count(Path::new(&event_log_path)) > events_after_recalc,
+            "event log should grow after round-trip"
+        );
+        assert!(
+            event_trace_present_in_log(Path::new(&event_log_path), &trace_root),
+            "events should include round-trip trace_id"
+        );
+        assert!(
+            artifact_index_present_in_log(
+                Path::new(&artifact_index_path),
+                &trace_root,
+                "engine_round_trip",
+            ),
+            "artifact index should include round-trip command"
+        );
+        assert!(
+            artifact_index_line_count(Path::new(&artifact_index_path)) >= 6,
+            "artifact index should include open + preview + edit + save + recalc + round-trip records"
+        );
+
+        let _ = std::fs::remove_file(output_path);
+        let _ = std::fs::remove_file(&event_log_path);
+        let _ = std::fs::remove_file(&artifact_index_path);
+    }
+
+    #[test]
+    fn interop_undo_redo_restores_cell_state_and_counts() {
+        let sample_path = sample_xlsx_path();
+        let session = DesktopState::default();
+        let state = as_state(&session);
+
+        interop_open_workbook(state.clone(), sample_path.clone(), None)
+            .expect("open should succeed");
+
+        let initial = sheet1_cell_from_session(&session, 1, 1);
+
+        let status_after_open = interop_session_status(state.clone())
+            .expect("session status should be available after open");
+        assert_eq!(status_after_open.undo_count, 0);
+        assert_eq!(status_after_open.redo_count, 0);
+
+        interop_apply_cell_edit(
+            state.clone(),
+            "Sheet1".to_string(),
+            "A1".to_string(),
+            "10".to_string(),
+            UiEditMode::Value,
+            None,
+        )
+        .expect("first edit should succeed");
+        assert_eq!(
+            sheet1_cell_from_session(&session, 1, 1),
+            CellValue::Number(10.0)
+        );
+
+        let status_after_first_edit = interop_session_status(state.clone())
+            .expect("session status should be available after first edit");
+        assert_eq!(status_after_first_edit.undo_count, 1);
+        assert_eq!(status_after_first_edit.redo_count, 0);
+
+        interop_apply_cell_edit(
+            state.clone(),
+            "Sheet1".to_string(),
+            "A1".to_string(),
+            "20".to_string(),
+            UiEditMode::Value,
+            None,
+        )
+        .expect("second edit should succeed");
+        assert_eq!(
+            sheet1_cell_from_session(&session, 1, 1),
+            CellValue::Number(20.0)
+        );
+
+        let status_after_second_edit = interop_session_status(state.clone())
+            .expect("session status should be available after second edit");
+        assert_eq!(status_after_second_edit.undo_count, 2);
+        assert_eq!(status_after_second_edit.redo_count, 0);
+
+        let undo_payload =
+            interop_undo_edit(state.clone(), None).expect("undo should restore previous edit");
+        assert_eq!(undo_payload.undo_count, 1);
+        assert_eq!(undo_payload.redo_count, 1);
+        assert_eq!(
+            sheet1_cell_from_session(&session, 1, 1),
+            CellValue::Number(10.0)
+        );
+
+        let undo_again_payload = interop_undo_edit(state.clone(), None)
+            .expect("second undo should restore initial value");
+        assert_eq!(undo_again_payload.undo_count, 0);
+        assert_eq!(undo_again_payload.redo_count, 2);
+        assert_eq!(sheet1_cell_from_session(&session, 1, 1), initial);
+
+        let redo_payload =
+            interop_redo_edit(state.clone(), None).expect("redo should reapply edit");
+        assert_eq!(redo_payload.undo_count, 1);
+        assert_eq!(redo_payload.redo_count, 1);
+        assert_eq!(
+            sheet1_cell_from_session(&session, 1, 1),
+            CellValue::Number(10.0)
+        );
+
+        let redo_final_payload =
+            interop_redo_edit(state.clone(), None).expect("redo should restore latest edit");
+        assert_eq!(redo_final_payload.undo_count, 2);
+        assert_eq!(redo_final_payload.redo_count, 0);
+        assert_eq!(
+            sheet1_cell_from_session(&session, 1, 1),
+            CellValue::Number(20.0)
+        );
+    }
+
+    #[test]
+    fn interop_history_clears_redo_after_new_edit() {
+        let sample_path = sample_xlsx_path();
+        let session = DesktopState::default();
+        let state = as_state(&session);
+
+        interop_open_workbook(state.clone(), sample_path, None).expect("open should succeed");
+
+        interop_apply_cell_edit(
+            state.clone(),
+            "Sheet1".to_string(),
+            "A1".to_string(),
+            "10".to_string(),
+            UiEditMode::Value,
+            None,
+        )
+        .expect("first edit should succeed");
+        interop_apply_cell_edit(
+            state.clone(),
+            "Sheet1".to_string(),
+            "A1".to_string(),
+            "20".to_string(),
+            UiEditMode::Value,
+            None,
+        )
+        .expect("second edit should succeed");
+
+        interop_undo_edit(state.clone(), None).expect("undo should succeed");
+        let status_after_undo =
+            interop_session_status(state.clone()).expect("session status should be available");
+        assert_eq!(status_after_undo.undo_count, 1);
+        assert_eq!(status_after_undo.redo_count, 1);
+
+        interop_apply_cell_edit(
+            state.clone(),
+            "Sheet1".to_string(),
+            "A1".to_string(),
+            "30".to_string(),
+            UiEditMode::Value,
+            None,
+        )
+        .expect("new edit should succeed");
+
+        let status_after_branch =
+            interop_session_status(state.clone()).expect("session status should be available");
+        assert_eq!(status_after_branch.undo_count, 2);
+        assert_eq!(status_after_branch.redo_count, 0);
+    }
+
     #[test]
     fn apply_cell_edit_range_value_sets_anchor_and_all_cells() {
         let trace = TraceContext::root();
@@ -915,6 +2206,7 @@ mod tests {
             "B2:A1",
             "9",
             UiEditMode::Value,
+            &mut NoopEventSink,
             &trace,
         )
         .expect("range value edit should succeed");
@@ -952,6 +2244,7 @@ mod tests {
             "C1:C2",
             "A1+B1",
             UiEditMode::Formula,
+            &mut NoopEventSink,
             &trace,
         )
         .expect("range formula edit should succeed");
@@ -984,6 +2277,8 @@ fn main() {
             interop_session_status,
             interop_recalc_loaded,
             interop_apply_cell_edit,
+            interop_undo_edit,
+            interop_redo_edit,
             interop_sheet_preview,
             interop_save_workbook
         ])
