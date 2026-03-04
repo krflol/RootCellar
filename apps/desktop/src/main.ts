@@ -253,6 +253,46 @@ type InteropUndoRedoResponse = {
   trace: TraceEcho;
 };
 
+type InteropMacroPermissionConfig = {
+  fsRead: boolean;
+  fsWrite: boolean;
+  netHttp: boolean;
+  clipboard: boolean;
+  processExec: boolean;
+};
+
+type InteropScriptPermissionEvent = {
+  eventName: string;
+  permission: string;
+  allowed: boolean;
+  reason: string;
+};
+
+type InteropMacroMutationPreview = {
+  sheet: string;
+  cell: string;
+  kind: "value" | "formula";
+  value?: CellValue;
+  formula?: string;
+};
+
+type InteropRunMacroResponse = {
+  workbookId: string;
+  scriptPath: string;
+  macroName: string;
+  requestedPermissions: string[];
+  permissionEvents: InteropScriptPermissionEvent[];
+  permissionGranted: number;
+  permissionDenied: number;
+  mutationCount: number;
+  changedSheets: string[];
+  mutations: InteropMacroMutationPreview[];
+  recalcReports: RecalcReport[];
+  stdout?: string;
+  stderr?: string;
+  trace: TraceEcho;
+};
+
 type SelectedPreviewCell = {
   sheet: string;
   cell: InteropPreviewCell;
@@ -652,6 +692,48 @@ app.innerHTML = `
       <pre id="edit-output" class="output">No edits yet.</pre>
     </section>
 
+    <section class="panel">
+      <h2>Run Macro</h2>
+      <label class="field">
+        <span>Python Script Path</span>
+        <input id="macro-script-path" placeholder="C:\\path\\to\\macro.py" />
+      </label>
+      <label class="field">
+        <span>Macro Name</span>
+        <input id="macro-name" value="main" />
+      </label>
+      <label class="field">
+        <span>Macro Args (one per line, key=value)</span>
+        <textarea id="macro-args" rows="4" placeholder="region=North\nrunId=monthly"></textarea>
+      </label>
+      <div class="permission-grid">
+        <label class="toggle">
+          <input id="macro-permission-fs-read" type="checkbox" />
+          <span>fs.read</span>
+        </label>
+        <label class="toggle">
+          <input id="macro-permission-fs-write" type="checkbox" />
+          <span>fs.write</span>
+        </label>
+        <label class="toggle">
+          <input id="macro-permission-net-http" type="checkbox" />
+          <span>net.http</span>
+        </label>
+        <label class="toggle">
+          <input id="macro-permission-clipboard" type="checkbox" />
+          <span>clipboard</span>
+        </label>
+        <label class="toggle">
+          <input id="macro-permission-process-exec" type="checkbox" />
+          <span>process.exec</span>
+        </label>
+      </div>
+      <div class="actions">
+        <button id="run-macro" class="btn primary">Run Macro</button>
+      </div>
+      <pre id="macro-output" class="output">No macro runs yet.</pre>
+    </section>
+
     <section class="panel" id="capture-section-lifecycle">
       <h2>Edit Lifecycle Telemetry</h2>
       <p class="summary hint">
@@ -753,6 +835,16 @@ const presetApplyCustomButton = document.querySelector<HTMLButtonElement>("#pres
 const presetApplyLastButton = document.querySelector<HTMLButtonElement>("#preset-apply-last");
 const applyEditButton = document.querySelector<HTMLButtonElement>("#apply-edit");
 const editOutput = document.querySelector<HTMLPreElement>("#edit-output");
+const macroScriptPathInput = document.querySelector<HTMLInputElement>("#macro-script-path");
+const macroNameInput = document.querySelector<HTMLInputElement>("#macro-name");
+const macroArgsInput = document.querySelector<HTMLTextAreaElement>("#macro-args");
+const macroPermissionFsReadInput = document.querySelector<HTMLInputElement>("#macro-permission-fs-read");
+const macroPermissionFsWriteInput = document.querySelector<HTMLInputElement>("#macro-permission-fs-write");
+const macroPermissionNetHttpInput = document.querySelector<HTMLInputElement>("#macro-permission-net-http");
+const macroPermissionClipboardInput = document.querySelector<HTMLInputElement>("#macro-permission-clipboard");
+const macroPermissionProcessExecInput = document.querySelector<HTMLInputElement>("#macro-permission-process-exec");
+const runMacroButton = document.querySelector<HTMLButtonElement>("#run-macro");
+const macroOutput = document.querySelector<HTMLPreElement>("#macro-output");
 const savePathInput = document.querySelector<HTMLInputElement>("#save-path");
 const savePromoteSourceInput = document.querySelector<HTMLInputElement>("#save-promote-source");
 const pickSavePathButton = document.querySelector<HTMLButtonElement>("#pick-save-path");
@@ -810,6 +902,16 @@ if (
   !presetApplyLastButton ||
   !applyEditButton ||
   !editOutput ||
+  !macroScriptPathInput ||
+  !macroNameInput ||
+  !macroArgsInput ||
+  !macroPermissionFsReadInput ||
+  !macroPermissionFsWriteInput ||
+  !macroPermissionNetHttpInput ||
+  !macroPermissionClipboardInput ||
+  !macroPermissionProcessExecInput ||
+  !runMacroButton ||
+  !macroOutput ||
   !savePathInput ||
   !savePromoteSourceInput ||
   !pickSavePathButton ||
@@ -869,6 +971,16 @@ const presetApplyCustomButtonEl = presetApplyCustomButton;
 const presetApplyLastButtonEl = presetApplyLastButton;
 const applyEditButtonEl = applyEditButton;
 const editOutputEl = editOutput;
+const macroScriptPathInputEl = macroScriptPathInput;
+const macroNameInputEl = macroNameInput;
+const macroArgsInputEl = macroArgsInput;
+const macroPermissionFsReadInputEl = macroPermissionFsReadInput;
+const macroPermissionFsWriteInputEl = macroPermissionFsWriteInput;
+const macroPermissionNetHttpInputEl = macroPermissionNetHttpInput;
+const macroPermissionClipboardInputEl = macroPermissionClipboardInput;
+const macroPermissionProcessExecInputEl = macroPermissionProcessExecInput;
+const runMacroButtonEl = runMacroButton;
+const macroOutputEl = macroOutput;
 const savePathInputEl = savePathInput;
 const savePromoteSourceInputEl = savePromoteSourceInput;
 const pickSavePathButtonEl = pickSavePathButton;
@@ -892,6 +1004,7 @@ function updateHistoryControls(): void {
   const canRedo = currentSession?.loaded && currentSession.redoCount > 0;
   undoLastEditButtonEl.disabled = !canUndo;
   redoLastEditButtonEl.disabled = !canRedo;
+  runMacroButtonEl.disabled = !Boolean(currentSession?.loaded);
 }
 
 function fillSheetSelect(select: HTMLSelectElement, sheets: string[]): void {
@@ -1270,6 +1383,51 @@ function seedUiCaptureDemo(): void {
     saveOutputEl.textContent = saveSectionLines.join("\n");
   } else {
     editOutputEl.textContent = "UI capture mode: default seeded scenario for full-shell review.";
+    macroScriptPathInputEl.value = "C:\\Macros\\quarterly_adjustments.py";
+    macroNameInputEl.value = "adjust_forecast";
+    macroArgsInputEl.value = [
+      "region=North",
+      "quarter=Q1",
+      "factor=1.08",
+    ].join("\n");
+    macroPermissionFsReadInputEl.checked = true;
+    macroPermissionFsWriteInputEl.checked = false;
+    macroPermissionNetHttpInputEl.checked = false;
+    macroPermissionClipboardInputEl.checked = false;
+    macroPermissionProcessExecInputEl.checked = false;
+    macroOutputEl.textContent = jsonWithTraceHeader({
+      traceId: "ui-capture-macro",
+      spanId: "ui-capture-macro",
+      parentSpanId: "ui-capture",
+      sessionId: "ui-capture",
+    }, JSON.stringify({
+      scriptPath: "C:\\Macros\\quarterly_adjustments.py",
+      macroName: "adjust_forecast",
+      requestedPermissions: ["fs.read", "fs.write"],
+      permissionEvents: [],
+      permissionGranted: 0,
+      permissionDenied: 0,
+      mutationCount: 0,
+      changedSheets: ["Summary"],
+      mutations: [
+        {
+          sheet: "Summary",
+          cell: "C3",
+          kind: "formula",
+          value: { number: 1330 },
+        },
+      ],
+      recalcReports: [
+        {
+          sheet: "Summary",
+          evaluatedCells: 3,
+          cycleCount: 0,
+          parseErrorCount: 0,
+        },
+      ],
+      stdout: "macro preview output",
+      stderr: "",
+    }, null, 2), "ui-capture");
   }
 
   focusCaptureSection(uiCaptureSection);
@@ -1897,6 +2055,88 @@ async function applyHistoryAction(action: "undo" | "redo"): Promise<void> {
   }
 }
 
+function collectMacroPermissionConfig(): InteropMacroPermissionConfig {
+  return {
+    fsRead: macroPermissionFsReadInputEl.checked,
+    fsWrite: macroPermissionFsWriteInputEl.checked,
+    netHttp: macroPermissionNetHttpInputEl.checked,
+    clipboard: macroPermissionClipboardInputEl.checked,
+    processExec: macroPermissionProcessExecInputEl.checked,
+  };
+}
+
+async function runMacro(): Promise<void> {
+  if (!currentSession?.loaded) {
+    macroOutputEl.textContent = "open a workbook first";
+    logEditLifecycleEvent("interop_run_macro", "error", "macro failed: open a workbook first");
+    return;
+  }
+
+  const scriptPath = macroScriptPathInputEl.value.trim();
+  if (!scriptPath) {
+    macroOutputEl.textContent = "provide a Python script path first";
+    logEditLifecycleEvent("interop_run_macro", "error", "macro failed: missing script path");
+    return;
+  }
+
+  const macroName = macroNameInputEl.value.trim() || "main";
+  const commandContext = startUiCommand("interop_run_macro");
+  runMacroButtonEl.disabled = true;
+  macroOutputEl.textContent = "Running macro...";
+  logEditLifecycleEvent("interop_run_macro", "start", `running ${macroName} from ${scriptPath}`, {
+    trace: commandContext,
+  });
+
+  try {
+    const payload = await invoke<InteropRunMacroResponse>("interop_run_macro", {
+      scriptPath,
+      macroName,
+      args: macroArgsInputEl.value,
+      permissions: collectMacroPermissionConfig(),
+      trace: commandContext,
+    });
+    const view = {
+      scriptPath: payload.scriptPath,
+      macroName: payload.macroName,
+      requestedPermissions: payload.requestedPermissions,
+      permissionEvents: payload.permissionEvents,
+      permissionGranted: payload.permissionGranted,
+      permissionDenied: payload.permissionDenied,
+      mutationCount: payload.mutationCount,
+      changedSheets: payload.changedSheets,
+      mutations: payload.mutations,
+      recalcReports: payload.recalcReports,
+      workbookId: payload.workbookId,
+      stdout: payload.stdout,
+      stderr: payload.stderr,
+      trace: payload.trace,
+    };
+    macroOutputEl.textContent = jsonWithTraceHeader(
+      payload.trace,
+      JSON.stringify(view, null, 2),
+      commandContext.commandId,
+    );
+    logEditLifecycleEvent("interop_run_macro", "success", "macro run complete", {
+      trace: payload.trace,
+    });
+    if (payload.changedSheets.length > 0) {
+      markRecalcPending();
+      await loadInteropSessionStatus();
+      await loadSheetPreview(payload.changedSheets[0], undefined, false, payload.trace);
+    } else {
+      await loadInteropSessionStatus();
+    }
+  } catch (error) {
+    macroOutputEl.textContent = `macro run error: ${String(error)}`;
+    logEditLifecycleEvent("interop_run_macro", "error", `macro run failed: ${String(error)}`, {
+      trace: commandContext,
+      error,
+    });
+  } finally {
+    runMacroButtonEl.disabled = false;
+  }
+}
+
 async function pickSavePath(): Promise<void> {
   const sourcePath = openPathInputEl.value.trim();
   const mode = normalizeMode(saveModeSelectEl.value);
@@ -2202,6 +2442,10 @@ formulaBarInputEl.addEventListener("keydown", (event) => {
 
 applyEditButtonEl.addEventListener("click", () => {
   void applyCellEdit();
+});
+
+runMacroButtonEl.addEventListener("click", () => {
+  void runMacro();
 });
 
 presetRow3ButtonEl.addEventListener("click", () => {

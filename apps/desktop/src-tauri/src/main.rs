@@ -1,15 +1,18 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+mod script;
+
 use rootcellar_core::model::CellRef;
 use rootcellar_core::{
     inspect_xlsx, load_workbook_model, preserve_xlsx_passthrough,
-    preserve_xlsx_with_sheet_overrides, recalc_sheet, save_workbook_model, CellValue,
-    CompatibilityIssue, EventSink, JsonlEventSink, Mutation, NoopEventSink, RecalcReport, SaveMode,
-    TraceContext, Workbook, WorkbookPartGraphSummary, XlsxInspectionReport, XlsxSaveReport,
+    preserve_xlsx_with_sheet_overrides, recalc_sheet, recalc_sheet_from_roots, save_workbook_model,
+    CellValue, CompatibilityIssue, EventEnvelope, EventSink, JsonlEventSink, Mutation,
+    NoopEventSink, RecalcReport, SaveMode, TraceContext, Workbook, WorkbookPartGraphSummary,
+    XlsxInspectionReport, XlsxSaveReport,
 };
 use serde::{Deserialize, Serialize};
-use std::collections::hash_map::DefaultHasher;
-use std::collections::BTreeSet;
+use serde_json::json;
+use std::collections::{hash_map::DefaultHasher, BTreeMap, BTreeSet};
 use std::fs::OpenOptions;
 use std::hash::{Hash, Hasher};
 use std::io::{BufWriter, Write};
@@ -397,6 +400,279 @@ impl From<&TraceContext> for TraceEcho {
             artifact_refs: Vec::new(),
         }
     }
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct InteropScriptPermissionEvent {
+    event_name: String,
+    permission: String,
+    allowed: bool,
+    reason: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct InteropMacroPermissionConfig {
+    fs_read: bool,
+    fs_write: bool,
+    net_http: bool,
+    clipboard: bool,
+    process_exec: bool,
+}
+
+impl InteropMacroPermissionConfig {
+    fn any_enabled(&self) -> bool {
+        self.fs_read || self.fs_write || self.net_http || self.clipboard || self.process_exec
+    }
+
+    fn as_requested_permissions(&self) -> Vec<String> {
+        let mut requested = Vec::new();
+        if self.fs_read {
+            requested.push(script::ScriptPermission::FsRead.as_str().to_string());
+        }
+        if self.fs_write {
+            requested.push(script::ScriptPermission::FsWrite.as_str().to_string());
+        }
+        if self.net_http {
+            requested.push(script::ScriptPermission::NetHttp.as_str().to_string());
+        }
+        if self.clipboard {
+            requested.push(script::ScriptPermission::Clipboard.as_str().to_string());
+        }
+        if self.process_exec {
+            requested.push(script::ScriptPermission::ProcessExec.as_str().to_string());
+        }
+        requested
+    }
+
+    fn as_script_permissions(&self) -> Vec<script::ScriptPermission> {
+        let mut permissions = Vec::new();
+        if self.fs_read {
+            permissions.push(script::ScriptPermission::FsRead);
+        }
+        if self.fs_write {
+            permissions.push(script::ScriptPermission::FsWrite);
+        }
+        if self.net_http {
+            permissions.push(script::ScriptPermission::NetHttp);
+        }
+        if self.clipboard {
+            permissions.push(script::ScriptPermission::Clipboard);
+        }
+        if self.process_exec {
+            permissions.push(script::ScriptPermission::ProcessExec);
+        }
+        permissions
+    }
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct InteropMacroMutationPreview {
+    sheet: String,
+    cell: String,
+    kind: String,
+    value: Option<CellValue>,
+    formula: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct InteropRunMacroResponse {
+    workbook_id: String,
+    script_path: String,
+    macro_name: String,
+    requested_permissions: Vec<String>,
+    permission_events: Vec<InteropScriptPermissionEvent>,
+    permission_granted: usize,
+    permission_denied: usize,
+    mutation_count: usize,
+    changed_sheets: Vec<String>,
+    mutations: Vec<InteropMacroMutationPreview>,
+    recalc_reports: Vec<RecalcReport>,
+    stdout: Option<String>,
+    stderr: Option<String>,
+    trace: TraceEcho,
+}
+
+#[derive(Debug)]
+enum MacroMutationValue {
+    Value { value: CellValue },
+    Formula { formula: String },
+}
+
+#[derive(Debug)]
+struct MacroMutationAssignment {
+    sheet: String,
+    cell_ref: String,
+    row: u32,
+    col: u32,
+    kind: MacroMutationValue,
+}
+
+fn macro_script_cell_value_to_core_value(value: &script::ScriptCellValue) -> CellValue {
+    match value {
+        script::ScriptCellValue::Number(value) => CellValue::Number(*value),
+        script::ScriptCellValue::Text(value) => CellValue::Text(value.clone()),
+        script::ScriptCellValue::Bool(value) => CellValue::Bool(*value),
+        script::ScriptCellValue::Error(error) => CellValue::Error(error.clone()),
+        script::ScriptCellValue::Empty => CellValue::Empty,
+    }
+}
+
+fn normalize_macro_formula(formula: &str) -> String {
+    if formula.trim_start().starts_with('=') {
+        formula.to_string()
+    } else {
+        format!("={formula}")
+    }
+}
+
+fn desugar_script_mutation(
+    mutation: &script::ScriptMutation,
+) -> Result<Vec<MacroMutationAssignment>, String> {
+    match mutation {
+        script::ScriptMutation::SetCellValue { sheet, cell, value } => {
+            let (row, col) = parse_a1_cell_ref(cell)
+                .ok_or_else(|| format!("invalid cell reference '{cell}' in script mutation"))?;
+            Ok(vec![MacroMutationAssignment {
+                sheet: sheet.to_string(),
+                cell_ref: to_a1(row, col),
+                row,
+                col,
+                kind: MacroMutationValue::Value {
+                    value: macro_script_cell_value_to_core_value(value),
+                },
+            }])
+        }
+        script::ScriptMutation::SetCellFormula {
+            sheet,
+            cell,
+            formula,
+        } => {
+            let (row, col) = parse_a1_cell_ref(cell)
+                .ok_or_else(|| format!("invalid cell reference '{cell}' in script mutation"))?;
+            Ok(vec![MacroMutationAssignment {
+                sheet: sheet.to_string(),
+                cell_ref: to_a1(row, col),
+                row,
+                col,
+                kind: MacroMutationValue::Formula {
+                    formula: normalize_macro_formula(formula),
+                },
+            }])
+        }
+        script::ScriptMutation::SetCellRangeValue {
+            sheet,
+            start,
+            end,
+            value,
+        } => {
+            let range = format!("{start}:{end}");
+            let Some((start_row, start_col, end_row, end_col)) = parse_range_bounds(&range) else {
+                return Err(format!(
+                    "invalid range reference '{start}:{end}' in script mutation"
+                ));
+            };
+            let mut output = Vec::new();
+            for row in start_row..=end_row {
+                for col in start_col..=end_col {
+                    output.push(MacroMutationAssignment {
+                        sheet: sheet.to_string(),
+                        cell_ref: to_a1(row, col),
+                        row,
+                        col,
+                        kind: MacroMutationValue::Value {
+                            value: macro_script_cell_value_to_core_value(value),
+                        },
+                    });
+                }
+            }
+            Ok(output)
+        }
+        script::ScriptMutation::SetCellRangeFormula {
+            sheet,
+            start,
+            end,
+            formula,
+        } => {
+            let range = format!("{start}:{end}");
+            let Some((start_row, start_col, end_row, end_col)) = parse_range_bounds(&range) else {
+                return Err(format!(
+                    "invalid range reference '{start}:{end}' in script mutation"
+                ));
+            };
+            let normalized = normalize_macro_formula(formula);
+            let mut output = Vec::new();
+            for row in start_row..=end_row {
+                for col in start_col..=end_col {
+                    output.push(MacroMutationAssignment {
+                        sheet: sheet.to_string(),
+                        cell_ref: to_a1(row, col),
+                        row,
+                        col,
+                        kind: MacroMutationValue::Formula {
+                            formula: normalized.clone(),
+                        },
+                    });
+                }
+            }
+            Ok(output)
+        }
+    }
+}
+
+fn parse_macro_args(raw: &str) -> Result<BTreeMap<String, String>, String> {
+    let mut parsed = BTreeMap::<String, String>::new();
+    for raw_entry in raw
+        .split(|c: char| matches!(c, '\n' | ';' | ','))
+        .map(str::trim)
+        .filter(|line| !line.is_empty())
+    {
+        let Some((name, value)) = raw_entry.split_once('=') else {
+            return Err(format!(
+                "invalid macro arg (expected key=value): {raw_entry}"
+            ));
+        };
+        let key = name.trim();
+        if key.is_empty() {
+            return Err(format!("macro arg key cannot be empty: {raw_entry}"));
+        }
+        let value = value.trim();
+        if parsed.insert(key.to_string(), value.to_string()).is_some() {
+            return Err(format!("duplicate macro arg key: {key}"));
+        }
+    }
+    Ok(parsed)
+}
+
+fn parse_range_bounds(range: &str) -> Option<(u32, u32, u32, u32)> {
+    let Some((start, end)) = range.split_once(':') else {
+        return None;
+    };
+    let (start_row, start_col) = parse_a1_cell_ref(start)?;
+    let (end_row, end_col) = parse_a1_cell_ref(end)?;
+    Some((
+        start_row.min(end_row),
+        start_col.min(end_col),
+        start_row.max(end_row),
+        start_col.max(end_col),
+    ))
+}
+
+fn parse_macro_permission_events(
+    permission_events: Vec<script::ScriptPermissionEvent>,
+) -> Vec<InteropScriptPermissionEvent> {
+    permission_events
+        .into_iter()
+        .map(|event| InteropScriptPermissionEvent {
+            event_name: event.event_name,
+            permission: event.permission,
+            allowed: event.allowed,
+            reason: event.reason,
+        })
+        .collect()
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -1160,6 +1436,320 @@ fn interop_apply_cell_edit(
     .map_err(|error| error.to_string())?;
 
     Ok(response)
+}
+
+#[tauri::command]
+fn interop_run_macro(
+    state: State<DesktopState>,
+    script_path: String,
+    macro_name: String,
+    args: String,
+    permissions: InteropMacroPermissionConfig,
+    trace: Option<UiTraceContext>,
+) -> Result<InteropRunMacroResponse, String> {
+    let script_path = script_path.trim();
+    if script_path.is_empty() {
+        return Err("macro script path is required".to_string());
+    }
+    let macro_name = macro_name.trim();
+    if macro_name.is_empty() {
+        return Err("macro name is required".to_string());
+    }
+
+    let parsed_args = parse_macro_args(&args)?;
+    let requested_permissions = permissions.as_requested_permissions();
+    let requested_script_permissions = permissions.as_script_permissions();
+
+    let mut sink = make_event_sink(trace.as_ref())?;
+    let artifact_index_path = make_artifact_index_path(trace.as_ref());
+    let event_log_path = resolve_event_log_path(trace.as_ref());
+    let incoming_trace = trace
+        .as_ref()
+        .map(UiTraceContext::as_trace_context)
+        .unwrap_or_else(TraceContext::root);
+    let command_trace = incoming_trace.child();
+    let started = Instant::now();
+
+    let mut session_guard = state
+        .session
+        .lock()
+        .map_err(|_| "desktop state lock poisoned".to_string())?;
+    let session = session_guard
+        .as_mut()
+        .ok_or_else(|| "no workbook loaded; open a workbook first".to_string())?;
+
+    let request = script::MacroRunRequest::new(
+        command_trace.trace_id.to_string(),
+        Path::new(script_path),
+        macro_name.to_string(),
+        &session.input_path,
+        requested_script_permissions,
+        parsed_args,
+    );
+
+    let invocation_started = Instant::now();
+    sink.emit(
+        EventEnvelope::info("script.session.start", &command_trace)
+            .with_context(json!({
+                "macro_script": script_path,
+                "macro_name": macro_name,
+                "input": session.input_path.display().to_string(),
+            }))
+            .with_payload(json!({
+                "status": "started",
+                "requested_permissions": requested_permissions,
+            }))
+            .with_metrics(json!({
+                "requested_permission_count": request.permissions.len(),
+                "macro_arg_count": request.args.len(),
+            })),
+    )
+    .map_err(|error| error.to_string())?;
+
+    let response = match script::run_macro(&request) {
+        Ok(response) => response,
+        Err(error) => {
+            sink.emit(
+                EventEnvelope::info("script.rpc.error", &command_trace)
+                    .with_context(json!({
+                        "operation": "script.macro.run",
+                        "macro_script": script_path,
+                        "macro_name": macro_name,
+                        "input": session.input_path.display().to_string(),
+                    }))
+                    .with_payload(json!({
+                        "status": "error",
+                        "message": error.to_string(),
+                    }))
+                    .with_metrics(json!({
+                        "duration_ms": invocation_started.elapsed().as_secs_f64() * 1000.0,
+                    })),
+            )
+            .map_err(|event_error| format!("{error} ({event_error})"))?;
+
+            return Err(error.to_string());
+        }
+    };
+
+    let parsed_permissions = parse_macro_permission_events(response.permission_events.clone());
+    let permission_granted = response
+        .permission_events
+        .iter()
+        .filter(|event| event.allowed)
+        .count();
+    let permission_denied = response
+        .permission_events
+        .len()
+        .saturating_sub(permission_granted);
+
+    for event in response.permission_events.iter() {
+        let event_name = if event.allowed {
+            "script.permission.granted"
+        } else {
+            "script.permission.denied"
+        };
+        sink.emit(
+            EventEnvelope::info(event_name, &command_trace)
+                .with_context(json!({
+                    "permission": event.permission,
+                    "allowed": event.allowed,
+                    "macro_script": script_path,
+                    "macro_name": macro_name,
+                    "reason": event.reason,
+                }))
+                .with_payload(json!({
+                    "status": if event.allowed { "granted" } else { "denied" },
+                })),
+        )
+        .map_err(|error| error.to_string())?;
+    }
+
+    if response.status.to_lowercase() != "ok" {
+        return Err(format!(
+            "macro execution failed: {}",
+            response
+                .message
+                .clone()
+                .unwrap_or_else(|| "non-ok script status".to_string())
+        ));
+    }
+
+    let mut assignments = Vec::<MacroMutationAssignment>::new();
+    for mutation in &response.mutations {
+        assignments.extend(desugar_script_mutation(mutation)?);
+    }
+
+    let mutations = assignments
+        .iter()
+        .map(|assignment| InteropMacroMutationPreview {
+            sheet: assignment.sheet.clone(),
+            cell: assignment.cell_ref.clone(),
+            kind: match assignment.kind {
+                MacroMutationValue::Value { .. } => "value".to_string(),
+                MacroMutationValue::Formula { .. } => "formula".to_string(),
+            },
+            value: match &assignment.kind {
+                MacroMutationValue::Value { value } => Some(value.clone()),
+                MacroMutationValue::Formula { .. } => None,
+            },
+            formula: match &assignment.kind {
+                MacroMutationValue::Formula { formula } => Some(formula.clone()),
+                MacroMutationValue::Value { .. } => None,
+            },
+        })
+        .collect::<Vec<_>>();
+
+    let mut recalc_reports = Vec::<RecalcReport>::new();
+    let changed_sheets = if !assignments.is_empty() {
+        session.push_undo_snapshot();
+
+        let mut txn = session
+            .workbook
+            .begin_txn(&mut *sink, &command_trace)
+            .map_err(|error| error.to_string())?;
+
+        for assignment in assignments.iter() {
+            match &assignment.kind {
+                MacroMutationValue::Value { value } => txn.apply(Mutation::SetCellValue {
+                    sheet: assignment.sheet.clone(),
+                    row: assignment.row,
+                    col: assignment.col,
+                    value: value.clone(),
+                }),
+                MacroMutationValue::Formula { formula } => txn.apply(Mutation::SetCellFormula {
+                    sheet: assignment.sheet.clone(),
+                    row: assignment.row,
+                    col: assignment.col,
+                    formula: formula.clone(),
+                    cached_value: CellValue::Empty,
+                }),
+            }
+        }
+
+        let commit = txn
+            .commit(&mut session.workbook, &mut *sink, &command_trace)
+            .map_err(|error| error.to_string())?;
+
+        let mut sheet_list = commit
+            .changed_cells
+            .keys()
+            .map(|name| name.to_string())
+            .collect::<Vec<_>>();
+        sheet_list.sort_unstable();
+
+        for sheet_name in &sheet_list {
+            session.dirty_sheets.insert(sheet_name.to_string());
+            let changed_roots = commit
+                .changed_cells
+                .get(sheet_name)
+                .map(|cells| cells.as_slice())
+                .unwrap_or(&[]);
+            let report = recalc_sheet_from_roots(
+                &mut session.workbook,
+                sheet_name,
+                changed_roots,
+                &mut *sink,
+                &command_trace,
+            )
+            .map_err(|error| error.to_string())?;
+            recalc_reports.push(report);
+        }
+
+        sheet_list
+    } else {
+        Vec::new()
+    };
+
+    let command_duration = started.elapsed().as_millis();
+    let mut artifact_refs = vec![trace_artifact_ref(
+        &command_trace,
+        "interop_run_macro",
+        "script_session",
+        "macro_request",
+        Some(script_path),
+        Some(format!("macro_name={macro_name}")),
+    )];
+    if !changed_sheets.is_empty() {
+        artifact_refs.push(trace_artifact_ref(
+            &command_trace,
+            "interop_run_macro",
+            "workbook_mutation",
+            "macro_cells",
+            Some(&changed_sheets.join(",")),
+            Some(format!("mutation_count={}", assignments.len())),
+        ));
+    }
+    if !recalc_reports.is_empty() {
+        artifact_refs.push(trace_artifact_ref(
+            &command_trace,
+            "interop_run_macro",
+            "recalc_report",
+            "macro_recalc",
+            Some(&changed_sheets.join(",")),
+            Some(format!("reports={}", recalc_reports.len())),
+        ));
+    }
+    sink.emit(
+        EventEnvelope::info("script.macro.run", &command_trace)
+            .with_context(json!({
+                "macro_script": script_path,
+                "macro_name": macro_name,
+                "input": session.input_path.display().to_string(),
+                "status": "ok",
+                "result": response.result,
+                "stdout": response.stdout,
+                "stderr": response.stderr,
+            }))
+            .with_metrics(json!({
+                "macro_invocation_ms": invocation_started.elapsed().as_secs_f64() * 1000.0,
+                "macro_mutation_count": assignments.len(),
+                "changed_sheet_count": changed_sheets.len(),
+                "permission_granted": permission_granted,
+                "permission_denied": permission_denied,
+                "permission_event_count": response.permission_events.len(),
+            })),
+    )
+    .map_err(|error| error.to_string())?;
+
+    sink.emit(
+        EventEnvelope::info("script.session.end", &command_trace)
+            .with_context(json!({
+                "macro_script": script_path,
+                "macro_name": macro_name,
+                "status": "ok",
+            }))
+            .with_metrics(json!({
+                "mutations": assignments.len(),
+                "changed_sheet_count": changed_sheets.len(),
+                "macro_invocation_ms": invocation_started.elapsed().as_secs_f64() * 1000.0,
+            })),
+    )
+    .map_err(|error| error.to_string())?;
+
+    Ok(InteropRunMacroResponse {
+        workbook_id: session.workbook.workbook_id.to_string(),
+        script_path: script_path.to_string(),
+        macro_name: macro_name.to_string(),
+        requested_permissions,
+        permission_events: parsed_permissions,
+        permission_granted,
+        permission_denied,
+        mutation_count: assignments.len(),
+        changed_sheets,
+        mutations,
+        recalc_reports,
+        stdout: response.stdout,
+        stderr: response.stderr,
+        trace: finalize_command_trace(
+            &command_trace,
+            "success",
+            command_duration,
+            artifact_refs,
+            artifact_index_path.as_deref(),
+            event_log_path.as_deref(),
+        )
+        .map_err(|error| error.to_string())?,
+    })
 }
 
 fn make_undo_redo_response(
@@ -2277,6 +2867,7 @@ fn main() {
             interop_session_status,
             interop_recalc_loaded,
             interop_apply_cell_edit,
+            interop_run_macro,
             interop_undo_edit,
             interop_redo_edit,
             interop_sheet_preview,
