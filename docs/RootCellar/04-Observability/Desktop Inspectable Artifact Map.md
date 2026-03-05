@@ -38,9 +38,11 @@ Make each desktop workflow reproducible from UI artifact to backend artifact cha
   - Trace start: save command invocation.
   - Primary outputs: compatibility output from open/save cycle, recalc trace output, artifact linkage line, screenshot capture `desktop-save-recalc.png`.
 - Macro/scripting workflow (in progress):
-  - CLI trace start: `run-macro` command path currently emits macro/session/permission artifacts in JSONL.
-  - Current outputs: script span trace (`script.session.*`), permission events (`script.permission.granted|denied`), and macro completion trace (`script.macro.run`).
-  - Planned desktop outputs: same artifact continuity in `main.ts` command orchestration and user policy prompt telemetry.
+  - CLI trace start: `run-macro` command path emits macro/session/permission artifacts in JSONL.
+  - Desktop runtime now emits matching permission session events and persists policy-aware UX state in `apps/desktop/src/main.ts` for explicit re-apply trust decisions.
+  - Current outputs: script span trace (`script.session.*`), permission events (`script.permission.granted|denied`), trust artifact (`script.trust`), runtime event stream (`script.runtime.events`), macro completion trace (`script.macro.run`), and trace-indexed macro snapshot/mutation/recalc artifacts from `interop_run_macro`.
+  - Runtime events include deterministic `macro_fingerprint` and trust-provenance payloads on both CLI and desktop paths for end-to-end inspection.
+  - Planned follow-up: package trust provenance policy surface (signed package verification + signed artifact metadata and policy provenance events).
 
 ## Query Cookbook
 - Start with latest trace: search event store for `event_name: ...` and `trace_id: ...`.

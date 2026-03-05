@@ -79,86 +79,98 @@ Last updated: March 4, 2026
     - `save` command (load workbook model and write compatibility-first `.xlsx` output; default mode now `preserve`, with `--mode normalize` available).
     - Save/open summaries now include part-graph diagnostics (node/edge counts, dangling-edge counts, and preserve/normalize graph flags).
     - `repro` command group (`record`, `check`, and `diff`) for reproducibility bundles, including `--against` workbook comparison and `repro diff --format text|json --output <path>` artifact export.
-    - `run-macro` command (process-isolated Python worker + explicit permission allow-list + macro args), with trace events (`script.session.start`, `script.permission.granted`, `script.permission.denied`, `script.rpc.error`, `script.macro.run`), mutation desugaring for single cells and ranges, and incremental recalc of changed cells.
+    - `run-macro` command (process-isolated Python worker + explicit permission allow-list + macro args), with trace events (`script.session.start`, `script.permission.granted`, `script.permission.denied`, `script.runtime.events`, `script.trust`, `script.rpc.error`, `script.macro.run`), mutation desugaring for single cells and ranges, and incremental recalc of changed cells.
     - End-to-end macro command integration tests added in `crates/rootcellar-cli/tests/macro_integration.rs` (`run_macro_cli_applies_mutations_and_recalculates_cells`, `run_macro_cli_denies_mutation_without_permission`, `run_macro_cli_fails_with_invalid_worker_response`).
-4. Telemetry schema contract added:
+4. `rootcellar-desktop` macro runtime is now integrated:
+   - Added Tauri `interop_run_macro` command with session/workbook guardrails, explicit permission event reporting (`script.permission.granted|denied`), and `script.rpc.error` fallback telemetry.
+   - `interop_run_macro` now emits trust/runtime artifact events (`script.trust`, `script.runtime.events`) and includes trust/runtime telemetry metrics in `script.macro.run`.
+   - Macro mutation payloads are desugared and replayed through transactional workbook apply paths with recalc from changed roots.
+   - Desktop macro command integration tests added in `apps/desktop/src-tauri/src/main.rs` (`interop_run_macro_applies_mutations_and_recalculates_cells`, `interop_run_macro_denies_mutations_without_permission`, `interop_run_macro_fails_with_invalid_worker_response`).
+5. Desktop macro policy persistence and trust prompt UX is now implemented:
+   - Added per-script permission policy persistence, stored trust loading, and explicit user consent on elevated permission profiles in `apps/desktop/src/main.ts`.
+   - Added macro policy status reflection and clear/remove behavior for transparent trust state changes.
+5a. Macro trust policy provenance is now enforced and surfaced:
+   - Added deterministic script fingerprinting for macro source files and allowlist-based trust checks (`ROOTCELLAR_MACRO_FINGERPRINT_ALLOWLIST`) in runtime (`apps/desktop/src-tauri/src/script.rs`, `crates/rootcellar-cli/src/script.rs`).
+   - Added fingerprint propagation to macro session/permission/run events and responses on both CLI and desktop surfaces for inspectable provenance.
+   - Added unit coverage for allowlist allow/deny/skip paths and fingerprint determinism in `crates/rootcellar-cli/src/script.rs` and `apps/desktop/src-tauri/src/script.rs`.
+6. Telemetry schema contract added:
    - `schemas/events/v1/envelope.schema.json`.
-5. Artifact telemetry now includes diff output artifact events:
+8. Artifact telemetry now includes diff output artifact events:
    - `artifact.bundle.diff.output`.
-6. Calc telemetry includes dependency graph build events:
+9. Calc telemetry includes dependency graph build events:
    - `calc.dependency_graph.built`.
    - Includes `function_call_count` metric in dependency graph analytics.
    - Includes AST interning metrics (`ast_node_count`, `ast_unique_node_count`) and payload introspection (`formula_ast_ids`, `ast_intern_preview`).
-7. Recalc artifact telemetry includes DAG/dependency output events:
+10. Recalc artifact telemetry includes DAG/dependency output events:
    - `artifact.recalc.dep_graph.output`, `artifact.recalc.dag_timing.output`.
-8. Recalc telemetry includes per-node timing summary event:
+11. Recalc telemetry includes per-node timing summary event:
    - `calc.recalc.dag_timing`.
    - Includes `critical_path_duration_us`, `max_fan_in`, `max_fan_out`, and slow-node metrics.
    - Includes `slow_nodes_threshold_override_us` payload context when configured.
-9. Interop telemetry includes part-graph build/save diagnostics:
+12. Interop telemetry includes part-graph build/save diagnostics:
    - `interop.xlsx.part_graph.built`.
    - `interop.xlsx.load.end` and `interop.xlsx.save.end` now include part-graph metrics and save graph flags in payload.
-10. Corpus-level part-graph telemetry includes aggregate run events:
+13. Corpus-level part-graph telemetry includes aggregate run events:
    - `artifact.part_graph.corpus.start`, `artifact.part_graph.corpus.end`.
-11. CI publication baseline added for corpus part-graph validation:
+14. CI publication baseline added for corpus part-graph validation:
    - `.github/workflows/corpus-part-graph.yml` (PR/push/schedule/workflow_dispatch).
    - `python/generate_corpus_fixtures.py` deterministic corpus fixture generator for CI execution (now includes styles/comments/chart/defined-name variants plus manifest output).
-12. CI publication baseline added for reproducibility bundle validation:
+15. CI publication baseline added for reproducibility bundle validation:
    - `.github/workflows/repro-bundle.yml` (PR/push/schedule/workflow_dispatch).
    - Includes `repro record/check/diff` artifact publication and explicit mismatch assertion on mutated candidates.
-13. CI artifact policy alignment completed across corpus + repro workflows:
+16. CI artifact policy alignment completed across corpus + repro workflows:
    - Standardized artifact names: `rootcellar-<workflow>-<run_id>-<run_attempt>`.
    - Standardized retention window: `21` days.
    - Standardized manifest metadata (`retention_policy_days`, run/repo/ref/sha fields) in assembled artifact bundles.
-14. Batch recalc CLI delivery with bounded parallel scheduling:
+17. Batch recalc CLI delivery with bounded parallel scheduling:
    - `batch recalc` command group for recursive `.xlsx` directory execution using bounded Rayon threadpool sizing (`--threads`).
    - Deterministic file ordering with aggregate batch artifact output (`--report`) and fail-fast gate (`--fail-on-errors`).
    - Detail-level artifact control for per-file recalc payload introspection (`--detail-level minimal|diagnostic|forensic`).
    - Batch telemetry events: `artifact.batch.recalc.start`, `artifact.batch.recalc.file`, `artifact.batch.recalc.end`.
-15. Nightly batch CI publication baseline added:
+18. Nightly batch CI publication baseline added:
    - `.github/workflows/batch-recalc-nightly.yml` (nightly schedule + manual dispatch).
    - Includes fixture generation, workspace tests, `batch recalc` execution, artifact sanity assertions, and standardized artifact/manifest upload policy.
-16. Nightly batch CI coverage and throughput gating expanded:
+19. Nightly batch CI coverage and throughput gating expanded:
    - `python/build_batch_nightly_corpus.py` assembles deterministic nightly corpus slices from generated fixtures plus curated workbook samples.
    - Nightly workflow now runs `batch recalc` against expanded corpus (`target-files=32`) and enforces minimum processed-file and throughput thresholds.
    - Batch report summary now includes throughput metrics (`throughput_files_per_sec`, `aggregate_file_time_ratio`) for CI/SLO introspection.
-17. Nightly batch trend snapshots and alert-hook payloads delivered:
+20. Nightly batch trend snapshots and alert-hook payloads delivered:
    - `python/build_batch_trend_snapshot.py` generates per-run throughput snapshots from batch reports with threshold and breach metadata.
    - Produces alert-hook payload artifact (`ci-batch-alert-hook.json`) with routing key, severity, and breach details for downstream incident tooling ingestion.
    - Nightly batch workflow now publishes snapshot + alert payload artifacts alongside report/event/corpus outputs and enforces threshold breaches via explicit gate step.
-18. Nightly batch alert-route dispatch integration delivered:
+21. Nightly batch alert-route dispatch integration delivered:
    - `python/dispatch_batch_alert_hook.py` routes alert payloads to incident and dashboard endpoints.
    - Supports route policy (`incident on breach` by default), per-route status accounting, and dispatch report artifact output (`ci-batch-alert-dispatch.json`).
    - Nightly workflow dispatches payloads before gate enforcement and records route configuration metadata in manifest output.
-19. Alert dispatch hardening completed:
+22. Alert dispatch hardening completed:
    - Route auth support via token headers (`ROOTCELLAR_INCIDENT_WEBHOOK_TOKEN`, `ROOTCELLAR_DASHBOARD_INGEST_TOKEN`) and optional HMAC request signing (`ROOTCELLAR_ALERT_SIGNING_SECRET`).
    - Retry/backoff policy with configurable attempt limits and retryable status-code handling.
    - Per-route acknowledgement tracking (`ack_id` extraction, required-ack mode, and ack counters in dispatch report).
-20. Cross-system alert traceability keys delivered:
+23. Cross-system alert traceability keys delivered:
    - Deterministic per-route idempotency keys propagated via `Idempotency-Key` request header and dispatch payload metadata.
    - Correlation IDs propagated via `X-Correlation-Id` header and payload metadata, with optional required downstream correlation-match checks.
    - Dispatch artifacts now expose correlation and idempotency metadata/counters for route-level forensic tracing.
-21. Alert replay-protection and acknowledgement retention indexing delivered:
+24. Alert replay-protection and acknowledgement retention indexing delivered:
    - Dispatch requests now carry replay-protection policy fields (`X-RootCellar-Timestamp`, `X-RootCellar-Nonce`, `X-RootCellar-Replay-Window-Sec`) with per-attempt replay metadata persisted in dispatch route artifacts.
    - Nightly workflow now passes configurable replay policy knobs (`ALERT_DISPATCH_REPLAY_*`) into dispatch routing and captures policy values in artifact manifest metadata.
    - `python/build_batch_ack_retention_index.py` added to derive `ci-batch-ack-retention-index.json` from dispatch reports with retention expiry windows and lookup keys (`ack_id`, `ack_id_sha256`, `idempotency_key`, `correlation_id`) for incident forensics.
-22. Nightly dashboard-pack and alert-policy wiring delivered:
+25. Nightly dashboard-pack and alert-policy wiring delivered:
    - `python/build_batch_dashboard_pack.py` added to derive `ci-batch-dashboard-pack.json` and `ci-batch-alert-policy.json` from snapshot + dispatch + ack-retention artifacts.
    - Policy checks now evaluate snapshot threshold status, dispatch failed/ack-missing/correlation-mismatch counts, replay metadata completeness, and ack-retention lookup coverage.
    - Nightly workflow now enforces policy gate status and publishes dashboard/policy artifacts plus manifest policy knobs for downstream dashboard/incident integration.
-23. Policy-to-owner escalation metadata and dashboard adapter exports delivered:
+26. Policy-to-owner escalation metadata and dashboard adapter exports delivered:
    - `python/build_batch_policy_adapters.py` added to derive `ci-batch-policy-escalation.json` and `ci-batch-dashboard-adapter-exports.json` from alert-policy + dashboard-pack artifacts.
    - Escalation metadata now maps policy checks to owner teams/queues/channels with severity-targeted escalation SLA/targets for downstream incident-routing systems.
    - Adapter exports now include incident-adapter and dashboard-adapter payloads with breach/owner context and metric points for downstream ingestion.
    - Nightly workflow now publishes escalation/adapter artifacts and captures owner/escalation policy configuration in manifest metadata.
-24. Adapter export schema validation and compatibility-version contracts delivered:
+27. Adapter export schema validation and compatibility-version contracts delivered:
    - Added versioned artifact schemas:
      - `schemas/artifacts/v1/batch-policy-escalation.schema.json`
      - `schemas/artifacts/v1/batch-dashboard-adapter-exports.schema.json`
    - Added contract validator utility: `python/validate_batch_adapter_contracts.py` (schema-shape validation + compatibility-version checks on `artifact_contract` and payload version fields).
    - `python/build_batch_policy_adapters.py` now emits `artifact_contract` metadata (`schema_id`, `schema_version`, `compatibility`) in both adapter outputs.
    - Nightly workflow now runs adapter schema/contract validation and captures schema validation config in manifest metadata.
-25. Full artifact-family schema validation and compatibility-version contracts delivered:
+28. Full artifact-family schema validation and compatibility-version contracts delivered:
    - Added versioned artifact schemas:
      - `schemas/artifacts/v1/batch-throughput-snapshot.schema.json`
      - `schemas/artifacts/v1/batch-alert-dispatch.schema.json`
@@ -168,132 +180,132 @@ Last updated: March 4, 2026
    - `python/build_batch_trend_snapshot.py`, `python/dispatch_batch_alert_hook.py`, `python/build_batch_ack_retention_index.py`, and `python/build_batch_dashboard_pack.py` now emit `artifact_contract` metadata for their artifacts.
    - `python/validate_batch_adapter_contracts.py` now supports `--full-family` mode to validate snapshot/dispatch/ack-retention/dashboard-pack/policy plus escalation/adapter artifacts in one compatibility gate.
    - Nightly workflow now validates the full artifact family (`Validate batch artifact schemas and version contracts`) and records all schema-path policy knobs in manifest metadata.
-26. Schema-drift canary fixtures and migration playbook delivered:
+29. Schema-drift canary fixtures and migration playbook delivered:
    - Added canary harness utility: `python/validate_batch_schema_canaries.py` (mutates canonical nightly artifacts and asserts expected validator failures for schema-id mismatch, missing contract fields, semver-major mismatch, compatibility-mode mismatch, and payload-version mismatch).
    - Nightly workflow now runs explicit canary gate step (`Run schema drift canary checks`) with policy knob `ALERT_POLICY_SCHEMA_CANARY_VALIDATION_ENABLED`.
    - Manifest metadata now records canary gate policy state (`alert_policy_schema_canary_validation_enabled`).
    - Added compatibility rollout reference: `docs/RootCellar/04-Observability/Artifact Schema Migration Playbook.md`.
-27. Dual-read migration drill gate delivered:
+30. Dual-read migration drill gate delivered:
    - Added dual-read drill harness utility: `python/validate_batch_dual_read_migration.py`.
    - `python/validate_batch_adapter_contracts.py` now supports optional per-artifact fallback schemas (`--schema-*-fallback`) for migration overlap validation.
    - Nightly workflow now runs dual-read migration drills (`Run dual-read migration drills`) with policy knob `ALERT_POLICY_SCHEMA_MIGRATION_DRILL_VALIDATION_ENABLED`.
    - Manifest metadata now records migration-drill gate policy state (`alert_policy_schema_migration_drill_validation_enabled`).
-28. Multi-artifact dual-read migration matrix delivered:
+31. Multi-artifact dual-read migration matrix delivered:
    - `python/validate_batch_dual_read_migration.py` now executes migration phases across snapshot/dispatch/ack-retention/dashboard-pack/policy/escalation/adapter artifacts, with subset selection via `--artifacts`.
    - Nightly workflow now forwards artifact-subset policy knob `ALERT_POLICY_SCHEMA_MIGRATION_DRILL_ARTIFACTS` into dual-read drill execution.
    - Manifest metadata now records migration-drill artifact selection (`alert_policy_schema_migration_drill_artifacts`) for forensic replay.
-29. Migration-drill forensic artifact and staged wave controls delivered:
+32. Migration-drill forensic artifact and staged wave controls delivered:
    - `python/validate_batch_dual_read_migration.py` now supports `--wave-spec` for staged rollout-wave execution and `--report` for per-phase diagnostics/timing output.
    - Nightly workflow now emits `ci-batch-schema-migration-drill.json` and forwards policy knob `ALERT_POLICY_SCHEMA_MIGRATION_DRILL_WAVE_SPEC`.
    - Manifest metadata now records staged-wave policy and report publication state (`alert_policy_schema_migration_drill_wave_spec`, `schema_migration_drill_report_generated`).
-30. Migration-drill fault-injection scenarios delivered:
+33. Migration-drill fault-injection scenarios delivered:
    - `python/validate_batch_dual_read_migration.py` now supports fault-injection mode (`--fault-injection`) with scenario selection (`--fault-scenarios malformed_fallback_schema,partial_wave_rollback`).
    - Fault scenario coverage now includes malformed fallback schema rejection and partial-wave rollback rehearsal assertions in staged rollout matrices.
    - Nightly workflow now controls fault-injection policy via `ALERT_POLICY_SCHEMA_MIGRATION_DRILL_FAULT_INJECTION_ENABLED` and `ALERT_POLICY_SCHEMA_MIGRATION_DRILL_FAULT_SCENARIOS`.
    - Manifest metadata now records fault-injection policy state (`alert_policy_schema_migration_drill_fault_injection_enabled`, `alert_policy_schema_migration_drill_fault_scenarios`).
-31. Migration-drill negative-policy dry-run checks delivered:
+34. Migration-drill negative-policy dry-run checks delivered:
    - Added policy dry-run harness utility: `python/validate_batch_migration_policy_dry_run.py` (asserts expected failure behavior for invalid staged-wave specs and unsupported fault-scenario keys).
    - Nightly workflow now runs explicit dry-run policy gate step (`Run migration-drill policy dry-run checks`) with policy knob `ALERT_POLICY_SCHEMA_MIGRATION_DRY_RUN_POLICY_VALIDATION_ENABLED`.
    - Manifest metadata now records dry-run policy gate state (`alert_policy_schema_migration_dry_run_policy_validation_enabled`).
-32. Baseline test suite passing in offline mode.
-33. Nightly synthetic recalc benchmark gate delivered:
+35. Baseline test suite passing in offline mode.
+36. Nightly synthetic recalc benchmark gate delivered:
    - Nightly workflow now supports optional synthetic benchmark execution via `BATCH_BENCH_RECALC_SYNTHETIC_ENABLED`, running `bench recalc-synthetic` with policy-controlled workload knobs (`BATCH_BENCH_CHAINS`, `BATCH_BENCH_CHAIN_LENGTH`, `BATCH_BENCH_ITERATIONS`, `BATCH_BENCH_CHANGED_CHAIN`).
    - Nightly gate now enforces benchmark thresholds when enabled (`BATCH_BENCH_MIN_DURATION_SPEEDUP_RATIO`, `BATCH_BENCH_MAX_EVALUATED_CELLS_RATIO`) using benchmark summary metrics (`duration_speedup_ratio`, `evaluated_cells_reduction_ratio`).
    - Nightly artifact bundle now includes benchmark outputs (`ci-batch-bench-recalc-synthetic.json`, `ci-batch-bench-events.jsonl`) and manifest benchmark policy/publication fields.
-34. Compatibility-first Excel interop gate delivered:
+37. Compatibility-first Excel interop gate delivered:
    - Added dedicated CI workflow `.github/workflows/excel-interop.yml` (PR/push/schedule/workflow_dispatch) with a standing bidirectional interoperability gate.
    - Added explicit interop dependency file `python/requirements-interop.txt` (`openpyxl`) and harness `python/verify_excel_interop.py`.
    - Interop gate now runs deterministic corpus sweeps (`--corpus-dir`, `--max-corpus-files`) so multiple workbook fixtures are exercised in the same compatibility pass.
    - `save` command now defaults to `preserve` mode so compatibility-first workbook output is the baseline path (with `--mode normalize` retained for opt-in normalized rebuilds).
-35. Interop corpus expansion for rich workbook features delivered:
+38. Interop corpus expansion for rich workbook features delivered:
    - `python/generate_corpus_fixtures.py` now generates eight deterministic fixtures, adding rich-feature variants (`styles.xlsx`, `comments.xlsx`, `chart.xlsx`, `defined-names.xlsx`) plus fixture metadata manifest output (`manifest.json`).
    - `python/verify_excel_interop.py` now supports corpus manifest capture (`--corpus-manifest`) and required fixture assertions (`--require-corpus-fixture`) so CI can fail fast when expected compatibility variants are missing.
    - `.github/workflows/excel-interop.yml` now enforces required fixture coverage for the expanded corpus variants in the standing bidirectional interop gate.
    - Fixture-generator dependency wiring (`python/requirements-interop.txt`) is now installed in all fixture-consuming workflows (`corpus-part-graph`, `repro-bundle`, `batch-recalc-nightly`, `excel-interop`) to keep corpus assembly and interop verification aligned.
-36. Curated Excel-authored interop corpus assembly delivered:
+39. Curated Excel-authored interop corpus assembly delivered:
    - Added `python/assemble_excel_interop_corpus.py` to assemble deterministic generated fixtures plus curated real Excel-authored samples listed in `corpus/excel-authored/manifest.json`.
    - Added curated corpus scaffold (`corpus/excel-authored/README.md`, `corpus/excel-authored/manifest.json`, `corpus/excel-authored/files/.gitkeep`) with legal-clearance metadata policy (`approved`, `restricted_internal`, `restricted_partner`).
    - `.github/workflows/excel-interop.yml` now assembles interop corpus from generated + curated sources and records policy knob `EXCEL_INTEROP_MIN_EXCEL_AUTHORED_SAMPLES` in artifact manifest metadata.
    - Interop gate remains deterministic and compatibility-first by preserving required generated fixture assertions while permitting staged rollout of curated real Excel-authored samples via minimum-sample policy.
-37. Non-zero curated interop coverage enforcement delivered:
+40. Non-zero curated interop coverage enforcement delivered:
    - Added first curated approved sample entry `internal-formula-baseline` in `corpus/excel-authored/manifest.json` and seeded workbook file `corpus/excel-authored/files/internal-formula-baseline.xlsx`.
    - Interop CI policy knob `EXCEL_INTEROP_MIN_EXCEL_AUTHORED_SAMPLES` is now set to `1` in `.github/workflows/excel-interop.yml`, enforcing non-zero curated-sample coverage.
    - Assembled corpus + interop gate validation now passes with `excel_authored_sample_count=1` while keeping required generated fixture assertions intact.
-38. Curated feature-coverage policy enforcement delivered:
+41. Curated feature-coverage policy enforcement delivered:
    - `python/assemble_excel_interop_corpus.py` now supports repeated `--required-curated-feature` enforcement and emits `required_curated_features` / `covered_curated_features` / `missing_required_curated_features` in assembled manifest output.
    - Interop CI workflow now sets `EXCEL_INTEROP_REQUIRED_CURATED_FEATURES=formulas,styles,comments,charts,defined_names` and passes it into corpus assembly as repeated required-feature assertions, ensuring baseline curated compatibility coverage remains enforced.
    - Expected-fail validation path confirms missing curated feature tags fail fast during corpus assembly before interop execution.
-39. Multi-feature curated coverage baseline expanded and enforced:
+42. Multi-feature curated coverage baseline expanded and enforced:
    - Curated corpus manifest now includes five approved seeded samples (`internal-formula-baseline`, `internal-styles-baseline`, `internal-comments-baseline`, `internal-chart-baseline`, `internal-defined-names-baseline`) under `corpus/excel-authored/files`.
    - Interop CI policy now enforces `EXCEL_INTEROP_MIN_EXCEL_AUTHORED_SAMPLES=5` plus comma-separated required curated feature coverage (`EXCEL_INTEROP_REQUIRED_CURATED_FEATURES=formulas,styles,comments,charts,defined_names`).
    - Assembled corpus and interop validation now pass with `excel_authored_sample_count=5`, `required_curated_features=['charts','comments','defined_names','formulas','styles']`, and no missing required curated features.
-40. Curated provenance-aware policy scaffold delivered:
+43. Curated provenance-aware policy scaffold delivered:
    - `python/assemble_excel_interop_corpus.py` now supports `provenance` metadata (`interim_openpyxl`, `verified_excel`) per curated sample, captures detected workbook application metadata, and enforces optional verified-Excel minimums (`--min-verified-excel-samples`).
    - `verified_excel` provenance now requires workbook metadata detection containing `Microsoft Excel`, preventing false verification labels in curated manifest entries.
    - Interop CI workflow now exposes `EXCEL_INTEROP_MIN_VERIFIED_EXCEL_SAMPLES` and records `excel_authored_min_verified_required` in artifact bundle manifest metadata.
    - Policy floor is now enforced in CI with `EXCEL_INTEROP_MIN_VERIFIED_EXCEL_SAMPLES=17`.
-41. Verified Microsoft Excel-authored curated baseline landed and expanded:
+44. Verified Microsoft Excel-authored curated baseline landed and expanded:
    - Added `python/generate_excel_authored_curated_samples.ps1` to generate curated workbooks via Excel COM automation for formulas/styles/comments/charts/defined names plus tables/merged-cells/data-validation/conditional-formatting coverage.
    - Curated manifest entries now set `provenance=verified_excel` and `authoring_app=Microsoft Excel 16.0 (COM-authored)` for nine seeded samples.
    - Interop assembly + gate validation passed at that phase with `excel_authored_sample_count=9` and `excel_authored_verified_count=9` under policy floor `EXCEL_INTEROP_MIN_VERIFIED_EXCEL_SAMPLES=9`.
-42. Verified Excel-authored interop corpus expanded with external-link and pivot coverage:
+45. Verified Excel-authored interop corpus expanded with external-link and pivot coverage:
    - `python/generate_excel_authored_curated_samples.ps1` now generates `internal-external-links-baseline.xlsx` and `internal-pivot-table-baseline.xlsx` in addition to the prior nine baseline samples.
    - Curated manifest now includes `external_links` and `pivot_tables` tags, bringing verified seeded sample coverage to `11`.
    - Interop CI policy floors and required curated features are raised to `11` / `11` with `EXCEL_INTEROP_REQUIRED_CURATED_FEATURES=formulas,styles,comments,charts,defined_names,tables,merged_cells,data_validation,conditional_formatting,external_links,pivot_tables`.
-43. Verified Excel-authored interop corpus expanded with query-connections and sheet-protection coverage:
+46. Verified Excel-authored interop corpus expanded with query-connections and sheet-protection coverage:
    - `python/generate_excel_authored_curated_samples.ps1` now generates `internal-query-connection-baseline.xlsx` and `internal-sheet-protection-baseline.xlsx` in addition to the prior eleven baseline samples.
    - Curated manifest now includes `query_connections` and `sheet_protection` tags, bringing verified seeded sample coverage to `13`.
    - Interop CI policy floors and required curated features are raised to `13` / `13` with `EXCEL_INTEROP_REQUIRED_CURATED_FEATURES=formulas,styles,comments,charts,defined_names,tables,merged_cells,data_validation,conditional_formatting,external_links,pivot_tables,query_connections,sheet_protection`.
-44. Verified Excel-authored interop corpus expanded with hyperlinks and workbook-protection coverage:
+47. Verified Excel-authored interop corpus expanded with hyperlinks and workbook-protection coverage:
    - `python/generate_excel_authored_curated_samples.ps1` now generates `internal-hyperlinks-baseline.xlsx` and `internal-workbook-protection-baseline.xlsx` in addition to the prior thirteen baseline samples.
    - Curated manifest now includes `hyperlinks` and `workbook_protection` tags, bringing verified seeded sample coverage to `15`.
    - Interop CI policy floors and required curated features are raised to `15` / `15` with `EXCEL_INTEROP_REQUIRED_CURATED_FEATURES=formulas,styles,comments,charts,defined_names,tables,merged_cells,data_validation,conditional_formatting,external_links,pivot_tables,query_connections,sheet_protection,hyperlinks,workbook_protection`.
-45. Verified Excel-authored interop corpus expanded with print-settings and calc-chain coverage:
+48. Verified Excel-authored interop corpus expanded with print-settings and calc-chain coverage:
    - `python/generate_excel_authored_curated_samples.ps1` now generates `internal-print-settings-baseline.xlsx` and `internal-calc-chain-baseline.xlsx` in addition to the prior fifteen baseline samples.
    - Curated manifest now includes `print_settings` and `calc_chain` tags, bringing verified seeded sample coverage to `17`.
    - Interop CI policy floors and required curated features are raised to `17` / `17` with `EXCEL_INTEROP_REQUIRED_CURATED_FEATURES=formulas,styles,comments,charts,defined_names,tables,merged_cells,data_validation,conditional_formatting,external_links,pivot_tables,query_connections,sheet_protection,hyperlinks,workbook_protection,print_settings,calc_chain`.
-46. Desktop UI shell now exercises compatibility-first interop flows in-app:
+49. Desktop UI shell now exercises compatibility-first interop flows in-app:
    - Tauri backend now exposes `interop_open_workbook`, `interop_session_status`, `interop_recalc_loaded`, and `interop_save_workbook` (preserve/normalize).
    - UI now includes path-based workbook open/inspect, compatibility summary panel, loaded-workbook recalc, and save mode controls.
    - Desktop packaging setup now includes Tauri icons/metadata so local Windows builds compile without manual resource fixes.
    - Core interop extension validation now accepts `.xlsx` case-insensitively (`.xlsx`/`.XLSX`).
-47. Desktop interop workflow now includes native file dialogs and first edit-to-save path:
+50. Desktop interop workflow now includes native file dialogs and first edit-to-save path:
    - Added Tauri dialog plugin wiring (`@tauri-apps/plugin-dialog`, `tauri-plugin-dialog`) with desktop capability permissions.
    - UI now supports native file-picker/open and save-as dialogs for `.xlsx` workflows.
    - Added first in-app cell edit command (`interop_apply_cell_edit`) for value/formula mutations.
    - Preserve-mode save now routes through sheet-overrides whenever dirty sheets exist, keeping unknown Excel parts while persisting edited worksheets.
-48. Desktop UI smoke CI baseline added:
+51. Desktop UI smoke CI baseline added:
    - Added workflow `.github/workflows/desktop-ui-smoke.yml` (PR/push/workflow_dispatch) on `windows-latest`.
    - Workflow gates desktop path with `npm ci`, `npm run build`, Tauri backend `cargo check`, and interop extension compatibility test (`accepts_uppercase_xlsx_extension`).
-49. Desktop UI now exposes first inspectable grid-like preview + save-source continuation controls:
+52. Desktop UI now exposes first inspectable grid-like preview + save-source continuation controls:
    - Added `interop_sheet_preview` backend command with bounded cell sampling for loaded sheets.
    - UI now renders a sheet preview table (row/column headers + value/formula cells) and supports preview refresh by sheet.
    - Save flow now supports optional output-path promotion as the active session source after successful save.
-50. Desktop preview workflow now supports edit navigation and clipboard helpers:
+53. Desktop preview workflow now supports edit navigation and clipboard helpers:
    - Preview table now tracks last edited cell and supports one-click jump back to that cell.
    - Preview cells are selectable, with visual selected/last-edited highlights.
    - Added clipboard actions for selected cell A1 reference, rendered value, and formula text (when present).
-51. Desktop preview keyboard controls delivered:
+54. Desktop preview keyboard controls delivered:
    - Arrow-key navigation now moves selection across previewed populated cells.
    - Pressing `Enter` in focused preview applies the current edit-form input to the selected cell.
    - Preview container now exposes keyboard focus styling for discoverability.
-52. Desktop edit UX now aligns range edits with preview-first workflow:
+55. Desktop edit UX now aligns range edits with preview-first workflow:
    - Edit panel now explicitly accepts A1 ranges (`A1:B3`) in addition to single-cell references.
    - `interop_apply_cell_edit` responses are now surfaced with `anchorCell` + `appliedCellCount` in UI output, and preview focus/jump-last-edited now tracks the anchor cell.
    - Formula bar is now fully wired (`Apply From Bar` + `Enter`) and syncs mode/input to the edit panel so preview, formula bar, and edit actions stay aligned.
-53. Desktop range-edit regression coverage now guards anchor-cell semantics:
+56. Desktop range-edit regression coverage now guards anchor-cell semantics:
    - Extracted desktop backend edit logic into a testable helper (`apply_cell_edit_to_workbook`) while keeping command behavior unchanged.
    - Added range regression unit tests covering value and formula range edits (`B2:A1`, `C1:C2`) with assertions for `anchorCell`, `appliedCellCount`, and applied workbook mutations.
    - Desktop smoke CI now runs targeted range-edit regression tests (`cargo test --manifest-path apps/desktop/src-tauri/Cargo.toml --locked apply_cell_edit_range`).
-54. Desktop editing ergonomics now include preset range scaffolds and recalc freshness visibility:
+57. Desktop editing ergonomics now include preset range scaffolds and recalc freshness visibility:
    - Edit panel now provides one-click range presets (`Row x3`, `Col x3`, `Block 2x2`) anchored to selected preview cell when available (or current edit cell fallback).
    - Preset selection now writes normalized A1/A1-range targets directly into edit controls to speed repeat range operations.
    - Save + Recalc panel now exposes persistent recalc freshness status (pending/stale/fresh with last scope/time) so formula refresh intent is explicit before save.
-55. Desktop undo/redo baseline plus preview clipboard paste now supports session-state revert semantics in desktop edit loop:
+58. Desktop undo/redo baseline plus preview clipboard paste now supports session-state revert semantics in desktop edit loop:
    - Backend command history tracks undo/redo depth, snapshots state before each edit, clears redo stack on branch edits, and exposes counts in `InteropSessionStatusResponse` + `InteropUndoRedoResponse`.
    - UI wires undo/redo controls and keyboard shortcuts (`Ctrl/Cmd+Z`, `Ctrl/Cmd+Y`) with preview-focused paste (`Ctrl/Cmd+V`) and disabled-state binding.
    - TypeScript and backend tests validate undo restore behavior, redo consistency, and branch-clear semantics.
-56. Accessibility and edit-lifecycle observability baseline is implemented for Sprint 03:
+59. Accessibility and edit-lifecycle observability baseline is implemented for Sprint 03:
    - Added live regions for command feedback (`polite` + `assertive`) and edit lifecycle log panel for command status/latency/error visibility.
    - Added deterministic UI-level accessibility + lifecycle instrumentation tests (`apps/desktop/src/main.accessibility.test.ts`) that assert bounded log behavior and assertive error announcements.
 
@@ -301,6 +313,7 @@ Last updated: March 4, 2026
 - `npm run build` (from `apps/desktop`): pass.
 - `cargo check --manifest-path apps/desktop/src-tauri/Cargo.toml -j 1`: pass.
 - `npm run test -- --config vitest.config.ts src/main.accessibility.test.ts` (from `apps/desktop`): pass.
+- `cargo test --manifest-path apps/desktop/src-tauri/Cargo.toml --locked interop_run_macro`: pass.
 - `cargo test --manifest-path apps/desktop/src-tauri/Cargo.toml --locked apply_cell_edit_range`: pass.
 - `cargo test --manifest-path apps/desktop/src-tauri/Cargo.toml --locked interop_undo_redo`: pass.
 - `cargo fmt --all`: pass.
@@ -491,9 +504,10 @@ Last updated: March 4, 2026
 - `cargo run -p rootcellar-cli --offline -- part-graph-corpus ./target/excel-interop-corpus-v15 --fail-on-errors --report ./target/part-graph-corpus-report-v14.json --jsonl ./target/part-graph-corpus-events-v14.jsonl`: pass (`discovered=25`, `processed=25`, `failures=0`; expanded verified curated corpus remains compatibility/load safe, with `external_edges=4` captured).
 
 ## Next Execution Slice
-1. Complete Sprint 04 Python automation platform foundation (`Epic 04`) end-to-end in CLI + desktop:
-   - grant/deny UX and policy persistence
-   - CLI + desktop audit trail correlation for macro session, permission, and macro-mutation artifacts
+1. Advance Sprint 04 security hardening and policy surfaces:
+   - add signed macro-package policy enforcement (distribution/package signatures and trust metadata)
+   - extend policy provenance artifacts for offline verification (`script_fingerprint`, allowlist policy lineage)
+   - extend audit trail correlation for macro session, permission, and macro-mutation artifacts
    - UDF/event surface extension with read/write/range primitives.
 2. Stabilize and harden Sprint 02 edge-case compatibility (`Sprint 02 - Calc Baseline and Dependency Graph`) before expanding interaction surface area.
 3. Expand verified Excel-authored curated corpus policy beyond current baseline by adding scenario-manager/rich chart-layout variants while preserving the proven floor policy (`EXCEL_INTEROP_MIN_EXCEL_AUTHORED_SAMPLES=17`, `EXCEL_INTEROP_MIN_VERIFIED_EXCEL_SAMPLES=17`).

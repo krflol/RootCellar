@@ -74,6 +74,20 @@ class ScriptPermissionEvent:
 
 
 @dataclass
+class ScriptRuntimeEvent:
+    event_name: str
+    payload: Any
+    severity: Optional[str] = None
+
+    def to_payload(self) -> Dict[str, Any]:
+        return {
+            "event_name": self.event_name,
+            "payload": self.payload,
+            "severity": self.severity,
+        }
+
+
+@dataclass
 class ScriptMutation:
     op: str
     payload: Dict[str, Any]
@@ -223,6 +237,20 @@ class PermissionState:
         return allowed
 
 
+class RuntimeEventSink:
+    def __init__(self) -> None:
+        self.events: List[ScriptRuntimeEvent] = []
+
+    def emit(self, event_name: str, payload: Any, *, severity: Optional[str] = None) -> None:
+        self.events.append(
+            ScriptRuntimeEvent(
+                event_name=event_name,
+                payload=_normalize_runtime_payload(payload),
+                severity=severity,
+            )
+        )
+
+
 class WorkbookRuntime:
     def __init__(self, path: str, permissions: PermissionState):
         if openpyxl is None:
@@ -322,11 +350,20 @@ class WorkbookRuntime:
 
 
 class ScriptObject:
-    def __init__(self, workbook: WorkbookRuntime, permissions: PermissionState, args: Dict[str, str]):
+    def __init__(
+        self,
+        workbook: WorkbookRuntime,
+        module: Any,
+        permissions: PermissionState,
+        args: Dict[str, str],
+        runtime_events: RuntimeEventSink,
+    ):
         self._workbook = workbook
         self.io = ScriptIO(permissions)
         self.net = ScriptNetwork(permissions)
         self.process = ScriptProcess(permissions)
+        self.udf = ScriptUDF(module, permissions)
+        self.events = ScriptEvents(permissions, runtime_events)
         self.args = dict(args)
 
     def cell(self, sheet: str, cell: str) -> Any:
@@ -399,6 +436,59 @@ class ScriptProcess:
         return int(process.run(command, shell=True).returncode or 0)
 
 
+class ScriptUDF:
+    def __init__(self, module: Any, permissions: PermissionState):
+        self.module = module
+        self.permissions = permissions
+
+    def __call__(self, function_name: str, *args: Any, **kwargs: Any) -> Any:
+        return self.invoke(function_name, *args, **kwargs)
+
+    def invoke(self, function_name: str, *args: Any, **kwargs: Any) -> Any:
+        if not self.permissions.check("udf", f"invoke({function_name})"):
+            raise ScriptWorkerError("permission denied for udf")
+        if not function_name:
+            raise ScriptWorkerError("udf function name must be a non-empty string")
+        if not hasattr(self.module, function_name):
+            raise ScriptWorkerError(f"udf '{function_name}' is not defined in script module")
+        function = getattr(self.module, function_name)
+        if not callable(function):
+            raise ScriptWorkerError(f"udf '{function_name}' is not callable")
+        return function(*args, **kwargs)
+
+    def call(self, function_name: str, *args: Any, **kwargs: Any) -> Any:
+        return self.invoke(function_name, *args, **kwargs)
+
+
+class ScriptEvents:
+    def __init__(self, permissions: PermissionState, runtime_events: RuntimeEventSink):
+        self.permissions = permissions
+        self.runtime_events = runtime_events
+
+    def emit(
+        self,
+        event_name: str,
+        payload: Any = None,
+        *,
+        severity: Optional[str] = None,
+    ) -> None:
+        if not event_name:
+            raise ScriptWorkerError("event name must be a non-empty string")
+        if not self.permissions.check("events.emit", f"emit({event_name})"):
+            raise ScriptWorkerError("permission denied for events.emit")
+        normalized = _normalize_runtime_payload(payload)
+        self.runtime_events.emit(event_name, normalized, severity=severity)
+
+
+def _normalize_runtime_payload(payload: Any) -> Any:
+    if payload is None:
+        return {}
+    try:
+        return json.loads(json.dumps(payload))
+    except TypeError as error:
+        raise ScriptWorkerError(f"runtime event payload must be JSON-serializable: {error}") from error
+
+
 def build_response(
     status: str,
     *,
@@ -407,6 +497,7 @@ def build_response(
     stderr: Optional[str] = None,
     permission_events: Optional[List[ScriptPermissionEvent]] = None,
     mutations: Optional[List[Dict[str, Any]]] = None,
+    runtime_events: Optional[List[Dict[str, Any]]] = None,
     result: Optional[Any] = None,
 ) -> Dict[str, Any]:
     return {
@@ -415,6 +506,7 @@ def build_response(
         "stdout": stdout,
         "stderr": stderr,
         "permission_events": [event.to_payload() for event in (permission_events or [])],
+        "runtime_events": runtime_events or [],
         "mutations": mutations or [],
         "result": result,
     }
@@ -465,6 +557,7 @@ def main() -> int:
     stdout_capture = io.StringIO()
     stderr_capture = io.StringIO()
     permission_state = PermissionState([])
+    runtime_events = RuntimeEventSink()
 
     try:
         request_text = sys.stdin.read()
@@ -483,8 +576,14 @@ def main() -> int:
             raise ScriptWorkerError(f"macro script does not exist: {script_path}")
 
         workbook = WorkbookRuntime(request.workbook_path, permission_state)
-        context = ScriptObject(workbook, permission_state, request.args)
         module = load_script_module(script_path)
+        context = ScriptObject(
+            workbook,
+            module,
+            permission_state,
+            request.args,
+            runtime_events,
+        )
 
         with contextlib.redirect_stdout(stdout_capture), contextlib.redirect_stderr(stderr_capture):
             result = call_macro(context, request.macro_name, module, request.args)
@@ -493,6 +592,7 @@ def main() -> int:
             "ok",
             mutations=workbook.snapshot_mutations(),
             permission_events=permission_state.events,
+            runtime_events=[event.to_payload() for event in runtime_events.events],
             result=build_normalized_result(result),
             stdout=stdout_capture.getvalue(),
             stderr=stderr_capture.getvalue(),

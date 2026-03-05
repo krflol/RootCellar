@@ -411,6 +411,32 @@ struct InteropScriptPermissionEvent {
     reason: String,
 }
 
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct InteropScriptRuntimeEvent {
+    event_name: String,
+    payload: serde_json::Value,
+    severity: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct InteropMacroTrustProvenance {
+    mode: String,
+    manifest_path: Option<String>,
+    manifest_name: Option<String>,
+    manifest_version: Option<String>,
+    publisher: Option<String>,
+    api_min_version: Option<u32>,
+    permissions_required: Vec<String>,
+    permissions_declared: Vec<String>,
+    runtime_api_version: u32,
+    signature_present: bool,
+    signature_verified: Option<bool>,
+    fingerprint: String,
+    trusted: bool,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct InteropMacroPermissionConfig {
@@ -419,13 +445,11 @@ struct InteropMacroPermissionConfig {
     net_http: bool,
     clipboard: bool,
     process_exec: bool,
+    udf: bool,
+    events_emit: bool,
 }
 
 impl InteropMacroPermissionConfig {
-    fn any_enabled(&self) -> bool {
-        self.fs_read || self.fs_write || self.net_http || self.clipboard || self.process_exec
-    }
-
     fn as_requested_permissions(&self) -> Vec<String> {
         let mut requested = Vec::new();
         if self.fs_read {
@@ -442,6 +466,12 @@ impl InteropMacroPermissionConfig {
         }
         if self.process_exec {
             requested.push(script::ScriptPermission::ProcessExec.as_str().to_string());
+        }
+        if self.udf {
+            requested.push(script::ScriptPermission::Udf.as_str().to_string());
+        }
+        if self.events_emit {
+            requested.push(script::ScriptPermission::EventsEmit.as_str().to_string());
         }
         requested
     }
@@ -463,6 +493,12 @@ impl InteropMacroPermissionConfig {
         if self.process_exec {
             permissions.push(script::ScriptPermission::ProcessExec);
         }
+        if self.udf {
+            permissions.push(script::ScriptPermission::Udf);
+        }
+        if self.events_emit {
+            permissions.push(script::ScriptPermission::EventsEmit);
+        }
         permissions
     }
 }
@@ -483,6 +519,9 @@ struct InteropRunMacroResponse {
     workbook_id: String,
     script_path: String,
     macro_name: String,
+    script_fingerprint: String,
+    trust: Option<InteropMacroTrustProvenance>,
+    runtime_events: Vec<InteropScriptRuntimeEvent>,
     requested_permissions: Vec<String>,
     permission_events: Vec<InteropScriptPermissionEvent>,
     permission_granted: usize,
@@ -673,6 +712,39 @@ fn parse_macro_permission_events(
             reason: event.reason,
         })
         .collect()
+}
+
+fn parse_macro_runtime_events(
+    runtime_events: Vec<script::ScriptRuntimeEvent>,
+) -> Vec<InteropScriptRuntimeEvent> {
+    runtime_events
+        .into_iter()
+        .map(|event| InteropScriptRuntimeEvent {
+            event_name: event.event_name,
+            payload: event.payload,
+            severity: event.severity,
+        })
+        .collect()
+}
+
+fn parse_macro_trust(
+    trust: Option<script::ScriptTrustProvenance>,
+) -> Option<InteropMacroTrustProvenance> {
+    trust.map(|trust| InteropMacroTrustProvenance {
+        mode: trust.mode,
+        manifest_path: trust.manifest_path,
+        manifest_name: trust.manifest_name,
+        manifest_version: trust.manifest_version,
+        publisher: trust.publisher,
+        api_min_version: trust.api_min_version,
+        permissions_required: trust.permissions_required,
+        permissions_declared: trust.permissions_declared,
+        runtime_api_version: trust.runtime_api_version,
+        signature_present: trust.signature_present,
+        signature_verified: trust.signature_verified,
+        fingerprint: trust.fingerprint,
+        trusted: trust.trusted,
+    })
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -1531,7 +1603,13 @@ fn interop_run_macro(
         }
     };
 
+    let script_fingerprint = response
+        .script_fingerprint
+        .clone()
+        .unwrap_or_else(|| "unavailable".to_string());
     let parsed_permissions = parse_macro_permission_events(response.permission_events.clone());
+    let parsed_runtime_events = parse_macro_runtime_events(response.runtime_events.clone());
+    let parsed_trust = parse_macro_trust(response.trust.clone());
     let permission_granted = response
         .permission_events
         .iter()
@@ -1555,10 +1633,51 @@ fn interop_run_macro(
                     "allowed": event.allowed,
                     "macro_script": script_path,
                     "macro_name": macro_name,
+                    "macro_script_fingerprint": script_fingerprint,
                     "reason": event.reason,
                 }))
                 .with_payload(json!({
-                    "status": if event.allowed { "granted" } else { "denied" },
+                "status": if event.allowed { "granted" } else { "denied" },
+                })),
+        )
+        .map_err(|error| error.to_string())?;
+    }
+
+    if let Some(trust) = parsed_trust.as_ref() {
+        sink.emit(
+            EventEnvelope::info("script.trust", &command_trace)
+                .with_context(json!({
+                    "macro_script": script_path,
+                    "macro_name": macro_name,
+                    "macro_script_fingerprint": script_fingerprint,
+                }))
+                .with_payload(json!({
+                    "trust": trust,
+                }))
+                .with_metrics(json!({
+                    "required_permissions": trust.permissions_required.len(),
+                    "declared_permissions": trust.permissions_declared.len(),
+                    "runtime_api_version": trust.runtime_api_version,
+                    "signature_present": trust.signature_present,
+                    "trusted": trust.trusted,
+                })),
+        )
+        .map_err(|error| error.to_string())?;
+    }
+
+    if !parsed_runtime_events.is_empty() {
+        sink.emit(
+            EventEnvelope::info("script.runtime.events", &command_trace)
+                .with_context(json!({
+                    "macro_script": script_path,
+                    "macro_name": macro_name,
+                    "macro_script_fingerprint": script_fingerprint,
+                }))
+                .with_payload(json!({
+                    "runtime_events": parsed_runtime_events,
+                }))
+                .with_metrics(json!({
+                    "runtime_event_count": parsed_runtime_events.len(),
                 })),
         )
         .map_err(|error| error.to_string())?;
@@ -1696,6 +1815,7 @@ fn interop_run_macro(
                 "macro_name": macro_name,
                 "input": session.input_path.display().to_string(),
                 "status": "ok",
+                "macro_script_fingerprint": script_fingerprint,
                 "result": response.result,
                 "stdout": response.stdout,
                 "stderr": response.stderr,
@@ -1707,6 +1827,8 @@ fn interop_run_macro(
                 "permission_granted": permission_granted,
                 "permission_denied": permission_denied,
                 "permission_event_count": response.permission_events.len(),
+                "runtime_event_count": parsed_runtime_events.len(),
+                "trust_present": parsed_trust.is_some(),
             })),
     )
     .map_err(|error| error.to_string())?;
@@ -1717,6 +1839,7 @@ fn interop_run_macro(
                 "macro_script": script_path,
                 "macro_name": macro_name,
                 "status": "ok",
+                "macro_script_fingerprint": script_fingerprint,
             }))
             .with_metrics(json!({
                 "mutations": assignments.len(),
@@ -1730,8 +1853,11 @@ fn interop_run_macro(
         workbook_id: session.workbook.workbook_id.to_string(),
         script_path: script_path.to_string(),
         macro_name: macro_name.to_string(),
+        script_fingerprint,
         requested_permissions,
         permission_events: parsed_permissions,
+        trust: parsed_trust,
+        runtime_events: parsed_runtime_events,
         permission_granted,
         permission_denied,
         mutation_count: assignments.len(),
@@ -2047,6 +2173,88 @@ fn interop_save_workbook(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::OnceLock;
+
+    static TEST_ENV_MUTEX: OnceLock<Mutex<()>> = OnceLock::new();
+
+    fn make_test_dir(test_name: &str) -> PathBuf {
+        let suffix = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|clock| clock.as_nanos())
+            .unwrap_or(0);
+        let path =
+            std::env::temp_dir().join(format!("rootcellar-desktop-macro-{test_name}-{suffix}"));
+        std::fs::create_dir_all(&path).expect("create temporary test directory");
+        path
+    }
+
+    fn python_available() -> bool {
+        std::process::Command::new("python")
+            .arg("-V")
+            .output()
+            .is_ok()
+    }
+
+    fn with_env_vars<T, F>(entries: &[(&str, Option<&str>)], action: F) -> T
+    where
+        F: FnOnce() -> T,
+    {
+        let _guard = TEST_ENV_MUTEX
+            .get_or_init(|| Mutex::new(()))
+            .lock()
+            .expect("env lock must be acquireable");
+
+        let mut originals: Vec<(String, Option<String>)> = Vec::new();
+        for (key, value) in entries {
+            originals.push((key.to_string(), std::env::var(key).ok()));
+            match value {
+                Some(value) => std::env::set_var(key, value),
+                None => std::env::remove_var(key),
+            }
+        }
+
+        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(action));
+
+        for (key, original) in originals {
+            match original {
+                Some(value) => std::env::set_var(&key, value),
+                None => std::env::remove_var(&key),
+            }
+        }
+
+        match result {
+            Ok(value) => value,
+            Err(payload) => std::panic::resume_unwind(payload),
+        }
+    }
+
+    fn temp_workbook_with_macro_inputs(test_name: &str) -> PathBuf {
+        let test_dir = make_test_dir(test_name);
+        let input_path = test_dir.join("input.xlsx");
+        std::fs::copy(sample_xlsx_path(), &input_path).expect("copy fixture workbook");
+        input_path
+    }
+
+    fn write_temp_script(path: &Path, body: &str) {
+        std::fs::write(path, body).expect("write temporary script");
+    }
+
+    fn read_cell_value(session: &DesktopState, row: u32, col: u32) -> CellValue {
+        let session_guard = session
+            .session
+            .lock()
+            .expect("desktop state lock should not be poisoned");
+        let opened = session_guard
+            .as_ref()
+            .expect("workbook should be opened for session");
+        opened
+            .workbook
+            .sheets
+            .get("Sheet1")
+            .and_then(|sheet_data| sheet_data.cells.get(&CellRef { row, col }))
+            .map(|record| record.value.clone())
+            .expect("cell should exist in loaded workbook")
+    }
 
     fn seeded_workbook(trace: &TraceContext) -> Workbook {
         let mut sink = NoopEventSink;
@@ -2293,6 +2501,22 @@ mod tests {
 
     fn sheet1_cell_from_session(session: &DesktopState, row: u32, col: u32) -> CellValue {
         cell_value_from_session(session, "Sheet1", row, col)
+    }
+
+    fn sheet1_formula_from_session(session: &DesktopState, row: u32, col: u32) -> Option<String> {
+        let session_guard = session
+            .session
+            .lock()
+            .expect("desktop state lock should not be poisoned");
+        let opened = session_guard
+            .as_ref()
+            .expect("workbook should be opened for session");
+        opened
+            .workbook
+            .sheets
+            .get("Sheet1")
+            .and_then(|sheet| sheet.cells.get(&CellRef { row, col }))
+            .and_then(|record| record.formula.clone())
     }
 
     #[test]
@@ -2781,6 +3005,289 @@ mod tests {
             interop_session_status(state.clone()).expect("session status should be available");
         assert_eq!(status_after_branch.undo_count, 2);
         assert_eq!(status_after_branch.redo_count, 0);
+    }
+
+    #[test]
+    fn interop_run_macro_applies_mutations_and_recalculates_cells() {
+        if !python_available() {
+            eprintln!("python missing; skipping desktop macro integration test");
+            return;
+        }
+
+        let session = DesktopState::default();
+        let state = as_state(&session);
+        let input_path = temp_workbook_with_macro_inputs("success");
+        interop_open_workbook(
+            state.clone(),
+            input_path.to_string_lossy().to_string(),
+            None,
+        )
+        .expect("workbook should open");
+        let macro_path = input_path
+            .parent()
+            .expect("macro fixture directory")
+            .join("macro_user.py");
+        let worker_path = input_path
+            .parent()
+            .expect("macro fixture directory")
+            .join("macro_worker.py");
+
+        let success_worker = r#"
+import json
+import sys
+
+json.load(sys.stdin)
+print(
+    json.dumps(
+        {
+            "status": "ok",
+            "message": "ok",
+            "stdout": "macro completed",
+            "stderr": "",
+            "permission_events": [
+                {
+                    "event_name": "script.permission.granted",
+                    "permission": "fs.write",
+                    "allowed": True,
+                    "reason": "allowed by test override"
+                },
+                {
+                    "event_name": "script.permission.granted",
+                    "permission": "fs.read",
+                    "allowed": True,
+                    "reason": "allowed by test override"
+                }
+            ],
+            "mutations": [
+                {"op": "set_cell_value", "sheet": "Sheet1", "cell": "A1", "value": {"kind": "number", "value": 11}},
+                {"op": "set_cell_formula", "sheet": "Sheet1", "cell": "B1", "formula": "=A1+1"},
+                {"op": "set_cell_range_value", "sheet": "Sheet1", "start": "C1", "end": "D2", "value": {"kind": "number", "value": 22}}
+            ],
+            "result": {}
+        }
+    )
+)
+"#;
+
+        write_temp_script(
+            &macro_path,
+            "def run_macro(ctx, args):\n    return {'ok': True}\n",
+        );
+        write_temp_script(&worker_path, success_worker);
+
+        let response = with_env_vars(
+            &[
+                ("ROOTCELLAR_PYTHON", Some("python")),
+                (
+                    "ROOTCELLAR_SCRIPT_WORKER",
+                    Some(worker_path.to_string_lossy().as_ref()),
+                ),
+            ],
+            || {
+                interop_run_macro(
+                    state.clone(),
+                    macro_path.to_string_lossy().to_string(),
+                    "run_macro".to_string(),
+                    String::new(),
+                    InteropMacroPermissionConfig {
+                        fs_read: true,
+                        fs_write: true,
+                        net_http: false,
+                        clipboard: false,
+                        process_exec: false,
+                        udf: false,
+                        events_emit: false,
+                    },
+                    None,
+                )
+                .expect("macro execution should succeed")
+            },
+        );
+
+        assert_eq!(response.permission_granted, 2);
+        assert_eq!(response.permission_denied, 0);
+        assert_eq!(response.mutation_count, 6);
+        assert_eq!(response.changed_sheets, vec!["Sheet1".to_string()]);
+        assert!(!response.recalc_reports.is_empty());
+        assert_eq!(response.stdout.as_deref(), Some("macro completed"));
+        assert_eq!(response.script_fingerprint.len(), 16);
+        assert_eq!(
+            sheet1_cell_from_session(&session, 1, 1),
+            CellValue::Number(11.0)
+        );
+        assert_eq!(
+            sheet1_formula_from_session(&session, 1, 2),
+            Some("=A1+1".to_string())
+        );
+        assert_eq!(read_cell_value(&session, 1, 3), CellValue::Number(22.0));
+        assert_eq!(read_cell_value(&session, 2, 3), CellValue::Number(22.0));
+        assert_eq!(read_cell_value(&session, 1, 4), CellValue::Number(22.0));
+    }
+
+    #[test]
+    fn interop_run_macro_denies_mutations_without_permission() {
+        if !python_available() {
+            eprintln!("python missing; skipping desktop macro denial integration test");
+            return;
+        }
+
+        let session = DesktopState::default();
+        let state = as_state(&session);
+        let input_path = temp_workbook_with_macro_inputs("denied");
+        interop_open_workbook(
+            state.clone(),
+            input_path.to_string_lossy().to_string(),
+            None,
+        )
+        .expect("workbook should open");
+        let macro_path = input_path
+            .parent()
+            .expect("macro fixture directory")
+            .join("macro_user.py");
+        let worker_path = input_path
+            .parent()
+            .expect("macro fixture directory")
+            .join("macro_worker.py");
+        let denied_worker = r#"
+import json
+import sys
+
+json.load(sys.stdin)
+print(
+    json.dumps(
+        {
+            "status": "ok",
+            "message": "ok",
+            "stdout": "permission denied",
+            "stderr": "",
+            "permission_events": [
+                {
+                    "event_name": "script.permission.denied",
+                    "permission": "fs.write",
+                    "allowed": False,
+                    "reason": "permission denied for test"
+                }
+            ],
+            "mutations": [],
+            "result": {}
+        }
+    )
+)
+"#;
+
+        let before = {
+            let initial = read_cell_value(&session, 1, 1);
+            let initial_formula = sheet1_formula_from_session(&session, 1, 2);
+            (initial, initial_formula)
+        };
+        write_temp_script(
+            &macro_path,
+            "def run_macro(ctx, args):\n    raise RuntimeError('should be blocked by test worker')\n",
+        );
+        write_temp_script(&worker_path, denied_worker);
+
+        let response = with_env_vars(
+            &[
+                ("ROOTCELLAR_PYTHON", Some("python")),
+                (
+                    "ROOTCELLAR_SCRIPT_WORKER",
+                    Some(worker_path.to_string_lossy().as_ref()),
+                ),
+            ],
+            || {
+                interop_run_macro(
+                    state.clone(),
+                    macro_path.to_string_lossy().to_string(),
+                    "run_macro".to_string(),
+                    String::new(),
+                    InteropMacroPermissionConfig {
+                        fs_read: true,
+                        fs_write: false,
+                        net_http: false,
+                        clipboard: false,
+                        process_exec: false,
+                        udf: false,
+                        events_emit: false,
+                    },
+                    None,
+                )
+                .expect("macro execution should succeed even without mutation")
+            },
+        );
+
+        assert_eq!(response.permission_granted, 0);
+        assert_eq!(response.permission_denied, 1);
+        assert_eq!(response.mutation_count, 0);
+        assert!(response.changed_sheets.is_empty());
+        assert!(response.recalc_reports.is_empty());
+        assert_eq!(response.script_fingerprint.len(), 16);
+        assert_eq!(sheet1_cell_from_session(&session, 1, 1), before.0);
+        assert_eq!(sheet1_formula_from_session(&session, 1, 2), before.1);
+        assert_eq!(response.stdout.as_deref(), Some("permission denied"));
+    }
+
+    #[test]
+    fn interop_run_macro_fails_with_invalid_worker_response() {
+        if !python_available() {
+            eprintln!("python missing; skipping desktop macro invalid worker integration test");
+            return;
+        }
+
+        let session = DesktopState::default();
+        let state = as_state(&session);
+        let input_path = temp_workbook_with_macro_inputs("invalid-worker");
+        interop_open_workbook(
+            state.clone(),
+            input_path.to_string_lossy().to_string(),
+            None,
+        )
+        .expect("workbook should open");
+        let macro_path = input_path
+            .parent()
+            .expect("macro fixture directory")
+            .join("macro_user.py");
+        let worker_path = input_path
+            .parent()
+            .expect("macro fixture directory")
+            .join("macro_worker.py");
+
+        write_temp_script(
+            &macro_path,
+            "def run_macro(ctx, args):\n    return {'ok': True}\n",
+        );
+        write_temp_script(&worker_path, "print('not-json')");
+
+        let response = with_env_vars(
+            &[
+                ("ROOTCELLAR_PYTHON", Some("python")),
+                (
+                    "ROOTCELLAR_SCRIPT_WORKER",
+                    Some(worker_path.to_string_lossy().as_ref()),
+                ),
+            ],
+            || {
+                interop_run_macro(
+                    state.clone(),
+                    macro_path.to_string_lossy().to_string(),
+                    "run_macro".to_string(),
+                    String::new(),
+                    InteropMacroPermissionConfig {
+                        fs_read: true,
+                        fs_write: true,
+                        net_http: false,
+                        clipboard: false,
+                        process_exec: false,
+                        udf: false,
+                        events_emit: false,
+                    },
+                    None,
+                )
+            },
+        );
+
+        let error =
+            response.expect_err("macro execution should fail with malformed worker response");
+        assert!(error.contains("no JSON response payload"));
     }
 
     #[test]

@@ -1828,6 +1828,12 @@ fn run_run_macro(
             return Err(error.into());
         }
     };
+    let script_fingerprint = response
+        .script_fingerprint
+        .clone()
+        .unwrap_or_else(|| "unavailable".to_string());
+    let runtime_events = response.runtime_events.clone();
+    let trust = response.trust.clone();
 
     let permission_granted = response
         .permission_events
@@ -1848,10 +1854,49 @@ fn run_run_macro(
                     "allowed": event.allowed,
                     "macro_script": macro_script.display().to_string(),
                     "macro_name": macro_name,
+                    "macro_script_fingerprint": script_fingerprint,
                     "reason": event.reason,
                 }))
                 .with_payload(json!({
                     "status": if event.allowed { "granted" } else { "denied" }
+                })),
+        )?;
+    }
+
+    if let Some(trust) = trust.as_ref() {
+        sink.emit(
+            EventEnvelope::info("script.trust", &trace)
+                .with_context(json!({
+                    "macro_script": macro_script.display().to_string(),
+                    "macro_name": macro_name,
+                    "macro_script_fingerprint": script_fingerprint,
+                }))
+                .with_payload(json!({
+                    "trust": trust,
+                }))
+                .with_metrics(json!({
+                    "required_permissions": trust.permissions_required.len(),
+                    "declared_permissions": trust.permissions_declared.len(),
+                    "runtime_api_version": trust.runtime_api_version,
+                    "signature_present": trust.signature_present,
+                    "trusted": trust.trusted,
+                })),
+        )?;
+    }
+
+    if !runtime_events.is_empty() {
+        sink.emit(
+            EventEnvelope::info("script.runtime.events", &trace)
+                .with_context(json!({
+                    "macro_script": macro_script.display().to_string(),
+                    "macro_name": macro_name,
+                    "macro_script_fingerprint": script_fingerprint,
+                }))
+                .with_payload(json!({
+                    "runtime_events": runtime_events,
+                }))
+                .with_metrics(json!({
+                    "runtime_event_count": response.runtime_events.len(),
                 })),
         )?;
     }
@@ -1960,13 +2005,14 @@ fn run_run_macro(
     sink.emit(
         EventEnvelope::info("script.macro.run", &trace)
             .with_context(json!({
-                "macro_script": macro_script.display().to_string(),
-                "macro_name": macro_name,
-                "input": input.display().to_string(),
-                "output": output.display().to_string(),
-                "status": "ok",
-                "result": response.result,
-                "stdout": response.stdout,
+                    "macro_script": macro_script.display().to_string(),
+                    "macro_name": macro_name,
+                    "macro_script_fingerprint": script_fingerprint,
+                    "input": input.display().to_string(),
+                    "output": output.display().to_string(),
+                    "status": "ok",
+                    "result": response.result,
+                    "stdout": response.stdout,
                 "stderr": response.stderr,
             }))
             .with_metrics(json!({
@@ -1976,6 +2022,8 @@ fn run_run_macro(
                 "permission_granted": permission_granted,
                 "permission_denied": permission_denied,
                 "permission_event_count": response.permission_events.len(),
+                "runtime_event_count": runtime_events.len(),
+                "trust_present": trust.is_some(),
             })),
     )?;
 
@@ -1985,6 +2033,7 @@ fn run_run_macro(
                 "macro_script": macro_script.display().to_string(),
                 "macro_name": macro_name,
                 "status": "ok",
+                "macro_script_fingerprint": script_fingerprint,
             }))
             .with_metrics(json!({
                 "mutations": assignments.len(),
@@ -2037,6 +2086,18 @@ fn run_run_macro(
         "Script permissions: granted={}, denied={}",
         permission_granted, permission_denied
     );
+    match trust.as_ref() {
+        Some(trust) => {
+            println!(
+                "Macro trust: trusted={} mode={} runtime_api={} fingerprint={}",
+                trust.trusted, trust.mode, trust.runtime_api_version, trust.fingerprint
+            );
+        }
+        None => {
+            println!("Macro trust: not provided");
+        }
+    }
+    println!("Runtime events: {}", runtime_events.len());
 
     Ok(())
 }

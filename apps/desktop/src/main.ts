@@ -259,13 +259,51 @@ type InteropMacroPermissionConfig = {
   netHttp: boolean;
   clipboard: boolean;
   processExec: boolean;
+  udf: boolean;
+  eventsEmit: boolean;
 };
+
+type MacroPermissionPolicySource = "stored" | "fresh";
+
+const MACRO_PERMISSION_POLICY_STORAGE_KEY = "rootcellar.macro.permission.policy.v1";
+
+type StoredMacroPermissionPolicy = {
+  version: 1;
+  permissions: InteropMacroPermissionConfig;
+  createdAt: string;
+  lastUsedAt: string;
+  scriptPath: string;
+};
+
+type MacroPermissionPolicyStore = Record<string, StoredMacroPermissionPolicy>;
 
 type InteropScriptPermissionEvent = {
   eventName: string;
   permission: string;
   allowed: boolean;
   reason: string;
+};
+
+type InteropScriptRuntimeEvent = {
+  eventName: string;
+  payload: unknown;
+  severity?: string;
+};
+
+type InteropMacroTrustProvenance = {
+  mode: string;
+  manifestPath?: string;
+  manifestName?: string;
+  manifestVersion?: string;
+  publisher?: string;
+  apiMinVersion?: number;
+  permissionsRequired: string[];
+  permissionsDeclared: string[];
+  runtimeApiVersion: number;
+  signaturePresent: boolean;
+  signatureVerified?: boolean;
+  fingerprint: string;
+  trusted: boolean;
 };
 
 type InteropMacroMutationPreview = {
@@ -280,14 +318,18 @@ type InteropRunMacroResponse = {
   workbookId: string;
   scriptPath: string;
   macroName: string;
+  scriptFingerprint?: string;
   requestedPermissions: string[];
   permissionEvents: InteropScriptPermissionEvent[];
+  trust?: InteropMacroTrustProvenance;
+  runtimeEvents: InteropScriptRuntimeEvent[];
   permissionGranted: number;
   permissionDenied: number;
   mutationCount: number;
   changedSheets: string[];
   mutations: InteropMacroMutationPreview[];
   recalcReports: RecalcReport[];
+  policySource?: MacroPermissionPolicySource;
   stdout?: string;
   stderr?: string;
   trace: TraceEcho;
@@ -333,6 +375,186 @@ function escapeHtml(value: string): string {
     .replace(/>/g, "&gt;")
     .replace(/"/g, "&quot;")
     .replace(/'/g, "&#39;");
+}
+
+function toMacroPolicyKey(scriptPath: string): string {
+  return scriptPath.trim().toLowerCase();
+}
+
+function isInteropMacroPermissionConfig(value: unknown): value is InteropMacroPermissionConfig {
+  if (!value || typeof value !== "object") {
+    return false;
+  }
+
+  const candidate = value as {
+    fsRead?: unknown;
+    fsWrite?: unknown;
+    netHttp?: unknown;
+    clipboard?: unknown;
+    processExec?: unknown;
+    udf?: unknown;
+    eventsEmit?: unknown;
+  };
+  return (
+    typeof candidate.fsRead === "boolean" &&
+    typeof candidate.fsWrite === "boolean" &&
+    typeof candidate.netHttp === "boolean" &&
+    typeof candidate.clipboard === "boolean" &&
+    typeof candidate.processExec === "boolean" &&
+    typeof candidate.udf === "boolean" &&
+    typeof candidate.eventsEmit === "boolean"
+  );
+}
+
+function isStoredMacroPermissionPolicy(
+  value: unknown,
+): value is StoredMacroPermissionPolicy {
+  if (!value || typeof value !== "object") {
+    return false;
+  }
+
+  const candidate = value as {
+    version?: unknown;
+    permissions?: unknown;
+    createdAt?: unknown;
+    lastUsedAt?: unknown;
+    scriptPath?: unknown;
+  };
+  return (
+    candidate.version === 1 &&
+    typeof candidate.createdAt === "string" &&
+    typeof candidate.lastUsedAt === "string" &&
+    typeof candidate.scriptPath === "string" &&
+    isInteropMacroPermissionConfig(candidate.permissions)
+  );
+}
+
+function loadMacroPermissionPolicyStore(): MacroPermissionPolicyStore {
+  let raw: string | null = null;
+  try {
+    raw = localStorage.getItem(MACRO_PERMISSION_POLICY_STORAGE_KEY);
+  } catch {
+    return {};
+  }
+  if (!raw) {
+    return {};
+  }
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    return {};
+  }
+
+  if (!parsed || typeof parsed !== "object") {
+    return {};
+  }
+
+  const safeStore: MacroPermissionPolicyStore = {};
+  const candidate = parsed as Record<string, unknown>;
+  for (const [scriptPath, entry] of Object.entries(candidate)) {
+    if (!isStoredMacroPermissionPolicy(entry)) {
+      continue;
+    }
+    safeStore[scriptPath] = entry;
+  }
+  return safeStore;
+}
+
+function saveMacroPermissionPolicyStore(store: MacroPermissionPolicyStore): void {
+  try {
+    localStorage.setItem(
+      MACRO_PERMISSION_POLICY_STORAGE_KEY,
+      JSON.stringify(store),
+    );
+  } catch {
+    return;
+  }
+}
+
+function loadMacroPermissionPolicy(scriptPath: string): InteropMacroPermissionConfig | null {
+  const policyKey = toMacroPolicyKey(scriptPath);
+  if (policyKey.length === 0) {
+    return null;
+  }
+
+  const store = loadMacroPermissionPolicyStore();
+  const entry = store[policyKey];
+  if (!entry || !isInteropMacroPermissionConfig(entry.permissions)) {
+    return null;
+  }
+  return entry.permissions;
+}
+
+function loadMacroPermissionPolicyMetadata(
+  scriptPath: string,
+): StoredMacroPermissionPolicy | null {
+  const policyKey = toMacroPolicyKey(scriptPath);
+  if (policyKey.length === 0) {
+    return null;
+  }
+
+  const store = loadMacroPermissionPolicyStore();
+  const entry = store[policyKey];
+  return isStoredMacroPermissionPolicy(entry) ? entry : null;
+}
+
+function saveMacroPermissionPolicy(
+  scriptPath: string,
+  permissions: InteropMacroPermissionConfig,
+): void {
+  const policyKey = toMacroPolicyKey(scriptPath);
+  if (policyKey.length === 0) {
+    return;
+  }
+
+  const store = loadMacroPermissionPolicyStore();
+  const previous = store[policyKey];
+  const now = new Date().toISOString();
+  store[policyKey] = {
+    version: 1,
+    scriptPath,
+    permissions,
+    createdAt: previous?.createdAt ?? now,
+    lastUsedAt: now,
+  };
+  saveMacroPermissionPolicyStore(store);
+}
+
+function deleteMacroPermissionPolicy(scriptPath: string): void {
+  const policyKey = toMacroPolicyKey(scriptPath);
+  if (policyKey.length === 0) {
+    return;
+  }
+  const store = loadMacroPermissionPolicyStore();
+  if (Object.prototype.hasOwnProperty.call(store, policyKey)) {
+    delete store[policyKey];
+    saveMacroPermissionPolicyStore(store);
+  }
+}
+
+function permissionsEqual(left: InteropMacroPermissionConfig, right: InteropMacroPermissionConfig): boolean {
+  return (
+    left.fsRead === right.fsRead &&
+    left.fsWrite === right.fsWrite &&
+    left.netHttp === right.netHttp &&
+    left.clipboard === right.clipboard &&
+    left.processExec === right.processExec &&
+    left.udf === right.udf &&
+    left.eventsEmit === right.eventsEmit
+  );
+}
+
+function hasElevatedMacroPermissions(config: InteropMacroPermissionConfig): boolean {
+  return (
+    config.fsWrite ||
+    config.netHttp ||
+    config.clipboard ||
+    config.processExec ||
+    config.udf ||
+    config.eventsEmit
+  );
 }
 
 function newTrace(): TraceInput {
@@ -727,6 +949,24 @@ app.innerHTML = `
           <input id="macro-permission-process-exec" type="checkbox" />
           <span>process.exec</span>
         </label>
+        <label class="toggle">
+          <input id="macro-permission-udf" type="checkbox" />
+          <span>udf</span>
+        </label>
+        <label class="toggle">
+          <input id="macro-permission-events-emit" type="checkbox" />
+          <span>events.emit</span>
+        </label>
+      </div>
+      <div class="field">
+        <label class="toggle">
+          <input id="macro-remember-policy" type="checkbox" />
+          <span>Remember this script permission policy</span>
+        </label>
+        <p id="macro-policy-status" class="summary hint">No macro policy loaded.</p>
+      </div>
+      <div class="actions">
+        <button id="macro-clear-policy" class="btn secondary">Clear Saved Policy</button>
       </div>
       <div class="actions">
         <button id="run-macro" class="btn primary">Run Macro</button>
@@ -843,6 +1083,11 @@ const macroPermissionFsWriteInput = document.querySelector<HTMLInputElement>("#m
 const macroPermissionNetHttpInput = document.querySelector<HTMLInputElement>("#macro-permission-net-http");
 const macroPermissionClipboardInput = document.querySelector<HTMLInputElement>("#macro-permission-clipboard");
 const macroPermissionProcessExecInput = document.querySelector<HTMLInputElement>("#macro-permission-process-exec");
+const macroPermissionUdfInput = document.querySelector<HTMLInputElement>("#macro-permission-udf");
+const macroPermissionEventsEmitInput = document.querySelector<HTMLInputElement>("#macro-permission-events-emit");
+const macroRememberPolicyInput = document.querySelector<HTMLInputElement>("#macro-remember-policy");
+const macroPolicyStatus = document.querySelector<HTMLElement>("#macro-policy-status");
+const macroClearPolicyButton = document.querySelector<HTMLButtonElement>("#macro-clear-policy");
 const runMacroButton = document.querySelector<HTMLButtonElement>("#run-macro");
 const macroOutput = document.querySelector<HTMLPreElement>("#macro-output");
 const savePathInput = document.querySelector<HTMLInputElement>("#save-path");
@@ -910,6 +1155,11 @@ if (
   !macroPermissionNetHttpInput ||
   !macroPermissionClipboardInput ||
   !macroPermissionProcessExecInput ||
+  !macroPermissionUdfInput ||
+  !macroPermissionEventsEmitInput ||
+  !macroRememberPolicyInput ||
+  !macroPolicyStatus ||
+  !macroClearPolicyButton ||
   !runMacroButton ||
   !macroOutput ||
   !savePathInput ||
@@ -979,6 +1229,11 @@ const macroPermissionFsWriteInputEl = macroPermissionFsWriteInput;
 const macroPermissionNetHttpInputEl = macroPermissionNetHttpInput;
 const macroPermissionClipboardInputEl = macroPermissionClipboardInput;
 const macroPermissionProcessExecInputEl = macroPermissionProcessExecInput;
+const macroPermissionUdfInputEl = macroPermissionUdfInput;
+const macroPermissionEventsEmitInputEl = macroPermissionEventsEmitInput;
+const macroRememberPolicyInputEl = macroRememberPolicyInput;
+const macroPolicyStatusEl = macroPolicyStatus;
+const macroClearPolicyButtonEl = macroClearPolicyButton;
 const runMacroButtonEl = runMacroButton;
 const macroOutputEl = macroOutput;
 const savePathInputEl = savePathInput;
@@ -1005,6 +1260,95 @@ function updateHistoryControls(): void {
   undoLastEditButtonEl.disabled = !canUndo;
   redoLastEditButtonEl.disabled = !canRedo;
   runMacroButtonEl.disabled = !Boolean(currentSession?.loaded);
+}
+
+function applyMacroPermissionConfig(config: InteropMacroPermissionConfig): void {
+  macroPermissionFsReadInputEl.checked = config.fsRead;
+  macroPermissionFsWriteInputEl.checked = config.fsWrite;
+  macroPermissionNetHttpInputEl.checked = config.netHttp;
+  macroPermissionClipboardInputEl.checked = config.clipboard;
+  macroPermissionProcessExecInputEl.checked = config.processExec;
+  macroPermissionUdfInputEl.checked = config.udf;
+  macroPermissionEventsEmitInputEl.checked = config.eventsEmit;
+}
+
+function collectMacroPermissionLabel(config: InteropMacroPermissionConfig): string {
+  const enabled = [];
+  if (config.fsRead) {
+    enabled.push("fs.read");
+  }
+  if (config.fsWrite) {
+    enabled.push("fs.write");
+  }
+  if (config.netHttp) {
+    enabled.push("net.http");
+  }
+  if (config.clipboard) {
+    enabled.push("clipboard");
+  }
+  if (config.processExec) {
+    enabled.push("process.exec");
+  }
+  if (config.udf) {
+    enabled.push("udf");
+  }
+  if (config.eventsEmit) {
+    enabled.push("events.emit");
+  }
+  return enabled.length > 0 ? enabled.join(", ") : "none";
+}
+
+function renderMacroPolicyStatus(
+  source: MacroPermissionPolicySource,
+  config: InteropMacroPermissionConfig,
+): void {
+  const enabledSummary = collectMacroPermissionLabel(config);
+  const policyText =
+    source === "stored"
+      ? "Using saved policy for this script path."
+      : "No saved policy found for this script path.";
+  const riskHint = hasElevatedMacroPermissions(config)
+    ? " Elevated permissions enabled. Trust prompt required before first run unless policy is stored."
+    : "";
+  macroPolicyStatusEl.textContent = `${policyText} Enabled permissions: ${enabledSummary}.${riskHint}`;
+}
+
+function resolveMacroPolicySource(
+  scriptPath: string,
+): MacroPermissionPolicySource {
+  const stored = loadMacroPermissionPolicyMetadata(scriptPath);
+  if (!stored) {
+    return "fresh";
+  }
+
+  const currentConfig = collectMacroPermissionConfig();
+  return permissionsEqual(stored.permissions, currentConfig) ? "stored" : "fresh";
+}
+
+function applySavedMacroPermissionPolicy(scriptPath: string): void {
+  const stored = loadMacroPermissionPolicy(scriptPath);
+  if (stored) {
+    applyMacroPermissionConfig(stored);
+    macroRememberPolicyInputEl.checked = true;
+    renderMacroPolicyStatus("stored", stored);
+    return;
+  }
+
+  renderMacroPolicyStatus("fresh", collectMacroPermissionConfig());
+  macroRememberPolicyInputEl.checked = false;
+}
+
+function normalizeMacroScriptPath(): string {
+  return macroScriptPathInputEl.value.trim();
+}
+
+function formatMacroPolicyPrompt(
+  scriptPath: string,
+  config: InteropMacroPermissionConfig,
+): string {
+  const permissions = collectMacroPermissionLabel(config);
+  const shortPath = scriptPath.trim() || "this macro";
+  return `Allow ${shortPath} to use permissions: ${permissions}?`;
 }
 
 function fillSheetSelect(select: HTMLSelectElement, sheets: string[]): void {
@@ -1395,6 +1739,10 @@ function seedUiCaptureDemo(): void {
     macroPermissionNetHttpInputEl.checked = false;
     macroPermissionClipboardInputEl.checked = false;
     macroPermissionProcessExecInputEl.checked = false;
+    macroPermissionUdfInputEl.checked = false;
+    macroPermissionEventsEmitInputEl.checked = false;
+    macroRememberPolicyInputEl.checked = false;
+    renderMacroPolicyStatus("fresh", collectMacroPermissionConfig());
     macroOutputEl.textContent = jsonWithTraceHeader({
       traceId: "ui-capture-macro",
       spanId: "ui-capture-macro",
@@ -2062,6 +2410,8 @@ function collectMacroPermissionConfig(): InteropMacroPermissionConfig {
     netHttp: macroPermissionNetHttpInputEl.checked,
     clipboard: macroPermissionClipboardInputEl.checked,
     processExec: macroPermissionProcessExecInputEl.checked,
+    udf: macroPermissionUdfInputEl.checked,
+    eventsEmit: macroPermissionEventsEmitInputEl.checked,
   };
 }
 
@@ -2079,6 +2429,36 @@ async function runMacro(): Promise<void> {
     return;
   }
 
+  if (
+    !permissionsEqual(
+      collectMacroPermissionConfig(),
+      loadMacroPermissionPolicy(scriptPath) ?? {
+        fsRead: false,
+        fsWrite: false,
+        netHttp: false,
+        clipboard: false,
+        processExec: false,
+        udf: false,
+        eventsEmit: false,
+      },
+    )
+  ) {
+    macroRememberPolicyInputEl.checked = false;
+  }
+
+  const permissionConfig = collectMacroPermissionConfig();
+  const policySource = resolveMacroPolicySource(scriptPath);
+  const needsConsent = policySource === "fresh" && hasElevatedMacroPermissions(permissionConfig);
+  if (needsConsent && !window.confirm(formatMacroPolicyPrompt(scriptPath, permissionConfig))) {
+    macroOutputEl.textContent = "macro run cancelled: elevated permission policy not trusted.";
+    logEditLifecycleEvent(
+      "interop_run_macro",
+      "error",
+      "macro run cancelled: user declined trust prompt",
+    );
+    return;
+  }
+
   const macroName = macroNameInputEl.value.trim() || "main";
   const commandContext = startUiCommand("interop_run_macro");
   runMacroButtonEl.disabled = true;
@@ -2092,14 +2472,19 @@ async function runMacro(): Promise<void> {
       scriptPath,
       macroName,
       args: macroArgsInputEl.value,
-      permissions: collectMacroPermissionConfig(),
+      permissions: permissionConfig,
       trace: commandContext,
     });
+    const resolvedPolicySource = payload.policySource ?? policySource;
     const view = {
       scriptPath: payload.scriptPath,
       macroName: payload.macroName,
       requestedPermissions: payload.requestedPermissions,
+      scriptFingerprint: payload.scriptFingerprint,
+      trust: payload.trust,
+      runtimeEvents: payload.runtimeEvents,
       permissionEvents: payload.permissionEvents,
+      policySource: resolvedPolicySource,
       permissionGranted: payload.permissionGranted,
       permissionDenied: payload.permissionDenied,
       mutationCount: payload.mutationCount,
@@ -2125,6 +2510,17 @@ async function runMacro(): Promise<void> {
       await loadSheetPreview(payload.changedSheets[0], undefined, false, payload.trace);
     } else {
       await loadInteropSessionStatus();
+    }
+
+    if (macroRememberPolicyInputEl.checked) {
+      saveMacroPermissionPolicy(scriptPath, permissionConfig);
+      renderMacroPolicyStatus("stored", permissionConfig);
+      announceToScreenReader(`saved macro permission policy for ${scriptPath}`);
+      applySavedMacroPermissionPolicy(scriptPath);
+    } else if (loadMacroPermissionPolicy(scriptPath) !== null) {
+      deleteMacroPermissionPolicy(scriptPath);
+      renderMacroPolicyStatus("fresh", permissionConfig);
+      announceToScreenReader(`cleared macro permission policy for ${scriptPath}`);
     }
   } catch (error) {
     macroOutputEl.textContent = `macro run error: ${String(error)}`;
@@ -2440,12 +2836,37 @@ formulaBarInputEl.addEventListener("keydown", (event) => {
   }
 });
 
+macroScriptPathInputEl.addEventListener("blur", () => {
+  applySavedMacroPermissionPolicy(normalizeMacroScriptPath());
+});
+
+macroScriptPathInputEl.addEventListener("change", () => {
+  applySavedMacroPermissionPolicy(normalizeMacroScriptPath());
+});
+
 applyEditButtonEl.addEventListener("click", () => {
   void applyCellEdit();
 });
 
 runMacroButtonEl.addEventListener("click", () => {
   void runMacro();
+});
+
+macroClearPolicyButtonEl.addEventListener("click", () => {
+  const scriptPath = normalizeMacroScriptPath();
+  if (!scriptPath) {
+    macroPolicyStatusEl.textContent = "No script path to clear policy for.";
+    return;
+  }
+  if (!loadMacroPermissionPolicy(scriptPath)) {
+    macroPolicyStatusEl.textContent = "No saved policy found for this script path.";
+    return;
+  }
+
+  deleteMacroPermissionPolicy(scriptPath);
+  macroRememberPolicyInputEl.checked = false;
+  renderMacroPolicyStatus("fresh", collectMacroPermissionConfig());
+  announceToScreenReader(`cleared macro permission policy for ${scriptPath}`);
 });
 
 presetRow3ButtonEl.addEventListener("click", () => {
@@ -2562,6 +2983,7 @@ if (lastCustomPreset) {
   presetColsInputEl.value = String(lastCustomPreset.cols);
 }
 renderLastCustomPresetButton();
+applySavedMacroPermissionPolicy(normalizeMacroScriptPath());
 
 if (uiCaptureMode) {
   seedUiCaptureDemo();

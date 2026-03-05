@@ -12,5 +12,6 @@ clap.workspace = true
 rayon.workspace = true
 serde.workspace = true
 serde_json.workspace = true
+sha2 = "0.10"
 thiserror.workspace = true
 rootcellar-core = { path = "../rootcellar-core" }
